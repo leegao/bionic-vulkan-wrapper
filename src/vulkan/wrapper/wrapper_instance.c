@@ -279,6 +279,8 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
 wrapper_GetInstanceProcAddr(VkInstance _instance,
                             const char *pName)
 {
+
+   __log("vk_icdGetInstanceProcAddr %s", pName);
    VK_FROM_HANDLE(wrapper_instance, instance, _instance);
    return vk_instance_get_proc_addr(&instance->vk,
                                     &wrapper_instance_entrypoints,

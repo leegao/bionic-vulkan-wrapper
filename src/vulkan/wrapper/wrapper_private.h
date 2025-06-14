@@ -15,6 +15,23 @@ extern const struct vk_instance_extension_table wrapper_instance_extensions;
 extern const struct vk_device_extension_table wrapper_device_extensions;
 extern const struct vk_device_extension_table wrapper_filter_extensions;
 
+static void __log(const char* fmt, ...) {
+   static FILE* fd;
+   static pid_t pid;
+   if (fd == NULL) {
+      pid = getpid();
+      char buf[256];
+      sprintf(buf, "/sdcard/Documents/wrapper_%d.txt", pid);
+      fd = fopen(buf, "w");
+   }
+   // fprintf(fd, "[%d] ", pid);
+   va_list args;
+   va_start(args, fmt);
+   vfprintf(fd, fmt, args);
+   va_end(args);
+   fprintf(fd, "\n");
+}
+
 struct wrapper_instance {
    struct vk_instance vk;
 

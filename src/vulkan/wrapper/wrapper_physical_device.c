@@ -12,8 +12,16 @@
 #include "wsi_common.h"
 #include "util/os_misc.h"
 
+int __android_log_print(
+  int prio,
+  const char *tag,
+  const char *fmt,
+  ...
+);
+
 static VkResult
 wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
+   __android_log_print(6, "Wrapper", "inside wrapper_setup_device_extensions");
    struct vk_device_extension_table *exts = &pdevice->vk.supported_extensions;
    VkExtensionProperties pdevice_extensions[VK_DEVICE_EXTENSION_COUNT];
    uint32_t pdevice_extension_count = VK_DEVICE_EXTENSION_COUNT;

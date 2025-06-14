@@ -138,6 +138,7 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
                      const VkAllocationCallbacks* pAllocator,
                      VkDevice* pDevice)
 {
+   __log("wrapper_CreateDevice");
    VK_FROM_HANDLE(wrapper_physical_device, physical_device, physicalDevice);
    const char *wrapper_enable_extensions[VK_DEVICE_EXTENSION_COUNT];
    uint32_t wrapper_enable_extension_count = 0;
