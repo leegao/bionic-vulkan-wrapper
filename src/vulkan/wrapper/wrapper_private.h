@@ -5,7 +5,11 @@
 #include "vulkan/runtime/vk_device.h"
 #include "vulkan/runtime/vk_queue.h"
 #include "vulkan/runtime/vk_command_buffer.h"
+#include "vulkan/runtime/vk_image.h"
 #include "vulkan/runtime/vk_log.h"
+#include "vulkan/runtime/vk_render_pass.h"
+#include "vulkan/runtime/vk_framebuffer.h"
+
 #include "vulkan/util/vk_dispatch_table.h"
 #include "vulkan/wsi/wsi_common.h"
 #include "util/simple_mtx.h"
@@ -21,8 +25,8 @@ static void __log(const char* fmt, ...) {
    if (fd == NULL) {
       pid = getpid();
       char buf[256];
-      sprintf(buf, "/sdcard/Documents/wrapper_%d.txt", pid);
-      fd = fopen(buf, "w");
+      sprintf(buf, "/sdcard/Documents/Wrapper/wrapper.txt");
+      fd = fopen(buf, "a");
    }
    // fprintf(fd, "[%d] ", pid);
    va_list args;
@@ -30,6 +34,7 @@ static void __log(const char* fmt, ...) {
    vfprintf(fd, fmt, args);
    va_end(args);
    fprintf(fd, "\n");
+   fflush(fd);
 }
 
 struct wrapper_instance {
@@ -76,7 +81,12 @@ struct wrapper_device {
    VkDevice dispatch_handle;
    simple_mtx_t resource_mutex;
    struct list_head command_buffer_list;
+   struct list_head image_list;
+   struct list_head image_view_list;
    struct list_head device_memory_list;
+   struct list_head render_pass_list;
+   struct list_head framebuffer_list;
+
    struct wrapper_physical_device *physical;
    struct vk_device_dispatch_table dispatch_table;
 };
@@ -95,6 +105,52 @@ struct wrapper_command_buffer {
 
 VK_DEFINE_HANDLE_CASTS(wrapper_command_buffer, vk.base, VkCommandBuffer,
                        VK_OBJECT_TYPE_COMMAND_BUFFER)
+
+struct wrapper_image {
+   struct vk_image vk;
+
+   struct wrapper_device *device;
+   struct list_head link;
+   VkImage dispatch_handle;
+
+   VkFormat original_format;
+};
+
+VK_DEFINE_NONDISP_HANDLE_CASTS(wrapper_image, vk.base, VkImage, VK_OBJECT_TYPE_IMAGE)
+
+struct wrapper_image_view {
+       struct vk_image_view vk;
+
+       struct wrapper_device *device;
+       struct list_head link;
+       VkImageView dispatch_handle;
+};
+
+VK_DEFINE_NONDISP_HANDLE_CASTS(wrapper_image_view, vk.base, VkImageView,
+                               VK_OBJECT_TYPE_IMAGE_VIEW)
+
+struct wrapper_render_pass {
+       struct vk_render_pass vk;
+
+       struct wrapper_device *device;
+       struct list_head link;
+       VkRenderPass dispatch_handle;
+};
+
+VK_DEFINE_NONDISP_HANDLE_CASTS(wrapper_render_pass, vk.base, VkRenderPass,
+                               VK_OBJECT_TYPE_RENDER_PASS)
+
+struct wrapper_framebuffer {
+       struct vk_object_base vk;
+
+       struct wrapper_device *device;
+       struct list_head link;
+       VkFramebuffer dispatch_handle;
+};
+
+VK_DEFINE_NONDISP_HANDLE_CASTS(wrapper_framebuffer, vk, VkFramebuffer,
+                               VK_OBJECT_TYPE_FRAMEBUFFER)
+
 
 struct wrapper_device_memory {
    struct AHardwareBuffer *ahardware_buffer;
@@ -125,3 +181,23 @@ wrapper_device_memory_create(struct wrapper_device *device,
 
 void
 wrapper_device_memory_destroy(struct wrapper_device_memory *mem);
+
+void
+wrapper_image_destroy(struct wrapper_device *device,
+                      struct wrapper_image *wimg,
+                      const VkAllocationCallbacks *pAllocator);
+
+void
+wrapper_image_view_destroy(struct wrapper_device *device,
+                           struct wrapper_image_view *wiv,
+                           const VkAllocationCallbacks *pAllocator);
+
+void
+wrapper_render_pass_destroy(struct wrapper_device *device,
+                            struct wrapper_render_pass *wrp,
+                            const VkAllocationCallbacks *pAllocator);
+
+void
+wrapper_framebuffer_destroy(struct wrapper_device *device,
+                            struct wrapper_framebuffer *wfb,
+                            const VkAllocationCallbacks *pAllocator);

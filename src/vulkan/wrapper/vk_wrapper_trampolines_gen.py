@@ -32,7 +32,8 @@ from mako.template import Template
 
 # Mesa-local imports must be declared in meson variable
 # '{file_without_suffix}_depend_files'.
-from vk_entrypoints import get_entrypoints_from_xml
+from vk_entrypoints import get_entrypoints_from_xml, generate_unwrapper, generate_unwrapper_proto, generate_unwrapper_leaves, get_types
+import vk_entrypoints
 
 TEMPLATE_H = Template(COPYRIGHT + """\
 /* This file generated from ${filename}, don't edit directly. */
@@ -62,6 +63,16 @@ TEMPLATE_C = Template(COPYRIGHT + """\
 #include "wrapper_private.h"
 #include "wrapper_trampolines.h"
 
+${generate_unwrapper_leaves()}
+
+% for t in all_types:
+${generate_unwrapper_proto(t)}
+% endfor
+
+% for t in all_types:
+${generate_unwrapper(t)}
+% endfor
+
 % for e in entrypoints:
   % if not e.is_physical_device_entrypoint() or e.alias:
     <% continue %>
@@ -69,17 +80,7 @@ TEMPLATE_C = Template(COPYRIGHT + """\
   % if e.guard is not None:
 #ifdef ${e.guard}
   % endif
-static VKAPI_ATTR ${e.return_type} VKAPI_CALL
-${e.prefixed_name('wrapper_tramp')}(${e.decl_params()})
-{
-    <% assert e.params[0].type == 'VkPhysicalDevice' %>
-    VK_FROM_HANDLE(wrapper_physical_device, vk_physical_device, ${e.params[0].name});
-  % if e.return_type == 'void':
-    vk_physical_device->dispatch_table.${e.name}(vk_physical_device->dispatch_handle, ${e.call_params(1)});
-  % else:
-    return vk_physical_device->dispatch_table.${e.name}(vk_physical_device->dispatch_handle, ${e.call_params(1)});
-  % endif
-}
+${e.trampoline()}
   % if e.guard is not None:
 #endif
   % endif
@@ -107,58 +108,7 @@ struct vk_physical_device_entrypoint_table wrapper_physical_device_trampolines =
   % if e.guard is not None:
 #ifdef ${e.guard}
   % endif
-static VKAPI_ATTR ${e.return_type} VKAPI_CALL
-${e.prefixed_name('wrapper_tramp')}(${e.decl_params()})
-{
-  % if e.params[0].type == 'VkDevice':
-    VK_FROM_HANDLE(wrapper_device, vk_device, ${e.params[0].name});
-    % if e.return_type == 'void':
-      % if len(e.params) > 1:
-    vk_device->dispatch_table.${e.name}(vk_device->dispatch_handle, ${e.call_params(1)});
-      % else:
-    vk_device->dispatch_table.${e.name}(vk_device->dispatch_handle);
-      % endif
-    % else:
-      % if len(e.params) > 1:
-    return vk_device->dispatch_table.${e.name}(vk_device->dispatch_handle, ${e.call_params(1)});
-      % else:
-    return vk_device->dispatch_table.${e.name}(vk_device->dispatch_handle);
-      % endif
-    % endif
-  % elif e.params[0].type == 'VkCommandBuffer':
-    VK_FROM_HANDLE(wrapper_command_buffer, wcb, ${e.params[0].name});
-    % if e.return_type == 'void':
-      % if len(e.params) > 1:
-    wcb->device->dispatch_table.${e.name}(wcb->dispatch_handle, ${e.call_params(1)});
-      % else:
-    wcb->device->dispatch_table.${e.name}(wcb->dispatch_handle);
-      % endif
-    % else:
-      % if len(e.params) > 1:
-    return wcb->device->dispatch_table.${e.name}(wcb->dispatch_handle, ${e.call_params(1)});
-      % else:
-    return wcb->device->dispatch_table.${e.name}(wcb->dispatch_handle);
-      % endif
-    % endif
-  % elif e.params[0].type == 'VkQueue':
-    VK_FROM_HANDLE(wrapper_queue, wqueue, ${e.params[0].name});
-    % if e.return_type == 'void':
-      % if len(e.params) > 1:
-    wqueue->device->dispatch_table.${e.name}(wqueue->dispatch_handle, ${e.call_params(1)});
-      % else:
-    wqueue->device->dispatch_table.${e.name}(wqueue->dispatch_handle);
-      % endif
-    % else:
-      % if len(e.params) > 1:
-    return wqueue->device->dispatch_table.${e.name}(wqueue->dispatch_handle, ${e.call_params(1)});
-      % else:
-    return wqueue->device->dispatch_table.${e.name}(wqueue->dispatch_handle);
-      % endif
-    % endif
-  % else:
-    assert(!"Unhandled device child trampoline case: ${e.params[0].type}");
-  % endif
-}
+${e.trampoline()}
   % if e.guard is not None:
 #endif
   % endif
@@ -193,6 +143,7 @@ def main():
     args = parser.parse_args()
 
     entrypoints = get_entrypoints_from_xml(args.xml_files, args.beta)
+    all_types = get_types()
 
     # For outputting entrypoints.h we generate a anv_EntryPoint() prototype
     # per entry point.
@@ -200,10 +151,18 @@ def main():
         if args.out_h:
             with open(args.out_h, 'w', encoding='utf-8') as f:
                 f.write(TEMPLATE_H.render(entrypoints=entrypoints,
+                                          all_types=all_types,
+                                          generate_unwrapper_proto=generate_unwrapper_proto,
+                                          generate_unwrapper=generate_unwrapper,
+                                          generate_unwrapper_leaves=generate_unwrapper_leaves,
                                           filename=os.path.basename(__file__)))
         if args.out_c:
             with open(args.out_c, 'w', encoding='utf-8') as f:
-                f.write(TEMPLATE_C.render(entrypoints=entrypoints,
+                f.write(TEMPLATE_C.render(entrypoints=entrypoints, 
+                                          all_types=all_types,
+                                          generate_unwrapper_proto=generate_unwrapper_proto,
+                                          generate_unwrapper=generate_unwrapper,
+                                          generate_unwrapper_leaves=generate_unwrapper_leaves,
                                           filename=os.path.basename(__file__)))
     except Exception:
         # In the event there's an error, this imports some helpers from mako

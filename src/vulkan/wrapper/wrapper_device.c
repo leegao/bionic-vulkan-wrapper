@@ -156,6 +156,11 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
 
    list_inithead(&device->command_buffer_list);
    list_inithead(&device->device_memory_list);
+   list_inithead(&device->image_list);
+   list_inithead(&device->image_view_list);
+   list_inithead(&device->render_pass_list);
+   list_inithead(&device->framebuffer_list);
+
    simple_mtx_init(&device->resource_mutex, mtx_plain);
    device->physical = physical_device;
 
@@ -519,6 +524,23 @@ wrapper_DestroyDevice(VkDevice _device, const VkAllocationCallbacks* pAllocator)
                             &device->device_memory_list, link) {
       wrapper_device_memory_destroy(mem);
    }
+   list_for_each_entry_safe(struct wrapper_image, wimg,
+                            &device->image_list, link) {
+      // wrapper_image_destroy(device, wimg, pAllocator);
+   }
+   list_for_each_entry_safe(struct wrapper_image_view, wiv,
+                            &device->image_view_list, link) {
+      // wrapper_image_view_destroy(device, wiv, pAllocator);
+   }
+   list_for_each_entry_safe(struct wrapper_framebuffer, wfb,
+                          &device->framebuffer_list, link) {
+      // wrapper_framebuffer_destroy(device, wfb, pAllocator);
+   }
+   list_for_each_entry_safe(struct wrapper_render_pass, wrp,
+                          &device->render_pass_list, link) {
+      // wrapper_render_pass_destroy(device, wrp, pAllocator);
+   }
+
 
    simple_mtx_unlock(&device->resource_mutex);
 

@@ -79,6 +79,8 @@ wrapper_files = files(
   'wrapper_device_memory.c',
   'wrapper_instance.c',
   'wrapper_physical_device.c',
+  'wrapper_image.c',
+  'wrapper_image_view.c',
 )
 
 wrapper_deps = [
