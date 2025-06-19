@@ -26,7 +26,7 @@ static void __log(const char* fmt, ...) {
       pid = getpid();
       char buf[256];
       sprintf(buf, "/sdcard/Documents/Wrapper/wrapper.txt");
-      fd = fopen(buf, "a");
+      fd = fopen(buf, "w");
    }
    // fprintf(fd, "[%d] ", pid);
    va_list args;
