@@ -34,10 +34,11 @@ const struct vk_instance_extension_table wrapper_instance_extensions = {
 };
 
 static void *vulkan_library_handle;
-static PFN_vkCreateInstance create_instance;
-static PFN_vkGetInstanceProcAddr get_instance_proc_addr;
+static PFN_vkCreateInstance dispatch_create_instance;
+static PFN_vkGetInstanceProcAddr dispatch_get_instance_proc_addr;
 static PFN_vkEnumerateInstanceVersion enumerate_instance_version;
 static PFN_vkEnumerateInstanceExtensionProperties enumerate_instance_extension_properties;
+static PFN_vkEnumerateInstanceLayerProperties _vkEnumerateInstanceLayerProperties;
 static struct vk_instance_extension_table *supported_instance_extensions;
 
 #ifdef __LP64__
@@ -48,7 +49,7 @@ static struct vk_instance_extension_table *supported_instance_extensions;
 
 #include <dlfcn.h>
 
-static void *get_vulkan_handle() 
+static void *get_vulkan_handle_icd() 
 {
    char *path = getenv("ADRENOTOOLS_DRIVER_PATH");
    char *name = getenv("ADRENOTOOLS_DRIVER_NAME");
@@ -61,15 +62,28 @@ static void *get_vulkan_handle()
    struct stat sb;
 
    if (hooks && path && (stat(path, &sb) == 0)) {
+      __log("get_vulkan_handle: hooks=%s, path=%s, name=%s", hooks, path, name);
       char *temp;
       asprintf(&temp, "%s%s", path, "temp");
       mkdir(temp, S_IRWXU | S_IRWXG);
       return  adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, temp, hooks, path, name, NULL, NULL);
-   }
-   else 
+   } else  {
+      __log("get_vulkan_handle: defaulting to %s", DEFAULT_VULKAN_PATH);
       return dlopen(DEFAULT_VULKAN_PATH, RTLD_NOW | RTLD_LOCAL);
+   }
 }
 
+static void* icd_handle;
+
+static void *get_vulkan_handle() 
+{
+   __log("in get_vulkan_handle");
+   if (!icd_handle)
+      icd_handle = get_vulkan_handle_icd();
+   void* vvl = dlopen("/data/user/0/com.winlator.cmod/files/imagefs/usr/lib/libVkLayer_khronos_validation.so", RTLD_NOW | RTLD_LOCAL);
+   __log("Got vvl layer: %p", vvl);
+   return icd_handle;
+}
 
 static bool vulkan_library_init()
 {
@@ -79,13 +93,16 @@ static bool vulkan_library_init()
    vulkan_library_handle = get_vulkan_handle();
 
    if (vulkan_library_handle) {
-      create_instance = dlsym(vulkan_library_handle, "vkCreateInstance");
-      get_instance_proc_addr = dlsym(vulkan_library_handle,
+      dispatch_create_instance = dlsym(vulkan_library_handle, "vkCreateInstance");
+      dispatch_get_instance_proc_addr = dlsym(vulkan_library_handle,
                                      "vkGetInstanceProcAddr");
-      enumerate_instance_version = dlsym(vulkan_library_handle,
+      enumerate_instance_version = dlsym(icd_handle,
                                          "vkEnumerateInstanceVersion");
       enumerate_instance_extension_properties =
-         dlsym(vulkan_library_handle, "vkEnumerateInstanceExtensionProperties");
+         dlsym(icd_handle, "vkEnumerateInstanceExtensionProperties");
+
+      _vkEnumerateInstanceLayerProperties =
+         dlsym(icd_handle, "vkEnumerateInstanceLayerProperties");
    }
    else {
       fprintf(stderr, "%s", dlerror());
@@ -234,6 +251,7 @@ wrapper_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
          vk_instance_extensions[idx].extensionName;
    }
 
+   // __log("Hi there");
    set_wrapper_required_extensions(&instance->vk,
                                    &wrapper_enable_extension_count,
                                    wrapper_enable_extensions);
@@ -250,7 +268,40 @@ wrapper_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
    wrapper_create_info.enabledExtensionCount = wrapper_enable_extension_count;
    wrapper_create_info.ppEnabledExtensionNames = wrapper_enable_extensions;
 
-   result = create_instance(&wrapper_create_info, pAllocator,
+   // Initialize vvl
+   if (icd_handle != vulkan_library_handle) {
+      __log("Additional initialization - adding more pnext chains");
+      VkLayerInstanceCreateInfo *chain_info = (VkLayerInstanceCreateInfo *)&wrapper_create_info;
+      while ((chain_info->sType != VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO || chain_info->function != 0) && chain_info->pNext) {
+          chain_info = (VkLayerInstanceCreateInfo *)&chain_info->pNext;
+      }
+      if (chain_info->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO && chain_info->function == 0) {
+         __log("ERROR: Found a loader create info");
+         unreachable("");
+      } else {
+         if (!chain_info->pNext) {
+            __log("Starting new loader create info");
+            void* next = dlsym(icd_handle, "vkGetInstanceProcAddr");
+            __log("Next: %p", next);
+            VkLayerInstanceLink deviceInfo = {
+               .pfnNextGetInstanceProcAddr = next
+            };
+
+            VkLayerInstanceCreateInfo info = {
+               .sType = VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO,
+               .function = 0,
+               .u.pLayerInfo = &deviceInfo
+            };
+            chain_info->pNext = &info;
+            __log("Created new loader create info");
+         } else {
+            __log("ERROR");
+            unreachable("");
+         }
+      }
+   }
+
+   result = dispatch_create_instance(&wrapper_create_info, pAllocator,
                             &instance->dispatch_handle);
    if (result != VK_SUCCESS) {
       vk_instance_finish(&instance->vk);
@@ -258,7 +309,7 @@ wrapper_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
       return vk_error(NULL, result);
    }
    vk_instance_dispatch_table_load(&instance->dispatch_table,
-                                   get_instance_proc_addr,
+                                   dispatch_get_instance_proc_addr,
                                    instance->dispatch_handle);
 
    *pInstance = wrapper_instance_to_handle(instance);

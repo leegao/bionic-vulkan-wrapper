@@ -331,22 +331,7 @@ wrapper_GetPhysicalDeviceImageFormatProperties(VkPhysicalDevice physicalDevice,
    result = pdevice->dispatch_table.GetPhysicalDeviceImageFormatProperties(
       pdevice->dispatch_handle, format, type, tiling, usage, flags, pImageFormatProperties);
       
-   switch(format) {
-   case VK_FORMAT_BC1_RGB_SRGB_BLOCK:                                    
-   case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
-   case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
-   case VK_FORMAT_BC2_UNORM_BLOCK:
-   case VK_FORMAT_BC2_SRGB_BLOCK:
-   case VK_FORMAT_BC3_UNORM_BLOCK:
-   case VK_FORMAT_BC3_SRGB_BLOCK:
-   case VK_FORMAT_BC4_UNORM_BLOCK:
-   case VK_FORMAT_BC4_SNORM_BLOCK:
-   case VK_FORMAT_BC5_UNORM_BLOCK:
-   case VK_FORMAT_BC5_SNORM_BLOCK:
-   case VK_FORMAT_BC6H_UFLOAT_BLOCK:
-   case VK_FORMAT_BC6H_SFLOAT_BLOCK:
-   case VK_FORMAT_BC7_UNORM_BLOCK:
-   case VK_FORMAT_BC7_SRGB_BLOCK:
+   if (result == VK_ERROR_FORMAT_NOT_SUPPORTED && is_bc_image_format(format)) {
       if (type & VK_IMAGE_TYPE_1D) {
          pImageFormatProperties->maxExtent.width = pdevice->properties2.properties.limits.maxImageDimension1D;
          pImageFormatProperties->maxExtent.height = 1;
@@ -386,8 +371,6 @@ wrapper_GetPhysicalDeviceImageFormatProperties(VkPhysicalDevice physicalDevice,
       pImageFormatProperties->sampleCounts = VK_SAMPLE_COUNT_1_BIT;      
       pImageFormatProperties->maxResourceSize = 562949953421312;
       return VK_SUCCESS;
-   default:
-      break;
    }
 
    return result;   
@@ -400,26 +383,9 @@ wrapper_GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
 {
    VkResult result;
    VK_FROM_HANDLE(wrapper_physical_device, pdevice, physicalDevice);
-   
    result = pdevice->dispatch_table.GetPhysicalDeviceImageFormatProperties2(
-      pdevice->dispatch_handle, pImageFormatInfo, pImageFormatProperties);
-
-   switch(pImageFormatInfo->format) {
-   case VK_FORMAT_BC1_RGB_SRGB_BLOCK:                                    
-   case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
-   case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
-   case VK_FORMAT_BC2_UNORM_BLOCK:
-   case VK_FORMAT_BC2_SRGB_BLOCK:
-   case VK_FORMAT_BC3_UNORM_BLOCK:
-   case VK_FORMAT_BC3_SRGB_BLOCK:
-   case VK_FORMAT_BC4_UNORM_BLOCK:
-   case VK_FORMAT_BC4_SNORM_BLOCK:
-   case VK_FORMAT_BC5_UNORM_BLOCK:
-   case VK_FORMAT_BC5_SNORM_BLOCK:
-   case VK_FORMAT_BC6H_UFLOAT_BLOCK:
-   case VK_FORMAT_BC6H_SFLOAT_BLOCK:
-   case VK_FORMAT_BC7_UNORM_BLOCK:
-   case VK_FORMAT_BC7_SRGB_BLOCK:
+         pdevice->dispatch_handle, pImageFormatInfo, pImageFormatProperties);
+   if (result == VK_ERROR_FORMAT_NOT_SUPPORTED && is_bc_image_format(pImageFormatInfo->format)) {
       if (pImageFormatInfo->type & VK_IMAGE_TYPE_1D) {
          pImageFormatProperties->imageFormatProperties.maxExtent.width = pdevice->properties2.properties.limits.maxImageDimension1D;
          pImageFormatProperties->imageFormatProperties.maxExtent.height = 1;
@@ -461,8 +427,6 @@ wrapper_GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
       pImageFormatProperties->imageFormatProperties.sampleCounts = VK_SAMPLE_COUNT_1_BIT;      
       pImageFormatProperties->imageFormatProperties.maxResourceSize = 562949953421312;
       return VK_SUCCESS;
-   default:
-      break;
    }
 
    return result;
@@ -478,35 +442,17 @@ wrapper_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
 
    VkFormat targetFormat = format;
    bool modified = false;
+   if (is_bc_image_format(format) && !supported_features->textureCompressionBC) {
+      targetFormat = VK_FORMAT_R8G8B8A8_UNORM;
+      pdevice->dispatch_table.GetPhysicalDeviceFormatProperties(pdevice->dispatch_handle, targetFormat, pFormatProperties);
+      pFormatProperties->optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
+      pFormatProperties->linearTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
+      pFormatProperties->bufferFeatures |= VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT | VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT;
 
-   switch (format) {
-   case VK_FORMAT_BC1_RGB_SRGB_BLOCK:
-   case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
-   case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
-   case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
-   case VK_FORMAT_BC2_UNORM_BLOCK:
-   case VK_FORMAT_BC2_SRGB_BLOCK:
-   case VK_FORMAT_BC3_UNORM_BLOCK:
-   case VK_FORMAT_BC3_SRGB_BLOCK:
-   case VK_FORMAT_BC4_UNORM_BLOCK:
-   case VK_FORMAT_BC4_SNORM_BLOCK:
-   case VK_FORMAT_BC5_UNORM_BLOCK:
-   case VK_FORMAT_BC5_SNORM_BLOCK:
-   case VK_FORMAT_BC6H_UFLOAT_BLOCK:
-   case VK_FORMAT_BC6H_SFLOAT_BLOCK:
-   case VK_FORMAT_BC7_UNORM_BLOCK:
-   case VK_FORMAT_BC7_SRGB_BLOCK:
-      if (!supported_features->textureCompressionBC) {
-         // Decompress everything into VK_FORMAT_R8G8B8A8_UNORM
-         targetFormat = VK_FORMAT_R8G8B8A8_UNORM;
-         modified = true;
-      }
-      break;
-   default:
-      break;   
-   }
-   pdevice->dispatch_table.GetPhysicalDeviceFormatProperties(pdevice->dispatch_handle, targetFormat, pFormatProperties);
-   if (modified) {
-      pFormatProperties->optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+   } else {
+      // If the underlying device support BCn or if this is not a BCn texture,
+      // just pass through
+      pdevice->dispatch_table.GetPhysicalDeviceFormatProperties(pdevice->dispatch_handle, format, pFormatProperties);
+      return;
    }
 }                                      

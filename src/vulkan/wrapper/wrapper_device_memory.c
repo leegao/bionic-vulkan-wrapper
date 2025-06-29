@@ -7,6 +7,7 @@
 // #undef buffer_handle_t
 #include "util/os_file.h"
 #include "vk_util.h"
+#include "vk_printers.h"
 
 #include <android/hardware_buffer.h>
 #include <vndk/hardware_buffer.h>
@@ -303,6 +304,25 @@ wrapper_AllocateMemory(VkDevice _device,
    struct wrapper_device_memory *mem;
    VkResult result;
 
+
+#ifdef NEEDS_PRINTING_AllocateMemory
+    __vk_println("AllocateMemory");
+#endif
+#ifdef NEEDS_PRINTING_AllocateMemory
+    __vk_println("  in: device: VkDevice (handle) = %p", _device);
+    __vk_flush();
+#endif
+#ifdef NEEDS_PRINTING_AllocateMemory
+    __vk_println("  in: pAllocateInfo: VkMemoryAllocateInfo*");
+    vk_print_VkMemoryAllocateInfo("    ", pAllocateInfo);
+    __vk_flush();
+#endif
+#ifdef NEEDS_PRINTING_AllocateMemory
+    __vk_println("  in: pAllocator: VkAllocationCallbacks*");
+    vk_print_VkAllocationCallbacks("    ", pAllocator);
+    __vk_flush();
+#endif
+
    VkMemoryPropertyFlags property_flags =
       device->physical->memory_properties.memoryTypes[
          pAllocateInfo->memoryTypeIndex].propertyFlags;
@@ -355,11 +375,20 @@ wrapper_AllocateMemory(VkDevice _device,
 
 out:
    simple_mtx_unlock(&mem->device->resource_mutex);
+#ifdef NEEDS_PRINTING_AllocateMemory
+    __vk_println("  out: pMemory: VkDeviceMemory = %x (out)", (int64_t)*pMemory);
+    __vk_flush();
+#endif
    return result;
 
 fallback:
-   return device->dispatch_table.AllocateMemory(device->dispatch_handle,
+   result = device->dispatch_table.AllocateMemory(device->dispatch_handle,
       pAllocateInfo, pAllocator, pMemory);
+#ifdef NEEDS_PRINTING_AllocateMemory
+    __vk_println("  out: pMemory: VkDeviceMemory = %x (fallback)", (int64_t)*pMemory);
+    __vk_flush();
+#endif
+   return result;
 }
 
 VKAPI_ATTR void VKAPI_CALL

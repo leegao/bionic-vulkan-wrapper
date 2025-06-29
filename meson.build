@@ -44,7 +44,7 @@ pre_args = [
   '-DPACKAGE_BUGREPORT="https://gitlab.freedesktop.org/mesa/mesa/-/issues"',
 ]
 # Arguments for c or cpp compiler, can be compiler options
-c_cpp_args = []
+c_cpp_args = ['-ferror-limit=1000']
 
 c_args = []
 cpp_args = []

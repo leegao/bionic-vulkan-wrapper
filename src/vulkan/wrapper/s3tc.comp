@@ -1,0 +1,271 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// The shader will be dispatched with one invocation per pixel of the output image.
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// --- Push Constants ---
+// We use push constants to pass image parameters efficiently.
+layout(push_constant) uniform PushConstants {
+    // Format of the source compressed data. We'll use Vulkan enum values.
+    // VK_FORMAT_BC1_RGB_UNORM_BLOCK = 131
+    // VK_FORMAT_BC2_UNORM_BLOCK = 135
+    // VK_FORMAT_BC3_UNORM_BLOCK = 137
+    // VK_FORMAT_BC4_UNORM_BLOCK = 143
+    // VK_FORMAT_BC5_UNORM_BLOCK = 145
+    uint srcFormat;
+
+    // The dimensions of the source compressed data buffer.
+    uint srcRowLength;   // Stride in pixels of the source data
+    uint srcImageHeight;
+
+    // The destination image parameters.
+    int offsetx;
+    int offsety;
+    uint dst_width;
+    uint dst_height;
+} push_constants;
+
+// --- Buffers ---
+// Source buffer containing the compressed BCn blocks.
+// We read it as an array of 32-bit uints for easier bit manipulation.
+layout(set = 0, binding = 0) readonly buffer SourceBuffer {
+    uint data[];
+} srcBuffer;
+
+// Destination buffer for the decompressed RGBA8 data.
+// We now use a raw storage buffer of uints.
+layout(set = 0, binding = 1) writeonly buffer DestinationBuffer {
+    uint data[];
+} dstBuffer;
+
+
+#include "rgtc.h"
+#include "bitextract.h"
+
+uint vec4_to_color(vec4 color) {
+    // 1. Clamp the color to ensure it's within the [0.0, 1.0] range.
+    color = clamp(color, 0.0, 1.0);
+
+    // 2. Scale the floating-point components [0.0, 1.0] to the integer range [0, 255].
+    // We multiply by 255.0 and then convert to unsigned integer type.
+    uint r = uint(color.r * 255.0);
+    uint g = uint(color.g * 255.0);
+    uint b = uint(color.b * 255.0);
+    uint a = uint(color.a * 255.0);
+
+    // 3. Bit-shift each component to its correct position and combine using bitwise OR.
+    // The layout is AABBGGRR
+    return (a << 24) | (b << 16) | (g << 8) | r;
+}
+
+// --- BC2 Helper ---
+// Decodes the explicit 4-bit alpha for a single pixel from a BC2 alpha block.
+float decode_alpha_4bit(uvec2 payload, int pixel)
+{
+    uint offset = uint(pixel) * 4;
+    // Each pixel's alpha is a 4-bit value. This extracts the correct nibble.
+    return float((payload[offset >> 5] >> (offset & 31)) & 0xf) / 15.0;
+}
+
+// --- BC4/BC5 SNORM Helper ---
+// Decodes a single channel from a signed RGTC (BC4/BC5) block.
+float decode_alpha_rgtc_snorm(uvec2 payload, int linear_pixel) {
+    // Endpoints are 8-bit signed integers. Sign-extend the low 8-bit values.
+    int ep0_s = int(payload.x << 24) >> 24;
+    int ep1_s = int(payload.x << 16) >> 24;
+
+    // Convert to float in range [-1, 1]. -128 maps to -1.0.
+    float ep0 = (ep0_s == -128) ? -1.0f : float(ep0_s) / 127.0f;
+    float ep1 = (ep1_s == -128) ? -1.0f : float(ep1_s) / 127.0f;
+
+    // For SNORM, the comparison is on the integer representations to select the mode.
+    bool range7 = ep0_s > ep1_s;
+
+    // Extract the 3-bit index for the current pixel.
+    int bit_offset = 16 + linear_pixel * 3;
+    uint bits;
+    if (bit_offset <= 29)
+        bits = bitfieldExtract(payload.x, bit_offset, 3);
+    else if (bit_offset >= 32)
+        bits = bitfieldExtract(payload.y, bit_offset - 32, 3);
+    else
+        bits = bitfieldExtract(payload.x, 31, 1) | ((payload.y & 3) << 1);
+
+    // Interpolate based on the index and mode.
+    float res;
+    if (bits == 0) res = ep0;
+    else if (bits == 1) res = ep1;
+    else if (range7) { // 8 interpolated values
+        res = mix(ep0, ep1, float(bits - 1) / 7.0);
+    } else { // 6 interpolated values + 2 explicit values for -1.0 and 1.0
+        if (bits == 6) res = -1.0;
+        else if (bits == 7) res = 1.0;
+        else res = mix(ep0, ep1, float(bits - 1) / 5.0);
+    }
+    return res;
+}
+
+vec3 decode_endpoint_color(uint color)
+{
+    ivec3 c = ivec3(color) >> ivec3(11, 5, 0);
+    c &= ivec3(31, 63, 31);
+    return vec3(c) / vec3(31.0, 63.0, 31.0);
+}
+
+// Decodes color endpoints and determines if the block is in opaque (4-color) mode.
+// This version is updated to correctly handle BC1, BC2, and BC3 color blocks.
+bool decode_endpoints_color(uint payload, out vec3 ep0, out vec3 ep1, uint src_format)
+{
+    uint color0 = payload & 0xffffu;
+    uint color1 = payload >> 16u;
+
+    // The color block is always in 4-color mode if a separate alpha block (BC2, BC3) is present.
+    // Otherwise, for BC1, it depends on the endpoint color values.
+    // BC2 formats are 135-136, BC3 are 137-138.
+    bool has_separate_alpha = (src_format >= 135 && src_format <= 138);
+    bool opaque_mode = has_separate_alpha || (color0 > color1);
+
+    ep0 = decode_endpoint_color(color0);
+    ep1 = decode_endpoint_color(color1);
+    return opaque_mode;
+}
+
+vec4 interpolate_endpoint_color(vec3 ep0, vec3 ep1, int bits, bool opaque_mode)
+{
+    vec4 res;
+    vec3 lerped;
+    if (opaque_mode)
+    {
+        if (bits < 2)
+            lerped = bits != 0 ? ep1 : ep0;
+        else
+            lerped = mix(ep0, ep1, (1.0 / 3.0) * float(bits - 1));
+        res = vec4(lerped, 1.0);
+    }
+    else
+    {
+        if (bits == 3) // Special transparent case for BC1
+        {
+            res = vec4(0);
+        }
+        else
+        {
+            if (bits == 0)
+                lerped = ep0;
+            else if (bits == 1)
+                lerped = ep1;
+            else
+                lerped = 0.5 * (ep0 + ep1);
+            res = vec4(lerped, 1.0);
+        }
+    }
+
+    return res;
+}
+
+vec4 decode_color_bc1_3(uvec2 color_payload, uint linear_pixel, uint src_format)
+{
+    vec3 ep0, ep1;
+    bool opaque_mode = decode_endpoints_color(color_payload.x, ep0, ep1, src_format);
+    return interpolate_endpoint_color(ep0, ep1, int((color_payload.y >> (2 * linear_pixel)) & 3), opaque_mode);
+}
+
+void main() {
+    // Global pixel coordinate for the output image, every pixel in the destination is matched with a worker
+    ivec2 pixel_coord = ivec2(gl_GlobalInvocationID.xy);
+
+    // Don't do anything if we are outside the target image region
+    if (pixel_coord.x >= push_constants.dst_width || pixel_coord.y >= push_constants.dst_height) {
+        return;
+    }
+
+    // Calculate the coordinate of the 4x4 block this pixel belongs to
+    ivec2 tile_coord = pixel_coord / 4;
+
+    // Calculate the linear index of the block in the source buffer
+    // srcRowLength is in pixels, so divide by 4 to get block stride.
+    uint block_stride_in_blocks = push_constants.srcRowLength / 4;
+    uint block_index = tile_coord.y * block_stride_in_blocks + tile_coord.x;
+
+    // Find the specific pixel this thread is responsible for within its 4x4 block
+    uint local_x = pixel_coord.x % 4;
+    uint local_y = pixel_coord.y % 4;
+    uint linear_pixel = 4 * local_y + local_x;
+
+    vec4 decompressed_color;
+
+    // --- Decode based on format ---
+
+    // VK_FORMAT_BC1_... : 131-134
+    if (push_constants.srcFormat >= 131 && push_constants.srcFormat <= 134) {
+        // BC1 blocks are 8 bytes (2 uints)
+        uint offset = block_index * 2;
+        uvec2 block_data = uvec2(srcBuffer.data[offset], srcBuffer.data[offset+1]);
+        decompressed_color = decode_color_bc1_3(block_data, linear_pixel, push_constants.srcFormat);
+    }
+    // VK_FORMAT_BC2_... : 135,136
+    else if (push_constants.srcFormat >= 135 && push_constants.srcFormat <= 136) {
+        // BC2 blocks are 16 bytes (4 uints)
+        uint offset = block_index * 4;
+        uvec4 payload = uvec4(srcBuffer.data[offset], srcBuffer.data[offset+1], srcBuffer.data[offset+2], srcBuffer.data[offset+3]);
+        uvec2 alpha_payload = payload.xy;
+        uvec2 color_payload = payload.zw;
+        float alpha = decode_alpha_4bit(alpha_payload, int(linear_pixel));
+        decompressed_color = decode_color_bc1_3(color_payload, linear_pixel, push_constants.srcFormat);
+        decompressed_color.a = alpha;
+    }
+    // VK_FORMAT_BC3_... : 137,138
+    else if (push_constants.srcFormat == 137 || push_constants.srcFormat == 138) {
+        // BC3 blocks are 16 bytes (4 uints)
+        uint offset = block_index * 4;
+        uvec4 payload = uvec4(srcBuffer.data[offset], srcBuffer.data[offset+1], srcBuffer.data[offset+2], srcBuffer.data[offset+3]);
+        uvec2 alpha_payload = payload.xy;
+        uvec2 color_payload = payload.zw;
+        float alpha = decode_alpha_rgtc(alpha_payload, int(linear_pixel));
+        decompressed_color = decode_color_bc1_3(color_payload, linear_pixel, push_constants.srcFormat);
+        decompressed_color.a = alpha;
+    }
+    // VK_FORMAT_BC4_... : 139,140
+    else if (push_constants.srcFormat == 139 || push_constants.srcFormat == 140) {
+        // BC4 blocks are 8 bytes (2 uints)
+        uint offset = block_index * 2;
+        uvec2 block_data = uvec2(srcBuffer.data[offset], srcBuffer.data[offset+1]);
+        float r;
+        if (push_constants.srcFormat == 143) { // UNORM
+            r = decode_alpha_rgtc(block_data, int(linear_pixel));
+        } else { // SNORM
+            r = decode_alpha_rgtc_snorm(block_data, int(linear_pixel));
+        }
+        decompressed_color = vec4(r, r, r, 1.0);
+    }
+    // VK_FORMAT_BC5_... : 141,142
+    else if (push_constants.srcFormat == 141 || push_constants.srcFormat == 142) {
+        // BC5 blocks are 16 bytes (4 uints)
+        uint offset = block_index * 4;
+        uvec4 payload = uvec4(srcBuffer.data[offset], srcBuffer.data[offset+1], srcBuffer.data[offset+2], srcBuffer.data[offset+3]);
+        uvec2 r_payload = payload.xy;
+        uvec2 g_payload = payload.zw;
+        float r, g;
+        if (push_constants.srcFormat == 145) { // UNORM
+            r = decode_alpha_rgtc(r_payload, int(linear_pixel));
+            g = decode_alpha_rgtc(g_payload, int(linear_pixel));
+        } else { // SNORM
+            r = decode_alpha_rgtc_snorm(r_payload, int(linear_pixel));
+            g = decode_alpha_rgtc_snorm(g_payload, int(linear_pixel));
+        }
+        decompressed_color = vec4(r, g, 0.0, 1.0);
+    }
+    else {
+        // Unsupported format, write an error color (magenta)
+        decompressed_color = vec4(1.0, 0.0, 1.0, 1.0);
+    }
+
+    // Calculate the final destination coordinate including the offset
+    ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + pixel_coord;
+
+    // Calculate the linear index into the destination buffer using its row length (dst_width is the stride)
+    int dst_index = int(final_dst_coord.y * push_constants.dst_width + final_dst_coord.x);
+
+    dstBuffer.data[dst_index] =  vec4_to_color(decompressed_color);
+}

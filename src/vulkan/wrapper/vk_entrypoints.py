@@ -29,154 +29,20 @@ from collections import OrderedDict, namedtuple, defaultdict
 # '{file_without_suffix}_depend_files'.
 from vk_extensions import get_all_required, filter_api
 
-EntrypointParam = namedtuple('EntrypointParam', 'type name decl len')
+EntrypointParam = namedtuple('EntrypointParam', 'type name decl len elem is_const num_pointers')
 
 WrappedStructs = {
     "VkPhysicalDevice": "wrapper_physical_device",
     "VkDevice": "wrapper_device",
     "VkCommandBuffer": "wrapper_command_buffer",
     "VkQueue": "wrapper_queue",
-    "VkImage": "wrapper_image",
-    # PASS
-}
-
-WrappedStructCounts = {
-    "VkPhysicalDevice": "physicalDeviceCount",
-    "VkDevice": "deviceCount",
-    "VkCommandBuffer": "commandBufferCount",
-    "VkQueue": "queueCount",
-    "VkImage": "imageCount",
+    # "VkImage": "wrapper_image",
+    # "VkBuffer": "wrapper_buffer",
     # PASS
 }
 
 SKIP = ["VkExportMetalObjectsInfoEXT", "VkExportMetalIOSurfaceInfoEXT", "VkExportMetalTextureInfoEXT", "VkExportMetalCommandQueueInfoEXT"]
 TYPES = {}
-TYPE_DEPENDENCIES = {}
-PNEXT_DEPENDENCIES = {}
-PNEXT_MEMBERS = defaultdict(list)
-
-
-def get_types():
-    return set(TYPE_DEPENDENCIES) | set(PNEXT_DEPENDENCIES)
-
-class VkMember:
-    def __init__(self, type, name, optional):
-        self.type = VkType(type)
-        self.name = name
-        self.optional = optional
-        self.suffix = "_Array" if type in WrappedStructs and name.startswith("p") and name.endswith("s") else ""
-        self.length = f", payload->{self.count()}" if self.suffix else ""
-
-    def __repr__(self):
-        return f"{self.type} {self.name}" + ("[o]" if self.optional else "")
-
-    def count(self):
-        type = self.type.type
-        return WrappedStructCounts[type]
-
-class VkType:
-    def __init__(self, type):
-        self.type = type
-
-    def has_dependencies(self):
-        return self.type in TYPE_DEPENDENCIES or self.type in PNEXT_DEPENDENCIES
-
-    def members(self):
-        if self.type not in TYPES:
-            return []
-        members = []
-        for member in TYPES[self.type].findall("./member"):
-            t = member.find('./type').text
-            if t in TYPE_DEPENDENCIES[self.type]:
-                name = member.find('./name').text
-                optional = 'optional' in member.attrib and member.attrib['optional'] == 'true'
-                members.append(VkMember(t, name, optional))
-        return members
-
-    def pnexts(self):
-        return [VkType(x) for x in PNEXT_DEPENDENCIES[self.type]]
-
-    def sType(self):
-        if self.type not in TYPES:
-            return []
-        type = TYPES[self.type]
-        member = type.find("./member")
-        if not member:
-            return
-        if member.find('./name').text == 'sType' and 'values' in member.attrib:
-            return member.attrib['values']
-
-    def __repr__(self):
-        return self.type
-
-
-def generate_unwrapper_leaves():
-    # WrappedStructs
-    first = "\n".join([f"static {t} unwrap_{t}({t} payload) {{ VK_FROM_HANDLE({WrappedStructs[t]}, base, payload); return base->dispatch_handle; }}" for t in WrappedStructs])
-    second = "\n".join([
-        f"""
-        static const {t}* unwrap_{t}_Array(const {t}* payloads, uint32_t count) {{ 
-            // VK_FROM_HANDLE({WrappedStructs[t]}, base, payload); 
-            return payloads; 
-        }}
-        """
-        for t in WrappedStructs])
-    return first + second
-
-def generate_unwrapper_proto(vk_type):
-    return f"static {vk_type}* unwrap_{vk_type}(const {vk_type}* payload);"
-
-def generate_unwrapper(vk_type):
-    vk_type = VkType(vk_type)
-
-    template = string.Template("""
-static $X* unwrap_$X(const $X* payload) {
-    $X* copy = malloc(sizeof($X));
-    memcpy(copy, payload, sizeof($X));
-    $unwrap_members
-$while_loop
-    return copy;
-}
-    """)
-
-    while_loop_ = string.Template("""
-    // Deal with pnext
-    VkBaseOutStructure** prev = (VkBaseOutStructure**) &copy->pNext;
-    while (*prev) {
-        VkBaseOutStructure* current = (VkBaseOutStructure*) *prev;
-        $unwrap_pnext
-        prev = &current->pNext;
-    }""")
-
-    switch_ = string.Template("""
-        if (current->sType == $sType) {
-            current = (VkBaseOutStructure*) unwrap_$Z(($Z*) current);
-            *prev = current;
-        }
-    """)
-    if vk_type.has_dependencies():
-        print(vk_type.type)
-        for member in vk_type.members():
-            print(f"  unwrap_{member.type}({member.name})")
-        print("  members:", vk_type.members())
-        print("  pNext:", vk_type.pnexts())
-        while_loop = ""
-        if vk_type.pnexts():
-            while_loop = while_loop_.substitute(
-                unwrap_pnext="\n         ".join([switch_.substitute(Z=z, sType=z.sType()) for z in vk_type.pnexts()]))
-        return template.substitute(
-            X=vk_type,
-            unwrap_members="\n    ".join([
-                f"copy->{m.name} = unwrap_{m.type}{m.suffix}(payload->{m.name}{m.length});" 
-                for m in vk_type.members() if m.name != "physicalDevices"]),
-            while_loop=while_loop,
-        )
-    else:
-        return ""
-
-def generate_free(vk_type):
-    pass
-
 
 # Main template for a single trampoline function
 TRAMPOLINE_TEMPLATE = string.Template("""
@@ -185,9 +51,65 @@ wrapper_tramp_$name(
     $decl_params)
 {
 $handle_unwrap_logic
-$return_block $dispatch_table.$name($call_params);
+    $assign_block$dispatch_table.$name($call_params);
+$handle_wrap_logic
+    return $return_block;
 }""")
 
+COMMAND_BLACKLIST = [
+    'FreeCommandBuffers', # implemented
+    'CreateDevice', # implemented
+    # 'CreateImage',
+    'AllocateCommandBuffers',
+    'CmdExecuteCommands',
+    'GetDeviceQueue2',
+    'GetDeviceQueue',
+    'CmdSetBlendConstants', # const float blendConstants[4]
+    'CmdSetFragmentShadingRateKHR', # const VkFragmentShadingRateCombinerOpKHR    combinerOps[2]
+    'CmdSetFragmentShadingRateEnumNV',
+]
+
+def print_param(command, param, mode='input'):
+    is_input = param.num_pointers == 0 or param.is_const
+    if mode == 'input' and not is_input:
+        return
+    if mode != 'input' and is_input:
+        return
+    is_ptr1 = param.num_pointers == 1
+    is_ptr2 = param.num_pointers > 1
+    is_wrapped = param.type in WrappedStructs
+    is_struct = param.type in TYPES
+    is_array = param.len and is_ptr1
+    token = 'in' if is_input else 'out'
+    output = [f"#ifdef NEEDS_PRINTING_{command.name}"]
+    if is_wrapped:
+        output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type} (handle) = %p\", {param.name});");
+    elif is_struct:
+        if not param.num_pointers: # Impossible
+            output.append(f"#error: Impossible case struct+non-ptr {command.name} {param}")
+        elif is_array and is_ptr1:
+            # VkObject[10]
+            output.append(f"    __vk_println(\"  {token}: {param.name}[]: {param.type}\");");
+            output.append(f"    for (int i = 0; i < {param.len}; i++) {{")
+            output.append(f"        __vk_println(\"    {param.name}[%d]: {param.type}\", i);");
+            output.append(f"        vk_print_{param.type}(\"      \", &{param.name}[i]);")
+            output.append("    }")
+        elif is_ptr1:
+            output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type}*\");");
+            output.append(f"    vk_print_{param.type}(\"    \", {param.name});")
+        else:
+            output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type}** = %p\", {param.name});");
+    else:
+        if not param.num_pointers:
+            output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type} = %x\", (int64_t){param.name});")
+        elif param.num_pointers:
+            output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type} = %x\", (int64_t){param.name});")
+        else:
+            output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type} = %x\", (int64_t){param.name})");
+            pass
+    output.append("    __vk_flush();")
+    output.append("#endif")
+    return output
 
 def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
     """
@@ -196,28 +118,149 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
     params = list(command.params)
     handle_unwrap_logic = []
     call = []
+    types = []
 
     handle_unwrap_logic.append(f"    VK_FROM_HANDLE({WrappedStructs[params[0].type]}, base, {params[0].name});")
     call.append(f"base->dispatch_handle")
-    for param in params[1:]:
-        # Only for non pointer types (which are output pointers), we don't get this info directly,
-        # but we can detect this with the name
-        if param.type in WrappedStructs and not param.name.startswith("p"):
-            handle_unwrap_logic.append(f"    VK_FROM_HANDLE({WrappedStructs[param.type]}, w_{param.name}, {param.name});")
-            call.append(f"w_{param.name}->dispatch_handle")
-        elif param.type in get_types():
-            handle_unwrap_logic.append(f"    {param.type}* w_{param.name} = unwrap_{param.type}({param.name});")
-            call.append(f"w_{param.name}")
-        else:
-            call.append(param.name)
+    types.append(f"{params[0].name}: %p")
+    device = "base->device"
+    if params[0].type in ('VkInstance', 'VkPhysicalDevice'):
+        device = "NULL" 
+    elif params[0].type in ("VkDevice"):
+        device = "base"
 
-    return_block = "" if command.return_type == 'void' else "return"
+    handle_unwrap_logic.append(f"#ifdef NEEDS_PRINTING_{command.name}")
+    handle_unwrap_logic.append(f"    __vk_println(\"{command.name}\");")
+    handle_unwrap_logic.append(f"#endif")
+    handle_unwrap_logic += print_param(command, params[0], mode='input')
+    # Input
+    for param in params[1:]:
+        if command.name in COMMAND_BLACKLIST:
+            call.append(param.name)
+            continue
+
+        is_input = param.num_pointers == 0 or param.is_const
+
+        if not is_input:
+            call.append(f"{param.name}")
+            types.append(f"{param.name}: %p")
+            continue
+
+        handle_unwrap_logic.append(f"{param.decl}__ = {param.name};")
+        call.append(f"{param.name}__")
+        # Input: non-pointer types and const ptrs
+        # Parameters are:
+        # (in) wrapped handles
+        # (in) wrapped handles ptr
+        # (in) const VkT* in <- input types to unleave
+        # (in) uint/int* size
+        # (in) VkT* with length field
+        # (in) VkT**
+        # others
+
+        is_ptr1 = param.num_pointers == 1
+        is_ptr2 = param.num_pointers > 1
+        is_wrapped = param.type in WrappedStructs
+        is_struct = param.type in TYPES
+        is_array = param.len and is_ptr1
+
+        handle_unwrap_logic.append(f"#ifdef NEEDS_UNWRAPPING_{param.type}")
+        # Wrapped handles
+        if is_wrapped:
+            types.append(f"{param.name}: %p")
+            if not param.num_pointers: # non-pointer
+                handle_unwrap_logic.append(f"    VK_FROM_HANDLE({WrappedStructs[param.type]}, w_{param.name}, {param.name});")
+                handle_unwrap_logic.append(f"    {param.name}__ = w_{param.name}->dispatch_handle;")
+            elif is_array and is_ptr1:
+                # handle_unwrap_logic.append(f"#error: Unhandled wrapped+array+in {command.name} {param}")
+                handle_unwrap_logic.append(f"    {param.name}__ = alloca({param.len} * sizeof({param.type}));")
+                handle_unwrap_logic.append(f"    for (int i = 0; i < {param.len}; i++)")
+                handle_unwrap_logic.append(f"        (({param.type}*){param.name}__)[i] = ((struct {WrappedStructs[param.type]}*)({param.name}[i]))->dispatch_handle;")
+
+            elif is_ptr1:
+                handle_unwrap_logic.append(f"#error: Unhandled wrapped+ptr1+in {command.name} {param}")
+            else:
+                handle_unwrap_logic.append(f"#error: Unhandled wrapped+ptr2 {command.name} {param}")
+        elif is_struct:
+            types.append(f"{param.name}: %p")
+            if not param.num_pointers: # Impossible
+                handle_unwrap_logic.append(f"#error: Impossible case struct+non-ptr {command.name} {param}")
+            elif is_array and is_ptr1:
+                # VkObject[10]
+                handle_unwrap_logic.append(f"    {param.name}__ = alloca({param.len} * sizeof({param.type}));")
+                handle_unwrap_logic.append(f"    for (int i = 0; i < {param.len}; i++)")
+                handle_unwrap_logic.append(f"        unwrap_{param.type}({device}, ({param.type} *) &{param.name}__[i], &{param.name}[i]);")
+            elif is_ptr1:
+                handle_unwrap_logic.append(f"    {param.type} _w_{param.name} = {{ 0 }};")
+                handle_unwrap_logic.append(f"    {param.name}__ = &_w_{param.name};")
+                handle_unwrap_logic.append(f"    unwrap_{param.type}({device}, ({param.type} *) {param.name}__, {param.name});")
+            else:
+                handle_unwrap_logic.append(f"#error: Unhandled struct+ptr2 {command.name} {param}")
+                pass
+        else:
+            types.append(f"{param.name}: %x")
+            pass
+        handle_unwrap_logic.append(f"#endif")
+        handle_unwrap_logic += print_param(command, param, mode='input')
+
+    # Output + freeing (WIP)
+    handle_wrap_logic = []
+    for param in params[1:]:
+        if command.name in COMMAND_BLACKLIST:
+            continue
+
+        # Input: non-pointer types and const ptrs
+        # Parameters are:
+        # (out) wrapped handles ptr
+        # (out) VkT* out
+        # (out) VkT* with length field
+        # (out) VkT**
+
+        is_input = param.num_pointers == 0 or param.is_const
+
+        if is_input:
+            continue
+
+        is_ptr1 = param.num_pointers == 1
+        is_ptr2 = param.num_pointers > 1
+        is_wrapped = param.type in WrappedStructs
+        is_struct = param.type in TYPES
+        is_array = param.len
+        handle_wrap_logic += print_param(command, param, mode='output')
+        handle_wrap_logic.append(f"#ifdef NEEDS_UNWRAPPING_{param.type}")
+        # Wrapped handles
+        if is_wrapped:
+            if is_array:
+                handle_wrap_logic.append(f"#warning TODO: Repack wrapped+array+out {command.name} {param}")
+            elif is_ptr1:
+                handle_wrap_logic.append(f"#warning TODO: Repack wrapped+ptr+out {command.name} {param}")
+            else:
+                handle_wrap_logic.append(f"#error: Unhandled wrapped+ptr2 {command.name} {param}")
+        elif is_struct:
+            if is_array:
+                handle_wrap_logic.append(f"#warning TODO: Repack struct+array+out {command.name} {param}")
+            elif is_ptr1:
+                handle_wrap_logic.append(f"#warning TODO: Repack struct+ptr+out {command.name} {param}")
+            else:
+                handle_wrap_logic.append(f"#error: Unhandled struct+ptr2 {command.name} {param}")
+                pass
+        handle_wrap_logic.append(f"#endif")
+        # Print if result failed
+        if command.return_type == 'VkResult':
+            handle_wrap_logic.append(f"if (result != VK_SUCCESS) {{")
+            handle_wrap_logic.append(f"    __loge(\"Call to {command.name} with ({",".join(types)}) failed with result: %d\", {",".join(call)}, result);")
+            handle_wrap_logic.append(f"}}")
+
+    return_block = "" if command.return_type == 'void' else "result"
+    assign_block = "" if command.return_type == 'void' else f"{command.return_type} result = "
     
     return TRAMPOLINE_TEMPLATE.substitute(
         return_type=command.return_type,
         name=command.name,
         decl_params=command.decl_params(),
         handle_unwrap_logic='\n'.join(handle_unwrap_logic),
+        handle_wrap_logic='\n'.join(handle_wrap_logic),
+        assign_block=assign_block,
         return_block=return_block,
         dispatch_table=dispatch_table,
         call_params=", ".join(call),
@@ -276,12 +319,8 @@ class Entrypoint(EntrypointBase):
         if self.alias:
             return ""
 
-        # # Compute the types with dependencies on WrappedStructs
-        # for param in self.params:
-        #     print(generate_unwrapper(VkType(param.type)))
-
         if self.is_physical_device_entrypoint() or self.is_device_dispatch():
-            return _generate_trampoline(self,dispatch_table="base->dispatch_table")
+            return _generate_trampoline(self, dispatch_table="base->dispatch_table")
         else:
             return _generate_trampoline(self, dispatch_table="base->device->dispatch_table")
 
@@ -336,56 +375,6 @@ def get_entrypoints(doc, api, beta):
     global TYPES
     TYPES = all_types
 
-    for t in all_types:
-        type = all_types[t]
-        if 'structextends' not in type.attrib:
-            continue
-        pnext_parents = type.attrib['structextends'].split(',')
-        for parent in pnext_parents:
-            if t in PNEXT_MEMBERS[parent]:
-                continue
-            PNEXT_MEMBERS[parent].append(t)
-
-    # Compute a fixed-point of structs with member dependencies on our WrappedStructs
-    worklist = set([t for t in WrappedStructs])
-    dependencies = defaultdict(list)
-    changed = True
-    while changed:
-        changed = False
-        for t in all_types:
-            type = all_types[t]
-            for member in type.findall('./member/type'):
-                if member.text in worklist:
-                    if t not in worklist:
-                        changed = True
-                    # Add t into worklist
-                    worklist.add(t)
-                    if member.text not in dependencies[t]:
-                        dependencies[t].append(member.text)
-
-    global TYPE_DEPENDENCIES
-    TYPE_DEPENDENCIES = dependencies
-
-    # Compute a fixed-point of structs with pnext dependencies on our WrappedStructs
-    # worklist = set([t for t in WrappedStructs])
-    dependencies = defaultdict(list)
-    changed = True
-    while changed:
-        changed = False
-        for t in all_types:
-            type = all_types[t]
-            for member in PNEXT_MEMBERS[t]:
-                if member in worklist:
-                    if t not in worklist:
-                        changed = True
-                    # Add t into worklist
-                    worklist.add(t)
-                    if member not in dependencies[t]:
-                        dependencies[t].append(member)
-
-    global PNEXT_DEPENDENCIES
-    PNEXT_DEPENDENCIES = dependencies
-
     for command in doc.findall('./commands/command'):
         if not filter_api(command, api):
             continue
@@ -401,7 +390,10 @@ def get_entrypoints(doc, api, beta):
                 type=p.find('./type').text,
                 name=p.find('./name').text,
                 decl=''.join(p.itertext()),
-                len=p.attrib.get('altlen', p.attrib.get('len', None))
+                len=p.attrib.get('altlen', p.attrib.get('len', None)),
+                elem=p,
+                is_const="const" in "".join(p.itertext()),
+                num_pointers=("".join(p.itertext())).count('*')
             ) for p in command.findall('./param') if filter_api(p, api)]
             # They really need to be unique
             e = Entrypoint(name, ret_type, params)

@@ -1,3 +1,5 @@
+#pragma once
+
 #include <sys/stat.h>
 
 #include "vulkan/runtime/vk_instance.h"
@@ -5,6 +7,7 @@
 #include "vulkan/runtime/vk_device.h"
 #include "vulkan/runtime/vk_queue.h"
 #include "vulkan/runtime/vk_command_buffer.h"
+#include "vulkan/runtime/vk_buffer.h"
 #include "vulkan/runtime/vk_image.h"
 #include "vulkan/runtime/vk_log.h"
 #include "vulkan/runtime/vk_render_pass.h"
@@ -13,28 +16,124 @@
 #include "vulkan/util/vk_dispatch_table.h"
 #include "vulkan/wsi/wsi_common.h"
 #include "util/simple_mtx.h"
-#include "adrenotools/driver.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdbool.h>
+#include <stdint.h>
+
+/**
+ * @brief Bitfield enum of additional driver features that can be used with adrenotools_open_libvulkan
+ */
+enum {
+    ADRENOTOOLS_DRIVER_CUSTOM = 1 << 0,
+    ADRENOTOOLS_DRIVER_FILE_REDIRECT = 1 << 1,
+    ADRENOTOOLS_DRIVER_GPU_MAPPING_IMPORT = 1 << 2,
+};
+
+#define ADRENOTOOLS_GPU_MAPPING_SUCCEEDED_MAGIC 0xDEADBEEF
+
+/**
+ * @brief A replacement GPU memory mapping for use with ADRENOTOOLS_DRIVER_GPU_MAPPING_IMPORT
+ */
+struct adrenotools_gpu_mapping {
+    void *host_ptr;
+    uint64_t gpu_addr; //!< The GPU address of the mapping to import, if mapping import/init succeeds this will be set to ADRENOTOOLS_GPU_MAPPING_SUCCEEDED_MAGIC
+    uint64_t size;
+    uint64_t flags;
+};
+void *adrenotools_open_libvulkan(int dlopenMode, int featureFlags, const char *tmpLibDir, const char *hookLibDir, const char *customDriverDir, const char *customDriverName, const char *fileRedirectDir, void **userMappingHandle);
+
+bool adrenotools_import_user_mem(void *handle, void *hostPtr, uint64_t size);
+
+bool adrenotools_mem_gpu_allocate(void *handle, uint64_t *size);
+
+bool adrenotools_mem_cpu_map(void *handle, void *hostPtr, uint64_t size);
+
+bool adrenotools_validate_gpu_mapping(void *handle);
+
+void adrenotools_set_turbo(bool turbo);
+
+#ifdef __cplusplus
+}
+#endif
+
+// #define NEEDS_PRINTING_CmdCopyBuffer 1;
+// #define NEEDS_PRINTING_AllocateDescriptorSets 1;
+// #define NEEDS_PRINTING_BindBufferMemory 1;
+// #define NEEDS_PRINTING_CmdBeginRenderPass 1;
+// #define NEEDS_PRINTING_CmdBindDescriptorSets 1;
+// #define NEEDS_PRINTING_CmdBindIndexBuffer 1;
+// #define NEEDS_PRINTING_CmdBindPipeline 1;
+// #define NEEDS_PRINTING_CmdBindVertexBuffers 1;
+// #define NEEDS_PRINTING_CmdDraw 1;
+// #define NEEDS_PRINTING_CmdPipelineBarrier 1;
+// #define NEEDS_PRINTING_CmdPushConstants 1;
+// #define NEEDS_PRINTING_CmdSetScissor 1;
+// #define NEEDS_PRINTING_CmdSetViewport 1;
+// #define NEEDS_PRINTING_CreateBuffer 1;
+// #define NEEDS_PRINTING_CreateDescriptorPool 1;
+// #define NEEDS_PRINTING_CreateDescriptorSetLayout 1;
+// #define NEEDS_PRINTING_CreateDescriptorUpdateTemplate 1;
+// #define NEEDS_PRINTING_CreateFramebuffer 1;
+// #define NEEDS_PRINTING_CreateGraphicsPipelines 1;
+// #define NEEDS_PRINTING_CreatePipelineLayout 1;
+// #define NEEDS_PRINTING_CreateRenderPass 1;
+// #define NEEDS_PRINTING_CreateShaderModule 1;
+// #define NEEDS_PRINTING_DestroyShaderModule 1;
+// #define NEEDS_PRINTING_GetBufferMemoryRequirements2 1;
+// #define NEEDS_PRINTING_MapMemory 1;
+// #define NEEDS_PRINTING_UpdateDescriptorSetWithTemplate 1;
+// #define NEEDS_PRINTING_CmdCopyBufferToImage 1;
+// #define NEEDS_PRINTING_CreateImage 1;
+// #define NEEDS_PRINTING_CreateImageView 1;
+// #define NEEDS_PRINTING_GetAndroidHardwareBufferPropertiesANDROID 1;
+// #define NEEDS_PRINTING_CreateBuffer 1;
+// #define NEEDS_PRINTING_WaitForFences 1;
+// #define NEEDS_PRINTING_GetBufferMemoryRequirements2 1;
+// #define NEEDS_PRINTING_GetImageMemoryRequirements2 1;
+// #define NEEDS_PRINTING_BindImageMemory 1;
+// #define NEEDS_PRINTING_QueueSubmit2 1;
+// #define NEEDS_PRINTING_AllocateMemory 1;
+// #define NEEDS_PRINTING_AllocateDescriptorSets 1;
 
 extern const struct vk_instance_extension_table wrapper_instance_extensions;
 extern const struct vk_device_extension_table wrapper_device_extensions;
 extern const struct vk_device_extension_table wrapper_filter_extensions;
 
+static FILE* __log_fd;
+
 static void __log(const char* fmt, ...) {
-   static FILE* fd;
-   static pid_t pid;
-   if (fd == NULL) {
-      pid = getpid();
+#ifdef LOG_VERBOSE
+   if (__log_fd == NULL) {
       char buf[256];
       sprintf(buf, "/sdcard/Documents/Wrapper/wrapper.txt");
-      fd = fopen(buf, "w");
+      __log_fd = fopen(buf, "a");
    }
-   // fprintf(fd, "[%d] ", pid);
    va_list args;
    va_start(args, fmt);
-   vfprintf(fd, fmt, args);
+   vfprintf(__log_fd, fmt, args);
    va_end(args);
-   fprintf(fd, "\n");
-   fflush(fd);
+   fprintf(__log_fd, "\n");
+   fflush(__log_fd);
+#endif
+}
+
+static void __loge(const char* fmt, ...) {
+   if (__log_fd == NULL) {
+      char buf[256];
+      sprintf(buf, "/sdcard/Documents/Wrapper/wrapper.txt");
+      __log_fd = fopen(buf, "a");
+   }
+   fprintf(__log_fd, "[ERROR] ");
+   va_list args;
+   va_start(args, fmt);
+   vfprintf(__log_fd, fmt, args);
+   va_end(args);
+   fprintf(__log_fd, "\n");
+   fflush(__log_fd);
 }
 
 struct wrapper_instance {
@@ -67,7 +166,6 @@ VK_DEFINE_HANDLE_CASTS(wrapper_physical_device, vk.base, VkPhysicalDevice,
 
 struct wrapper_queue {
    struct vk_queue vk;
-
    struct wrapper_device *device;
    VkQueue dispatch_handle;
 };
@@ -81,18 +179,27 @@ struct wrapper_device {
    VkDevice dispatch_handle;
    simple_mtx_t resource_mutex;
    struct list_head command_buffer_list;
-   struct list_head image_list;
-   struct list_head image_view_list;
    struct list_head device_memory_list;
-   struct list_head render_pass_list;
-   struct list_head framebuffer_list;
+   // struct list_head buffer_list;
+
+   struct hash_table_u64* buffer_map;
+   struct hash_table_u64* image_map;
 
    struct wrapper_physical_device *physical;
    struct vk_device_dispatch_table dispatch_table;
+
+   uint32_t queueCount;
+   struct wrapper_queue **queues;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_device, vk.base, VkDevice,
                        VK_OBJECT_TYPE_DEVICE)
+
+
+struct wrapper_cmd_buffer_pool {
+    struct list_head link;
+    VkDescriptorPool pool;
+};
 
 struct wrapper_command_buffer {
    struct vk_command_buffer vk;
@@ -101,6 +208,9 @@ struct wrapper_command_buffer {
    struct list_head link;
    VkCommandPool pool;
    VkCommandBuffer dispatch_handle;
+
+   simple_mtx_t temp_pool_mutex;
+   struct list_head temp_descriptor_pools;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_command_buffer, vk.base, VkCommandBuffer,
@@ -110,47 +220,11 @@ struct wrapper_image {
    struct vk_image vk;
 
    struct wrapper_device *device;
-   struct list_head link;
    VkImage dispatch_handle;
 
+   bool is_bcn_emulated;
    VkFormat original_format;
 };
-
-VK_DEFINE_NONDISP_HANDLE_CASTS(wrapper_image, vk.base, VkImage, VK_OBJECT_TYPE_IMAGE)
-
-struct wrapper_image_view {
-       struct vk_image_view vk;
-
-       struct wrapper_device *device;
-       struct list_head link;
-       VkImageView dispatch_handle;
-};
-
-VK_DEFINE_NONDISP_HANDLE_CASTS(wrapper_image_view, vk.base, VkImageView,
-                               VK_OBJECT_TYPE_IMAGE_VIEW)
-
-struct wrapper_render_pass {
-       struct vk_render_pass vk;
-
-       struct wrapper_device *device;
-       struct list_head link;
-       VkRenderPass dispatch_handle;
-};
-
-VK_DEFINE_NONDISP_HANDLE_CASTS(wrapper_render_pass, vk.base, VkRenderPass,
-                               VK_OBJECT_TYPE_RENDER_PASS)
-
-struct wrapper_framebuffer {
-       struct vk_object_base vk;
-
-       struct wrapper_device *device;
-       struct list_head link;
-       VkFramebuffer dispatch_handle;
-};
-
-VK_DEFINE_NONDISP_HANDLE_CASTS(wrapper_framebuffer, vk, VkFramebuffer,
-                               VK_OBJECT_TYPE_FRAMEBUFFER)
-
 
 struct wrapper_device_memory {
    struct AHardwareBuffer *ahardware_buffer;
@@ -163,6 +237,16 @@ struct wrapper_device_memory {
    VkDeviceMemory dispatch_handle;
    const VkAllocationCallbacks *alloc;
 };
+
+typedef struct wrapper_buffer {
+   struct vk_buffer vk;
+
+   struct wrapper_device *device;
+   VkBuffer dispatch_handle;
+
+   VkDeviceMemory memory; // Pointer to the memory allocated by vkAllocateMemory
+   VkDeviceSize memoryOffset; // Size of the memory allocated by vkAllocateMemory
+} wrapper_buffer;
 
 VkResult enumerate_physical_device(struct vk_instance *_instance);
 void destroy_physical_device(struct vk_physical_device *pdevice);
@@ -182,22 +266,161 @@ wrapper_device_memory_create(struct wrapper_device *device,
 void
 wrapper_device_memory_destroy(struct wrapper_device_memory *mem);
 
-void
-wrapper_image_destroy(struct wrapper_device *device,
-                      struct wrapper_image *wimg,
-                      const VkAllocationCallbacks *pAllocator);
 
-void
-wrapper_image_view_destroy(struct wrapper_device *device,
-                           struct wrapper_image_view *wiv,
-                           const VkAllocationCallbacks *pAllocator);
+#define CREATE_FROM_HANDLE_FUNCTION(wtype, vtype, map) \
+static struct wtype * get_##wtype(struct wrapper_device *device, vtype handle) { \
+   struct wtype *obj = NULL; \
+   simple_mtx_lock(&device->resource_mutex); \
+   obj = _mesa_hash_table_u64_search(device->map, (uint64_t) handle); \
+   simple_mtx_unlock(&device->resource_mutex); \
+   return obj; \
+}
 
-void
-wrapper_render_pass_destroy(struct wrapper_device *device,
-                            struct wrapper_render_pass *wrp,
-                            const VkAllocationCallbacks *pAllocator);
+CREATE_FROM_HANDLE_FUNCTION(wrapper_image, VkImage, image_map)
+CREATE_FROM_HANDLE_FUNCTION(wrapper_buffer, VkBuffer, buffer_map)
 
-void
-wrapper_framebuffer_destroy(struct wrapper_device *device,
-                            struct wrapper_framebuffer *wfb,
-                            const VkAllocationCallbacks *pAllocator);
+#define CREATE_FUNCTION_BODY(wtype, vtype, map, vk_type, init) \
+   struct wtype *obj = vk_object_zalloc(&device->vk, pAllocator, sizeof(struct wtype), vk_type); \
+   if (!obj) \
+      return NULL; \
+   init; \
+   obj->device = device; \
+   obj->dispatch_handle = dispatch_handle; \
+   simple_mtx_lock(&device->resource_mutex); \
+   _mesa_hash_table_u64_insert(device->map, (uint64_t) dispatch_handle, obj); \
+   simple_mtx_unlock(&device->resource_mutex); \
+   return obj;
+
+static struct wrapper_image *wrapper_image_create(struct wrapper_device *device,
+                     const VkImageCreateInfo *pCreateInfo,
+                     const VkAllocationCallbacks *pAllocator,
+                     VkImage dispatch_handle)
+{
+   CREATE_FUNCTION_BODY(wrapper_image, VkImage, image_map,
+                        VK_OBJECT_TYPE_IMAGE,
+                        vk_image_init(&device->vk, &obj->vk, pCreateInfo));
+}
+
+static struct wrapper_buffer *wrapper_buffer_create(struct wrapper_device *device,
+                     const VkBufferCreateInfo *pCreateInfo,
+                     const VkAllocationCallbacks *pAllocator,
+                     VkBuffer dispatch_handle)
+{
+   CREATE_FUNCTION_BODY(wrapper_buffer, VkBuffer, buffer_map,
+                        VK_OBJECT_TYPE_BUFFER,
+                        vk_buffer_init(&device->vk, &obj->vk, pCreateInfo));
+}
+
+#define CREATE_DESTROY_FUNCTION(wtype, map, destroy) \
+static void wtype##_destroy(struct wrapper_device *device, struct wtype *obj, const VkAllocationCallbacks* pAllocator) { \
+   simple_mtx_lock(&device->resource_mutex); \
+   _mesa_hash_table_u64_remove(device->map, (uint64_t) obj->dispatch_handle); \
+   simple_mtx_unlock(&device->resource_mutex); \
+   destroy; \
+}
+
+CREATE_DESTROY_FUNCTION(wrapper_image, image_map, {
+   // vk_image_finish(&obj->vk);
+   vk_image_destroy(&device->vk, pAllocator, &obj->vk);
+});
+
+CREATE_DESTROY_FUNCTION(wrapper_buffer, buffer_map, {
+   // vk_buffer_finish(&obj->vk);
+   vk_buffer_destroy(&device->vk, pAllocator, &obj->vk);
+});
+
+// For BCn emulation
+static bool is_bc_image_format(VkFormat format) {
+   switch (format) {
+   case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
+   case VK_FORMAT_BC1_RGB_SRGB_BLOCK:
+   case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
+   case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
+   case VK_FORMAT_BC2_UNORM_BLOCK:
+   case VK_FORMAT_BC2_SRGB_BLOCK:
+   case VK_FORMAT_BC3_UNORM_BLOCK:
+   case VK_FORMAT_BC3_SRGB_BLOCK:
+   case VK_FORMAT_BC4_UNORM_BLOCK:
+   case VK_FORMAT_BC4_SNORM_BLOCK:
+   case VK_FORMAT_BC5_UNORM_BLOCK:
+   case VK_FORMAT_BC5_SNORM_BLOCK:
+   case VK_FORMAT_BC6H_UFLOAT_BLOCK:
+   case VK_FORMAT_BC6H_SFLOAT_BLOCK:
+   case VK_FORMAT_BC7_UNORM_BLOCK:
+   case VK_FORMAT_BC7_SRGB_BLOCK:
+      return true;
+   default:
+      return false;
+   }
+}
+
+static inline uint32_t get_bc_block_size(VkFormat format) {
+   if (!is_bc_image_format(format)) return 4;
+    switch (format) {
+        case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
+        case VK_FORMAT_BC1_RGB_SRGB_BLOCK:
+        case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
+        case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
+        case VK_FORMAT_BC4_UNORM_BLOCK:
+        case VK_FORMAT_BC4_SNORM_BLOCK:
+            return 8;
+        default:
+            return 16;
+    }
+}
+
+
+typedef enum VkLayerFunction_ {
+    VK_LAYER_FUNCTION_LINK = 0,
+    VK_LAYER_FUNCTION_DEVICE = 1,
+    VK_LAYER_FUNCTION_INSTANCE = 2
+} VkLayerFunction;
+/*
+ * When creating the device chain the loader needs to pass
+ * down information about it's device structure needed at
+ * the end of the chain. Passing the data via the
+ * VkLayerInstanceInfo avoids issues with finding the
+ * exact instance being used.
+ */
+typedef struct VkLayerInstanceInfo_ {
+    void* instance_info;
+    PFN_vkGetInstanceProcAddr pfnNextGetInstanceProcAddr;
+} VkLayerInstanceInfo;
+typedef struct VkLayerInstanceLink_ {
+    struct VkLayerInstanceLink_* pNext;
+    PFN_vkGetInstanceProcAddr pfnNextGetInstanceProcAddr;
+} VkLayerInstanceLink;
+/*
+ * When creating the device chain the loader needs to pass
+ * down information about it's device structure needed at
+ * the end of the chain. Passing the data via the
+ * VkLayerDeviceInfo avoids issues with finding the
+ * exact instance being used.
+ */
+typedef struct VkLayerDeviceInfo_ {
+    void* device_info;
+    PFN_vkGetInstanceProcAddr pfnNextGetInstanceProcAddr;
+} VkLayerDeviceInfo;
+typedef struct {
+    VkStructureType sType;  // VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO
+    const void* pNext;
+    VkLayerFunction function;
+    union {
+        VkLayerInstanceLink* pLayerInfo;
+        VkLayerInstanceInfo instanceInfo;
+    } u;
+} VkLayerInstanceCreateInfo;
+typedef struct VkLayerDeviceLink_ {
+    struct VkLayerDeviceLink_* pNext;
+    PFN_vkGetInstanceProcAddr pfnNextGetInstanceProcAddr;
+    PFN_vkGetDeviceProcAddr pfnNextGetDeviceProcAddr;
+} VkLayerDeviceLink;
+typedef struct {
+    VkStructureType sType;  // VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO
+    const void* pNext;
+    VkLayerFunction function;
+    union {
+        VkLayerDeviceLink* pLayerInfo;
+        VkLayerDeviceInfo deviceInfo;
+    } u;
+} VkLayerDeviceCreateInfo;

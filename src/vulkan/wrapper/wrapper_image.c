@@ -1,51 +1,18 @@
 #include "wrapper_private.h"
 #include "wrapper_entrypoints.h"
+#include "vk_unwrappers.h"
 #include "vk_alloc.h"
 #include "vk_common_entrypoints.h"
 #include "vk_dispatch_table.h"
 #include "vk_extensions.h"
 #include "vk_util.h"
+#include "vk_printers.h"
+#include "wrapper_trampolines.h"
 
 #if DETECT_OS_LINUX || DETECT_OS_BSD
 #include <drm-uapi/drm_fourcc.h>
 #endif
 
-
-static VkResult
-wrapper_image_create(struct wrapper_device *device,
-                     const VkImageCreateInfo *pCreateInfo,
-                     const VkAllocationCallbacks *pAllocator,
-                     VkImage dispatch_handle,
-                     VkImage *p_wimg)
-{
-   struct wrapper_image *wimg;
-
-   wimg = vk_object_zalloc(&device->vk, pAllocator,
-                           sizeof(struct wrapper_image),
-                           VK_OBJECT_TYPE_IMAGE);
-   if (!wimg)
-      return vk_error(&device->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
-
-   vk_image_init(&device->vk, &wimg->vk, pCreateInfo);
-
-   wimg->device = device;
-   wimg->dispatch_handle = dispatch_handle;
-   list_add(&wimg->link, &device->image_list);
-
-   *p_wimg = wrapper_image_to_handle(wimg);
-
-   return VK_SUCCESS;
-}
-
-void
-wrapper_image_destroy(struct wrapper_device *device,
-                      struct wrapper_image *wimg,
-                      const VkAllocationCallbacks* pAllocator)
-{
-   list_del(&wimg->link);
-   vk_image_finish(&wimg->vk);
-   vk_image_destroy(&device->vk, pAllocator, &wimg->vk);
-}
 
 VKAPI_ATTR VkResult VKAPI_CALL
 wrapper_CreateImage(VkDevice _device,
@@ -53,33 +20,94 @@ wrapper_CreateImage(VkDevice _device,
                     const VkAllocationCallbacks* pAllocator,
                     VkImage* pImage)
 {
+
+    __vk_println("CreateImage");
+#ifdef NEEDS_PRINTING_CreateImage
+    __vk_println("  in: device: VkDevice (handle) = %p", _device);
+#endif
+#ifdef NEEDS_PRINTING_CreateImage
+    __vk_println("  in: pCreateInfo: VkImageCreateInfo*");
+    vk_print_VkImageCreateInfo("    ", pCreateInfo);
+#endif
+#ifdef NEEDS_PRINTING_CreateImage
+      vk_foreach_struct_const(pnext, pCreateInfo->pNext) {
+         switch ((int32_t)pnext->sType) {
+         case VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO: {
+            VkImageFormatListCreateInfo *ext = (VkImageFormatListCreateInfo *) pnext;
+            __vk_println("  Emulating VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT for bcn texture - %d formats", ext->viewFormatCount);
+
+            for (int i = 0; i < ext->viewFormatCount; i++) {
+               __vk_println("    %d: Found %d from view formats", i, ext->pViewFormats[i]);
+            }
+         }
+         }
+      }
+      __vk_flush();
+#endif
+    
    VK_FROM_HANDLE(wrapper_device, device, _device);
+
+   if (!pCreateInfo)
+      return vk_error(&device->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
+
+   bool emulate_bcn = is_bc_image_format(pCreateInfo->format)
+             && !device->physical->base_supported_features.textureCompressionBC
+             ;
+
    VkImageCreateInfo create_info = *pCreateInfo;
-   VkImage dispatch_handle;
    VkResult result;
 
-   /* The wrapper may need to perform blits or copies. */
-   create_info.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                        VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+   // if (!(create_info.flags & VK_IMAGE_CREATE_ALIAS_BIT) && (/*create_info.format == VK_FORMAT_R8G8B8A8_UNORM || */create_info.format == VK_FORMAT_B8G8R8A8_UNORM)) {
+   //    emulate_bcn = true;
+   // }
+
+   if (emulate_bcn) {
+      __log("Calling CreateImage with bcn texture: %d", pCreateInfo->format);
+      // Unwrap the create_info for modification
+      // unwrap_VkImageCreateInfo(device, &create_info, pCreateInfo);
+      // Replace the format parameter with VK_FORMAT_R8G8B8A8_UNORM
+      create_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+      create_info.usage |=  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+      create_info.flags &= 0xffffff7f;
+      create_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+      // create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+
+      vk_foreach_struct_const(pnext, create_info.pNext) {
+         switch ((int32_t)pnext->sType) {
+         case VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO:
+            VkImageFormatListCreateInfo *ext = (VkImageFormatListCreateInfo *) pnext;
+            for (int i = 0; i < ext->viewFormatCount; i++) {
+               __log("  Replacing %d from view formats", ext->pViewFormats[i]);
+            }
+            if (ext->pViewFormats) {
+               ext->viewFormatCount = 1;
+               ((VkFormat*)ext->pViewFormats)[0] = VK_FORMAT_R8G8B8A8_UNORM;
+            }
+         }
+      }
+
+      __vk_println("  in: create_info: VkImageCreateInfo* (emulated)");
+      vk_print_VkImageCreateInfo("    ", &create_info);
+   }
 
    result = device->dispatch_table.CreateImage(device->dispatch_handle,
                                                &create_info,
                                                pAllocator,
-                                               &dispatch_handle);
-   if (result != VK_SUCCESS)
-      return result;
-
-   simple_mtx_lock(&device->resource_mutex);
-
-   result = wrapper_image_create(device, &create_info, pAllocator,
-                                 dispatch_handle, pImage);
-
+                                               pImage);
    if (result != VK_SUCCESS) {
-      device->dispatch_table.DestroyImage(device->dispatch_handle,
-                                          dispatch_handle, pAllocator);
+      __log("ERROR: CreateImage failed with result %d", result);
+      return result;
    }
 
-   simple_mtx_unlock(&device->resource_mutex);
+   struct wrapper_image *w_image = wrapper_image_create(device, &create_info, pAllocator, *pImage);
+   if (!w_image) {
+      __log("ERROR: wrapper_image_create failed");
+      return vk_error(&device->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
+   }
+
+   // Track data about this image
+   w_image->original_format = pCreateInfo->format;
+   w_image->is_bcn_emulated = emulate_bcn;
 
    return result;
 }
@@ -90,17 +118,31 @@ wrapper_DestroyImage(VkDevice _device,
                      const VkAllocationCallbacks* pAllocator)
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
-   VK_FROM_HANDLE(wrapper_image, wimg, _image);
+   device->dispatch_table.DestroyImage(device->dispatch_handle, _image, pAllocator);
 
+   struct wrapper_image* wimg = get_wrapper_image(device, _image);
    if (!_image)
        return;
-
-   device->dispatch_table.DestroyImage(device->dispatch_handle,
-                                       wimg->dispatch_handle, pAllocator);
-
-   simple_mtx_lock(&device->resource_mutex);
    wrapper_image_destroy(device, wimg, pAllocator);
-   simple_mtx_unlock(&device->resource_mutex);
+}
+
+
+VKAPI_ATTR VkResult VKAPI_CALL
+wrapper_CreateImageView(
+    VkDevice device,
+    const VkImageViewCreateInfo* pCreateInfo,
+    const VkAllocationCallbacks* pAllocator,
+    VkImageView* pView)
+{
+    VK_FROM_HANDLE(wrapper_device, base, device);
+    VkImageViewCreateInfo _pCreateInfo = *pCreateInfo;
+    if (!base->physical->base_supported_features.textureCompressionBC &&
+        is_bc_image_format(pCreateInfo->format)) {
+        __log("Setting format for BC image view for image: %p", pCreateInfo->image);
+        _pCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    }
+    VkResult result = wrapper_device_trampolines.CreateImageView(device, &_pCreateInfo, pAllocator, pView);
+    return result;
 }
 
 // #if DETECT_OS_LINUX || DETECT_OS_BSD

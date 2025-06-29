@@ -32,7 +32,7 @@ from mako.template import Template
 
 # Mesa-local imports must be declared in meson variable
 # '{file_without_suffix}_depend_files'.
-from vk_entrypoints import get_entrypoints_from_xml, generate_unwrapper, generate_unwrapper_proto, generate_unwrapper_leaves, get_types
+from vk_entrypoints import get_entrypoints_from_xml
 import vk_entrypoints
 
 TEMPLATE_H = Template(COPYRIGHT + """\
@@ -62,16 +62,16 @@ TEMPLATE_C = Template(COPYRIGHT + """\
 
 #include "wrapper_private.h"
 #include "wrapper_trampolines.h"
+#include "vk_unwrappers.h"
+#include "vk_printers.h"
 
-${generate_unwrapper_leaves()}
+void __loge(const char* fmt, ...);
 
-% for t in all_types:
-${generate_unwrapper_proto(t)}
-% endfor
+#define VK_ALLOC2(device, type, size) (device ? \
+    ((type *) vk_zalloc(&((struct wrapper_device*) device)->vk.alloc, size, alignof(type), VK_SYSTEM_ALLOCATION_SCOPE_COMMAND)) : \
+    ((type *) malloc(size)) )
 
-% for t in all_types:
-${generate_unwrapper(t)}
-% endfor
+#define VK_ALLOC(device, type) VK_ALLOC2(device, type, sizeof(type))
 
 % for e in entrypoints:
   % if not e.is_physical_device_entrypoint() or e.alias:
@@ -143,7 +143,6 @@ def main():
     args = parser.parse_args()
 
     entrypoints = get_entrypoints_from_xml(args.xml_files, args.beta)
-    all_types = get_types()
 
     # For outputting entrypoints.h we generate a anv_EntryPoint() prototype
     # per entry point.
@@ -151,18 +150,10 @@ def main():
         if args.out_h:
             with open(args.out_h, 'w', encoding='utf-8') as f:
                 f.write(TEMPLATE_H.render(entrypoints=entrypoints,
-                                          all_types=all_types,
-                                          generate_unwrapper_proto=generate_unwrapper_proto,
-                                          generate_unwrapper=generate_unwrapper,
-                                          generate_unwrapper_leaves=generate_unwrapper_leaves,
                                           filename=os.path.basename(__file__)))
         if args.out_c:
             with open(args.out_c, 'w', encoding='utf-8') as f:
                 f.write(TEMPLATE_C.render(entrypoints=entrypoints, 
-                                          all_types=all_types,
-                                          generate_unwrapper_proto=generate_unwrapper_proto,
-                                          generate_unwrapper=generate_unwrapper,
-                                          generate_unwrapper_leaves=generate_unwrapper_leaves,
                                           filename=os.path.basename(__file__)))
     except Exception:
         # In the event there's an error, this imports some helpers from mako
