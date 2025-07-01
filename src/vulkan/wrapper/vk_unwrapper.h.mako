@@ -37,10 +37,11 @@ unwrap_VkDeviceCreateInfo(struct wrapper_device *device,
                           VkDeviceCreateInfo *out_info,
                           const VkDeviceCreateInfo *in_info);
 
-% for s in wrapped_handles:
-#define NEEDS_UNWRAPPING_${s}
-% endfor
-% for s in needs_unwrapping:
+##% for s in wrapped_handles:
+###define NEEDS_UNWRAPPING_${s}
+##% endfor
+% for s, struct_, uses in needs_unwrapping:
+// uses = ${uses}
 #define NEEDS_UNWRAPPING_${s}
 % endfor
 

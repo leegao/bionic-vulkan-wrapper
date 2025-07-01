@@ -51,8 +51,7 @@ wrapper_CreateImage(VkDevice _device,
       return vk_error(&device->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
 
    bool emulate_bcn = is_bc_image_format(pCreateInfo->format)
-             && !device->physical->base_supported_features.textureCompressionBC
-             ;
+      && !device->physical->base_supported_features.textureCompressionBC;
 
    VkImageCreateInfo create_info = *pCreateInfo;
    VkResult result;
@@ -65,8 +64,8 @@ wrapper_CreateImage(VkDevice _device,
       __log("Calling CreateImage with bcn texture: %d", pCreateInfo->format);
       // Unwrap the create_info for modification
       // unwrap_VkImageCreateInfo(device, &create_info, pCreateInfo);
-      // Replace the format parameter with VK_FORMAT_R8G8B8A8_UNORM
-      create_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+      // Replace the format parameter with VK_FORMAT_R8G8B8A8_UNORM (unless it's BC6H)
+      create_info.format = unwrap_vk_format(device, pCreateInfo->format);
       create_info.usage |=  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
       create_info.flags &= 0xffffff7f;
       create_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
@@ -81,7 +80,7 @@ wrapper_CreateImage(VkDevice _device,
             }
             if (ext->pViewFormats) {
                ext->viewFormatCount = 1;
-               ((VkFormat*)ext->pViewFormats)[0] = VK_FORMAT_R8G8B8A8_UNORM;
+               ((VkFormat*)ext->pViewFormats)[0] = unwrap_vk_format(device, pCreateInfo->format);
             }
          }
       }
@@ -95,13 +94,13 @@ wrapper_CreateImage(VkDevice _device,
                                                pAllocator,
                                                pImage);
    if (result != VK_SUCCESS) {
-      __log("ERROR: CreateImage failed with result %d", result);
+      __loge("ERROR: CreateImage failed with result %d", result);
       return result;
    }
 
    struct wrapper_image *w_image = wrapper_image_create(device, &create_info, pAllocator, *pImage);
    if (!w_image) {
-      __log("ERROR: wrapper_image_create failed");
+      __loge("ERROR: wrapper_image_create failed");
       return vk_error(&device->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
    }
 
@@ -139,7 +138,7 @@ wrapper_CreateImageView(
     if (!base->physical->base_supported_features.textureCompressionBC &&
         is_bc_image_format(pCreateInfo->format)) {
         __log("Setting format for BC image view for image: %p", pCreateInfo->image);
-        _pCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+        _pCreateInfo.format = unwrap_vk_format(base, pCreateInfo->format);
     }
     VkResult result = wrapper_device_trampolines.CreateImageView(device, &_pCreateInfo, pAllocator, pView);
     return result;

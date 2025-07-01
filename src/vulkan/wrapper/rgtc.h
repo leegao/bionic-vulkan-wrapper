@@ -30,4 +30,41 @@ float decode_alpha_rgtc(uvec2 payload, int linear_pixel)
 	return res;
 }
 
+// Decodes a single channel from a signed RGTC (BC4/BC5) block.
+float decode_alpha_rgtc_snorm(uvec2 payload, int linear_pixel) {
+    // Endpoints are 8-bit signed integers. Sign-extend the low 8-bit values.
+    int ep0_s = int(payload.x << 24) >> 24;
+    int ep1_s = int(payload.x << 16) >> 24;
+
+    // Convert to float in range [-1, 1]. -128 maps to -1.0.
+    float ep0 = (ep0_s == -128) ? -1.0f : float(ep0_s) / 127.0f;
+    float ep1 = (ep1_s == -128) ? -1.0f : float(ep1_s) / 127.0f;
+
+    // For SNORM, the comparison is on the integer representations to select the mode.
+    bool range7 = ep0_s > ep1_s;
+
+    // Extract the 3-bit index for the current pixel.
+    int bit_offset = 16 + linear_pixel * 3;
+    uint bits;
+    if (bit_offset <= 29)
+        bits = bitfieldExtract(payload.x, bit_offset, 3);
+    else if (bit_offset >= 32)
+        bits = bitfieldExtract(payload.y, bit_offset - 32, 3);
+    else
+        bits = bitfieldExtract(payload.x, 31, 1) | ((payload.y & 3) << 1);
+
+    // Interpolate based on the index and mode.
+    float res;
+    if (bits == 0) res = ep0;
+    else if (bits == 1) res = ep1;
+    else if (range7) { // 8 interpolated values
+        res = mix(ep0, ep1, float(bits - 1) / 7.0);
+    } else { // 6 interpolated values + 2 explicit values for -1.0 and 1.0
+        if (bits == 6) res = -1.0;
+        else if (bits == 7) res = 1.0;
+        else res = mix(ep0, ep1, float(bits - 1) / 5.0);
+    }
+    return res;
+}
+
 #endif

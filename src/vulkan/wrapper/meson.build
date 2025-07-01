@@ -117,7 +117,6 @@ wrapper_files = files(
   'wrapper_instance.c',
   'wrapper_physical_device.c',
   'wrapper_image.c',
-  'vk_texcompress_bc.c',
 )
 
 wrapper_deps = [
@@ -127,39 +126,6 @@ wrapper_deps = [
   idep_vulkan_wsi,
   dep_android,
 ]
-
-bc_decode_shader = custom_target(
-  'bc_decode_spv.h',
-  input : files('bc_decode.comp'),
-  output : 'bc_decode.spv.h',
-  command : [
-      prog_glslang, '-V', '-S', 'comp', '-x', '-o', '@OUTPUT@', '@INPUT@',
-      glslang_quiet, glslang_depfile,
-  ],
-  depfile : 'bc_decode_spv.h.d',
-)
-
-buffer_to_image = custom_target(
-  'buffer_to_image.spv.h',
-  input : files('buffer_to_image.comp'),
-  output : 'buffer_to_image.spv.h',
-  command : [
-      prog_glslang, '-V', '-S', 'comp', '-x', '-o', '@OUTPUT@', '@INPUT@',
-      glslang_quiet, glslang_depfile,
-  ],
-  depfile : 'buffer_to_image.spv.h.d',
-)
-
-magenta = custom_target(
-  'magenta.spv.h',
-  input : files('fill_magenta.comp'),
-  output : 'magenta.spv.h',
-  command : [
-      prog_glslang, '-V', '-S', 'comp', '-x', '-o', '@OUTPUT@', '@INPUT@',
-      glslang_quiet, glslang_depfile,
-  ],
-  depfile : 'magenta.spv.h.d',
-)
 
 s3tc = custom_target(
   's3tc.spv.h',
@@ -171,7 +137,16 @@ s3tc = custom_target(
   ],
   depfile : 's3tc.spv.h.d',
 )
-
+bc6 = custom_target(
+  'bc6.spv.h',
+  input : [files('bc6.comp')],
+  output : 'bc6.spv.h',
+  command : [
+      prog_glslang, '-V', '-S', 'comp', '-x', '-o', '@OUTPUT@', '@INPUT@',
+      glslang_quiet, glslang_depfile,
+  ],
+  depfile : 'bc6.spv.h.d',
+)
 bc7 = custom_target(
   'bc7.spv.h',
   input : [files('bc7.comp')],
@@ -186,7 +161,7 @@ bc7 = custom_target(
 
 libvulkan_wrapper = shared_library(
   'vulkan_wrapper',
-  [wrapper_entrypoints, wrapper_trampolines, wrapper_features, wrapper_files, unwrappers, vk_printers, bc_decode_shader, buffer_to_image, magenta, s3tc, bc7],
+  [wrapper_entrypoints, wrapper_trampolines, wrapper_features, wrapper_files, unwrappers, vk_printers, s3tc, bc6, bc7],
   include_directories: [
     inc_include,
     inc_src,

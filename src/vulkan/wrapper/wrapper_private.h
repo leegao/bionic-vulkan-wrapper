@@ -16,6 +16,7 @@
 #include "vulkan/util/vk_dispatch_table.h"
 #include "vulkan/wsi/wsi_common.h"
 #include "util/simple_mtx.h"
+#include "compute_shader_mode.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -201,6 +202,12 @@ struct wrapper_cmd_buffer_pool {
     VkDescriptorPool pool;
 };
 
+typedef struct wrapper_cmd_buffer_staging_buffer {
+   struct list_head link;
+   VkBuffer buffer;
+   VkDeviceMemory memory;
+} wrapper_cmd_buffer_staging_buffer;
+
 struct wrapper_command_buffer {
    struct vk_command_buffer vk;
 
@@ -211,10 +218,30 @@ struct wrapper_command_buffer {
 
    simple_mtx_t temp_pool_mutex;
    struct list_head temp_descriptor_pools;
+
+   struct list_head temp_staging_buffers;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_command_buffer, vk.base, VkCommandBuffer,
                        VK_OBJECT_TYPE_COMMAND_BUFFER)
+
+
+static struct wrapper_cmd_buffer_staging_buffer* add_new_staging_buffer(
+   struct wrapper_command_buffer *wcb, VkBuffer buffer, VkDeviceMemory memory)
+{
+   struct wrapper_cmd_buffer_staging_buffer *new_buffer =
+      vk_alloc(&wcb->device->vk.alloc, sizeof(wrapper_cmd_buffer_staging_buffer), 8,
+               VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
+   if (!new_buffer) {
+      __loge("Failed to allocate staging buffer structure");
+      return NULL;
+   }
+
+   new_buffer->buffer = buffer;
+   new_buffer->memory = memory;
+   list_addtail(&new_buffer->link, &wcb->temp_staging_buffers);
+   return new_buffer;
+}
 
 struct wrapper_image {
    struct vk_image vk;
@@ -424,3 +451,41 @@ typedef struct {
         VkLayerDeviceInfo deviceInfo;
     } u;
 } VkLayerDeviceCreateInfo;
+
+static VkFormat unwrap_vk_format_physical_device(struct wrapper_physical_device* device, VkFormat in_format) {
+   // Replace BCn formats with R8G8B8A8_UNORM if they are emulated
+   if (is_bc_image_format(in_format) && !device->base_supported_features.textureCompressionBC) {
+      // VK_FORMAT_BC1_RGB_UNORM_BLOCK = 131, -> VK_FORMAT_R8G8B8A8_UNORM
+      // VK_FORMAT_BC1_RGB_SRGB_BLOCK = 132, -> VK_FORMAT_R8G8B8A8_UNORM
+      // VK_FORMAT_BC1_RGBA_UNORM_BLOCK = 133, -> VK_FORMAT_R8G8B8A8_UNORM
+      // VK_FORMAT_BC1_RGBA_SRGB_BLOCK = 134, -> VK_FORMAT_R8G8B8A8_UNORM
+      // VK_FORMAT_BC2_UNORM_BLOCK = 135, -> VK_FORMAT_R8G8B8A8_UNORM
+      // VK_FORMAT_BC2_SRGB_BLOCK = 136, -> VK_FORMAT_R8G8B8A8_UNORM
+      // VK_FORMAT_BC3_UNORM_BLOCK = 137, -> VK_FORMAT_R8G8B8A8_UNORM
+      // VK_FORMAT_BC3_SRGB_BLOCK = 138, -> VK_FORMAT_R8G8B8A8_UNORM
+      // VK_FORMAT_BC4_UNORM_BLOCK = 139, -> VK_FORMAT_R8G8B8A8_UNORM
+      // VK_FORMAT_BC4_SNORM_BLOCK = 140, -> VK_FORMAT_R8G8B8A8_SNORM *
+      // VK_FORMAT_BC5_UNORM_BLOCK = 141, -> VK_FORMAT_R8G8B8A8_UNORM
+      // VK_FORMAT_BC5_SNORM_BLOCK = 142, -> VK_FORMAT_R8G8B8A8_SNORM *
+      // VK_FORMAT_BC6H_UFLOAT_BLOCK = 143, -> VK_FORMAT_R16G16B16A16_SFLOAT *
+      // VK_FORMAT_BC6H_SFLOAT_BLOCK = 144, -> VK_FORMAT_R16G16B16A16_SFLOAT *
+      // VK_FORMAT_BC7_UNORM_BLOCK = 145, -> VK_FORMAT_R8G8B8A8_UNORM
+      // VK_FORMAT_BC7_SRGB_BLOCK = 146, -> VK_FORMAT_R8G8B8A8_UNORM
+
+      // VK_FORMAT_R16G16B16A16_SFLOAT Formats
+      if (in_format == VK_FORMAT_BC6H_UFLOAT_BLOCK || in_format == VK_FORMAT_BC6H_SFLOAT_BLOCK) {
+         return VK_FORMAT_R16G16B16A16_SFLOAT;
+      }
+      // VK_FORMAT_R8G8B8A8_SNORM Formats
+      if (in_format == VK_FORMAT_BC4_SNORM_BLOCK || in_format == VK_FORMAT_BC5_SNORM_BLOCK) {
+         return VK_FORMAT_R8G8B8A8_SNORM;
+      }
+      return VK_FORMAT_R8G8B8A8_UNORM;
+   }
+   return in_format;
+}
+
+static VkFormat unwrap_vk_format(struct wrapper_device* device, VkFormat in_format) {
+   // Replace BCn formats with R8G8B8A8_UNORM if they are emulated
+   return unwrap_vk_format_physical_device(device->physical, in_format);
+}

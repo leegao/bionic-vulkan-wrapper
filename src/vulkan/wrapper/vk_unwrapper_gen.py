@@ -206,6 +206,10 @@ VK_TYPES_BLACKLIST = [
     'VkPipelineCreationFeedbackCreateInfo', # VkPipelineCreationFeedback**
 ]
 
+WRAPPER_SPECIAL_TYPES = {
+    "VkFormat": "unwrap_vk_format",
+}
+
 ALL_VK_TYPES = []
 
 def get_wrapper_type_for_vk_type(vk_type):
@@ -263,7 +267,7 @@ class VulkanUnwrapperGenerator:
         self.root = self.tree.getroot()
         self.structs = {}
         self.pnext_map = {}
-        self.needs_unwrapping = []
+        self.needs_unwrapping = {}
         self.all_structs = {}
         self.parse_xml()
 
@@ -306,24 +310,28 @@ class VulkanUnwrapperGenerator:
                     self.pnext_map[base_name].append(self.structs[ext_name])
 
         # Fourth pass: resolve structs that need unwrapping to be used by the dispatcher
-        needs_unwrapping = set(WRAPPER_TYPE_MAP.keys())
+        needs_unwrapping = {k:set([k]) for k in WRAPPER_TYPE_MAP.keys() | WRAPPER_SPECIAL_TYPES.keys()}
         changed = True
         while changed:
             changed = False
             for s in self.structs.values():
                 T = s.name
-                if T in needs_unwrapping: continue
                 for member in s.members:
                     if member.type in needs_unwrapping:
-                        needs_unwrapping.add(T)
-                        changed = True
-                        break
+                        if T not in needs_unwrapping:
+                            needs_unwrapping[T] = set()
+                            changed = True
+                        if member.type not in needs_unwrapping[T]:
+                            needs_unwrapping[T].add(member.type)
                 for ext in s.pnext_members:
                     if ext.name in needs_unwrapping:
-                        needs_unwrapping.add(T)
-                        changed = True
-                        break
-        self.needs_unwrapping = [self.structs[T] for T in sorted(needs_unwrapping) if T in self.structs]
+                        if T not in needs_unwrapping:
+                            needs_unwrapping[T] = set()
+                            changed = True
+                        if member.type not in needs_unwrapping[T]:
+                            needs_unwrapping[T].add(ext.name)
+        self.needs_unwrapping = [(T, self.structs[T] if T in self.structs else None, sorted(list(needs_unwrapping[T]))) for T in sorted(needs_unwrapping)]
+        self.tainted = {T: sorted(list(needs_unwrapping[T])) for T in needs_unwrapping if needs_unwrapping[T]}
 
 
     def generate(self, out_c_path, out_h_path, in_c_path, in_h_path):
@@ -340,6 +348,8 @@ class VulkanUnwrapperGenerator:
                 all_vk_types=ALL_VK_TYPES,
                 blacklisted_vk_types=VK_TYPES_BLACKLIST,
                 needs_unwrapping=self.needs_unwrapping, 
+                tainted=self.tainted,
+                special_types=WRAPPER_SPECIAL_TYPES,
                 wrapped_handles=sorted(WRAPPER_TYPE_MAP.keys())))
             
         # Generate source
@@ -350,7 +360,9 @@ class VulkanUnwrapperGenerator:
                 pnext_map=self.pnext_map,
                 get_wrapper_type_for_vk_type=get_wrapper_type_for_vk_type, 
                 needs_unwrapping=self.needs_unwrapping,
+                tainted=self.tainted,
                 all_vk_types=ALL_VK_TYPES,
+                special_types=WRAPPER_SPECIAL_TYPES,
                 blacklisted_vk_types=VK_TYPES_BLACKLIST,
             ))
         print(f"Generated {out_h_path} and {out_c_path}")

@@ -41,6 +41,10 @@ WrappedStructs = {
     # PASS
 }
 
+SPECIAL_TYPES = {
+    "VkFormat": "unwrap_vk_format",
+}
+
 SKIP = ["VkExportMetalObjectsInfoEXT", "VkExportMetalIOSurfaceInfoEXT", "VkExportMetalTextureInfoEXT", "VkExportMetalCommandQueueInfoEXT"]
 TYPES = {}
 
@@ -163,6 +167,7 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
         is_wrapped = param.type in WrappedStructs
         is_struct = param.type in TYPES
         is_array = param.len and is_ptr1
+        is_special = param.type in SPECIAL_TYPES
 
         handle_unwrap_logic.append(f"#ifdef NEEDS_UNWRAPPING_{param.type}")
         # Wrapped handles
@@ -197,6 +202,20 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
             else:
                 handle_unwrap_logic.append(f"#error: Unhandled struct+ptr2 {command.name} {param}")
                 pass
+        elif is_special:
+            # Special types that need unwrapping
+            types.append(f"{param.name}: %x")
+            if not param.num_pointers:
+                handle_unwrap_logic.append(f"    {param.name}__ = {SPECIAL_TYPES[param.type]}({device}, {param.name});")
+            elif is_array and is_ptr1:
+                handle_unwrap_logic.append(f"    {param.name}__ = alloca({param.len} * sizeof({param.type}));")
+                handle_unwrap_logic.append(f"    for (int i = 0; i < {param.len}; i++)")
+                handle_unwrap_logic.append(f"        (({param.type}*){param.name}__)[i] = {SPECIAL_TYPES[param.type]}({device}, {param.name}[i]);")
+            elif is_ptr1:
+                handle_unwrap_logic.append(f"    {param.type} _w_{param.name} = {SPECIAL_TYPES[param.type]}({device}, {param.name});")
+                handle_unwrap_logic.append(f"    {param.name}__ = &_w_{param.name};")
+            else:
+                handle_unwrap_logic.append(f"#error: Unhandled special+ptr2 {command.name} {param}")
         else:
             types.append(f"{param.name}: %x")
             pass
@@ -226,6 +245,7 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
         is_wrapped = param.type in WrappedStructs
         is_struct = param.type in TYPES
         is_array = param.len
+        is_special = param.type in SPECIAL_TYPES
         handle_wrap_logic += print_param(command, param, mode='output')
         handle_wrap_logic.append(f"#ifdef NEEDS_UNWRAPPING_{param.type}")
         # Wrapped handles
@@ -243,7 +263,13 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
                 handle_wrap_logic.append(f"#warning TODO: Repack struct+ptr+out {command.name} {param}")
             else:
                 handle_wrap_logic.append(f"#error: Unhandled struct+ptr2 {command.name} {param}")
-                pass
+        elif is_special:
+            if is_array:
+                handle_wrap_logic.append(f"#error TODO: Repack special+array+out {command.name} {param}")
+            elif is_ptr1:
+                handle_wrap_logic.append(f"    *{param.name} = {SPECIAL_TYPES[param.type]}({device}, {param.name});")
+            else:
+                handle_wrap_logic.append(f"#error: Unhandled special+ptr2 {command.name} {param}")
         handle_wrap_logic.append(f"#endif")
         # Print if result failed
         if command.return_type == 'VkResult':

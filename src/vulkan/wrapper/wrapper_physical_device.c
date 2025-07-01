@@ -443,7 +443,12 @@ wrapper_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
    VkFormat targetFormat = format;
    bool modified = false;
    if (is_bc_image_format(format) && !supported_features->textureCompressionBC) {
-      targetFormat = VK_FORMAT_R8G8B8A8_UNORM;
+      // targetFormat = VK_FORMAT_R8G8B8A8_UNORM;
+      // // If the format is BC6H, use VK_FORMAT_R16G16B16A16_SFLOAT
+      // if (format == VK_FORMAT_BC6H_UFLOAT_BLOCK || format == VK_FORMAT_BC6H_SFLOAT_BLOCK) {
+      //    targetFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+      // }
+      targetFormat = unwrap_vk_format_physical_device(pdevice, format);
       pdevice->dispatch_table.GetPhysicalDeviceFormatProperties(pdevice->dispatch_handle, targetFormat, pFormatProperties);
       pFormatProperties->optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
       pFormatProperties->linearTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;

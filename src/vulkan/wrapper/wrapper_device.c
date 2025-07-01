@@ -11,7 +11,6 @@
 #include "vk_printers.h"
 #include "util/list.h"
 #include "util/simple_mtx.h"
-#include "vk_texcompress_bc.h"
 #include "vk_meta.h" // For vk_meta_create_image_view
 #include "vk_buffer.h"
 #include "wrapper_trampolines.h"
@@ -20,6 +19,10 @@
 
 static const uint32_t s3tc_spv[] = {
 #include "s3tc.spv.h"
+};
+
+static const uint32_t bc6_spv[] = {
+#include "bc6.spv.h"
 };
 
 static const uint32_t bc7_spv[] = {
@@ -49,7 +52,6 @@ typedef struct InterceptorState {
    VkPipeline pipeline;
    VkPipelineLayout pipelineLayout;
    VkDescriptorSetLayout descriptorSetLayout;
-   // VkDescriptorPool descriptorPool;
 } InterceptorState;
 
 // Initializes the Vulkan objects needed for the compute dispatch.
@@ -62,6 +64,7 @@ static void InterceptorState_Cleanup(InterceptorState* state);
 
 
 static InterceptorState g_interceptorState_s3tc = {0};
+static InterceptorState g_interceptorState_bc6 = {0};
 static InterceptorState g_interceptorState_bc7 = {0};
 
 const struct vk_device_extension_table wrapper_device_extensions =
@@ -327,6 +330,11 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
       __log("Failed to initialize InterceptorState for s3tc");
       return vk_error(physical_device, result);
    }
+   result = InterceptorState_Init(&g_interceptorState_bc6, wrapper_device_to_handle(device), sizeof(bc6_spv), bc6_spv);
+   if (result != VK_SUCCESS) {
+      __log("Failed to initialize InterceptorState for bc6");
+      return vk_error(physical_device, result);
+   }
    result = InterceptorState_Init(&g_interceptorState_bc7, wrapper_device_to_handle(device), sizeof(bc7_spv), bc7_spv);
    if (result != VK_SUCCESS) {
       __log("Failed to initialize InterceptorState for bc7");
@@ -503,13 +511,13 @@ static VkResult add_new_temp_pool_to_cmd_buffer(struct wrapper_command_buffer *w
    //  result = CHECK(CreateDescriptorPool(__device, &poolCreateInfo, NULL, &state->descriptorPool));
    VkDescriptorPoolSize pool_sizes = {
       .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 
-      .descriptorCount = 16
+      .descriptorCount = 256
    };
 
    const VkDescriptorPoolCreateInfo create_info = {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
       .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-      .maxSets = 16, // A reasonable number for one command buffer's temp usage
+      .maxSets = 256, // A reasonable number for one command buffer's temp usage
       .poolSizeCount = 1,
       .pPoolSizes = &pool_sizes,
    };
@@ -556,13 +564,7 @@ wrapper_AllocateCommandBuffers(VkDevice _device,
       VK_FROM_HANDLE(wrapper_command_buffer, wcb, pCommandBuffers[i]);
       simple_mtx_init(&wcb->temp_pool_mutex, mtx_plain);
       list_inithead(&wcb->temp_descriptor_pools);
-
-      // // This function will create a new pool and add it to the wcb's list.
-      // result = add_new_temp_pool_to_cmd_buffer(wcb);
-      // if (result != VK_SUCCESS) {
-      //    __loge("Failed to create temporary descriptor pool for command buffer %d: %d", i, result);
-      //    break;
-      // }
+      list_inithead(&wcb->temp_staging_buffers);
    }
 
    if (result != VK_SUCCESS) {
@@ -615,6 +617,20 @@ wrapper_FreeCommandBuffers(VkDevice _device,
          }
       }
       simple_mtx_destroy(&wcb->temp_pool_mutex);
+
+      // Clean up temporary staging buffers associated with this command buffer
+      if (!list_is_empty(&wcb->temp_staging_buffers)) {
+         list_for_each_entry_safe(struct wrapper_cmd_buffer_staging_buffer, staging_buf, &wcb->temp_staging_buffers, link) {
+            if (staging_buf->buffer != VK_NULL_HANDLE) {
+               CHECKV(DestroyBuffer(_device, staging_buf->buffer, NULL));
+            }
+            if (staging_buf->memory != VK_NULL_HANDLE) {
+               CHECKV(FreeMemory(_device, staging_buf->memory, NULL));
+            }
+            list_del(&staging_buf->link);
+            vk_free(&wcb->device->vk.alloc, staging_buf);
+         }
+      }
 
       wrapper_command_buffer_destroy(device, wcb);
    }
@@ -776,19 +792,6 @@ wrapper_DestroyBuffer(VkDevice _device,
 // device->dispatch_table.CmdCopyBufferToImage
 #define vk_ _device->dispatch_table.
 
-// Structure to hold our compute pipeline resources
-typedef struct {
-    VkShaderModule computeShaderModule;
-    VkDescriptorSetLayout descriptorSetLayout;
-    VkPipelineLayout pipelineLayout;
-    VkPipeline computePipeline;
-    VkDescriptorPool descriptorPool;
-    VkDescriptorSet descriptorSet;
-    VkBuffer uniformBuffer;
-    VkDeviceMemory uniformBufferMemory;
-} ComputeResources;
-
-
 typedef struct {
     uint32_t srcFormat;
     uint32_t srcRowLength;
@@ -798,20 +801,6 @@ typedef struct {
     uint32_t imageExtentX;
     uint32_t imageExtentY;
 } PushConstantData;
-
-static ComputeResources g_computeResources = {0};
-
-// Function to create compute shader module (you'll need to compile the GLSL to SPIR-V)
-static VkResult createComputeShaderModule(struct wrapper_device* _device, const uint32_t* spirvCode, size_t spirvSize) {
-    VkShaderModuleCreateInfo createInfo = {
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = spirvSize,
-        .pCode = spirvCode
-    };
-    
-    return CHECK(CreateShaderModule((VkDevice) _device, &createInfo, NULL, &g_computeResources.computeShaderModule));
-}
-
 
 static VkResult InterceptorState_Init(InterceptorState* state, VkDevice __device, size_t spv_size, const uint32_t* spv_code) {
     VkResult result;
@@ -831,7 +820,11 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice __device
       },
       {
         .binding = 1,
+#ifdef USE_IMAGE_VIEW_OUTPUT
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+#else
         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+#endif
         .descriptorCount = 1,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
       }
@@ -864,51 +857,31 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice __device
     if (result != VK_SUCCESS) return result;
 
     // 4. Create Compute Pipeline
-    #define CREATE_COMPUTE_PIPELINE(spv_size, spv_code, pipeline) {\
-      VkShaderModule computeShaderModule; \
-      VkShaderModuleCreateInfo shaderModuleCreateInfo = { \
-         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, \
-         .codeSize = spv_size, \
-         .pCode = (const uint32_t*)spv_code, \
-      }; \
-      result = CHECK(CreateShaderModule(__device, &shaderModuleCreateInfo, NULL, &computeShaderModule)); \
-      if (result != VK_SUCCESS) return result; \
-      VkComputePipelineCreateInfo pipelineCreateInfo = { \
-         .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, \
-         .layout = state->pipelineLayout, \
-         .stage = { \
-               .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, \
-               .stage = VK_SHADER_STAGE_COMPUTE_BIT, \
-               .module = computeShaderModule, \
-               .pName = "main", \
-            } \
-      }; \
-      result = CHECK(CreateComputePipelines(__device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &state->pipeline)); \
-      vk_ DestroyShaderModule(device, computeShaderModule, NULL); \
-      if (result != VK_SUCCESS) return result; \
-    }
+   VkShaderModule computeShaderModule;
+   VkShaderModuleCreateInfo shaderModuleCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+      .codeSize = spv_size,
+      .pCode = (const uint32_t*)spv_code,
+   };
+   result = CHECK(CreateShaderModule(__device, &shaderModuleCreateInfo, NULL, &computeShaderModule));
+   if (result != VK_SUCCESS) return result;
+   VkComputePipelineCreateInfo pipelineCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+      .layout = state->pipelineLayout,
+      .stage = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = computeShaderModule,
+            .pName = "main",
+         }
+   };
+   result = CHECK(CreateComputePipelines(__device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &state->pipeline));
+   vk_ DestroyShaderModule(device, computeShaderModule, NULL);
+   if (result != VK_SUCCESS) return result;
 
-    CREATE_COMPUTE_PIPELINE(spv_size, spv_code, pipeline);
+   __log("InterceptorState_Init success");
 
-   // We now track the descriptor pool in the command buffer state
-   //  // 5. Create a Descriptor Pool
-   //  VkDescriptorPoolSize poolSize = {
-   //      .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-   //      .descriptorCount = 1024,
-   //  };
-
-   //  VkDescriptorPoolCreateInfo poolCreateInfo = {
-   //      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-   //      .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-   //      .maxSets = 1024,
-   //      .poolSizeCount = 1,
-   //      .pPoolSizes = &poolSize,
-   //  };
-   //  result = CHECK(CreateDescriptorPool(__device, &poolCreateInfo, NULL, &state->descriptorPool));
-
-    __log("InterceptorState_Init success");
-
-    return result;
+   return result;
 }
 
 // Helper function to find a suitable memory type
@@ -1094,6 +1067,8 @@ struct CmdComputeShaderForDecompressionArgs {
     struct wrapper_device* _device;
     struct wrapper_image* wimg;
     VkBuffer srcBuffer;
+    VkImage dstImage;
+    VkImageLayout dstImageLayout;
     VkBuffer stagingBuffer;
     const VkBufferImageCopy* region;
     struct InterceptorState* state;
@@ -1106,42 +1081,46 @@ static void CmdComputeShaderForDecompression(
    struct wrapper_device* _device = pArgs->_device;
    struct wrapper_image* wimg = pArgs->wimg;
    VkBuffer srcBuffer = pArgs->srcBuffer;
+#ifdef USE_IMAGE_VIEW_OUTPUT
+   VkImageLayout dstImageLayout = pArgs->dstImageLayout;
+#else
    VkBuffer stagingBuffer = pArgs->stagingBuffer;
+#endif
    const VkBufferImageCopy* region = pArgs->region;
    VkImage dstImage = wimg->dispatch_handle;
    struct InterceptorState* state = pArgs->state;
    VkCommandBuffer commandBuffer = _commandBuffer->dispatch_handle;
    VkResult result;
 
-   __log("CmdComputeShaderForDecompression: srcBuffer = %p, stagingBuffer = %p, dstImage = %p", srcBuffer, stagingBuffer, dstImage);
-   // --- 1. Transition image layout for shader write ---
-   VkBufferMemoryBarrier barrier_to_general[2] = {
-      {
-         .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-         .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
-         .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
-         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-         .buffer = srcBuffer,
-         .offset = 0, // region->bufferOffset,
-         .size = VK_WHOLE_SIZE,
-      },
-      {
-         .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-         .srcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
-         .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
-         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-         .buffer = stagingBuffer,
-         .offset = 0,
-         .size = VK_WHOLE_SIZE,
-      }
-   };
+   __log("CmdComputeShaderForDecompression: srcBuffer = %p, dstImage = %p", srcBuffer, dstImage);
 
-   vk_ CmdPipelineBarrier(commandBuffer,
-                        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 
-                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                        0, 0, NULL, 2, barrier_to_general, 0, NULL);
+#ifdef USE_IMAGE_VIEW_OUTPUT
+   // If using image view output, we need to transition the image to the appropriate layout
+   {   
+      VkImageMemoryBarrier imageBarrier = {
+         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+         .srcAccessMask = VK_ACCESS_NONE,
+         .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+         .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, // Assuming the image is in transfer destination layout
+         .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+         .image = dstImage,
+         .subresourceRange = {
+            .aspectMask = region->imageSubresource.aspectMask,
+            .baseMipLevel = region->imageSubresource.mipLevel,
+            .levelCount = 1,
+            .baseArrayLayer = region->imageSubresource.baseArrayLayer,
+            .layerCount = region->imageSubresource.layerCount,
+         }
+      };
+
+      vk_ CmdPipelineBarrier(commandBuffer,
+                           VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           0, 0, NULL, 0, NULL, 1, &imageBarrier);
+   }
+#endif
 
    // --- 2. Allocate Descriptor Set ---
    // Use the descriptor pool from this command buffer
@@ -1190,22 +1169,38 @@ static void CmdComputeShaderForDecompression(
       .range = VK_WHOLE_SIZE
    };
 
+#ifdef USE_IMAGE_VIEW_OUTPUT
+   VkImageViewCreateInfo viewCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      .image = dstImage,
+      // .viewType = wimg->vk.view_type, // Assuming the image is 2D, you can set this to VK_IMAGE_VIEW_TYPE_2D
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = unwrap_vk_format(_device, wimg->original_format),
+      .subresourceRange = {
+         .aspectMask = region->imageSubresource.aspectMask,
+         .baseMipLevel = region->imageSubresource.mipLevel,
+         .levelCount = 1,
+         .baseArrayLayer = region->imageSubresource.baseArrayLayer,
+         .layerCount = region->imageSubresource.layerCount,
+      },
+   };
+    
+   VkImageView dstImageView;
+   result = CHECK(CreateImageView((VkDevice) _device, &viewCreateInfo, NULL, &dstImageView));
+
+   VkDescriptorType dstDescriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+   VkDescriptorImageInfo dstImageInfo = {
+      .imageView = dstImageView,
+      .imageLayout = VK_IMAGE_LAYOUT_GENERAL, // Ensure the image is in the correct layout
+   };
+#else
+   VkDescriptorType dstDescriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
    VkDescriptorBufferInfo dstBufferInfo = {
       .buffer = stagingBuffer,
       .offset = 0,
       .range = VK_WHOLE_SIZE
    };
-
-   // VkBufferView dstBufferView;
-   // VkBufferViewCreateInfo viewInfo = {
-   //    .sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
-   //    .buffer = stagingBuffer,
-   //    .format = VK_FORMAT_B8G8R8A8_UNORM, // Must match shader's rgba8
-   //    .offset = 0,
-   //    .range = VK_WHOLE_SIZE,
-   // };
-   // CHECK(CreateBufferView(device, &viewInfo, NULL, &dstBufferView));
-
+#endif
 
    VkWriteDescriptorSet writeSet[2] = {
          {
@@ -1221,10 +1216,12 @@ static void CmdComputeShaderForDecompression(
                .dstSet = descriptorSet,
                .dstBinding = 1,
                .descriptorCount = 1,
-               .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, // Note: If this were VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pTexelBufferView would be used.
-               // .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 
+               .descriptorType = dstDescriptorType,
+               #ifdef USE_IMAGE_VIEW_OUTPUT
+               .pImageInfo = &dstImageInfo,
+               #else
                .pBufferInfo = &dstBufferInfo,
-               // .pTexelBufferView = &dstBufferView,
+               #endif
          }
    };
 
@@ -1252,6 +1249,35 @@ static void CmdComputeShaderForDecompression(
    uint32_t groupCountX = (region->imageExtent.width + 7) / 8;
    uint32_t groupCountY = (region->imageExtent.height + 7) / 8;
    vk_ CmdDispatch(commandBuffer, groupCountX, groupCountY, 1);
+
+
+#ifdef USE_IMAGE_VIEW_OUTPUT
+   // If using image view output, we need to transition the image back to the destination layout
+   {   
+      VkImageMemoryBarrier imageBarrier = {
+         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+         .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT,
+         .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+         .newLayout = dstImageLayout,
+         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+         .image = dstImage,
+         .subresourceRange = {
+            .aspectMask = region->imageSubresource.aspectMask,
+            .baseMipLevel = region->imageSubresource.mipLevel,
+            .levelCount = 1,
+            .baseArrayLayer = region->imageSubresource.baseArrayLayer,
+            .layerCount = region->imageSubresource.layerCount,
+         }
+      };
+
+      vk_ CmdPipelineBarrier(commandBuffer,
+                           VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           0, 0, NULL, 0, NULL, 1, &imageBarrier);
+   }
+#endif
 }
 
 
@@ -1399,14 +1425,9 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
    VkDevice device = _device->dispatch_handle;
    VkResult result;
 
-   struct wrapper_image* wimg = get_wrapper_image(wcb->device, dstImage);
+   struct wrapper_image* wimg = get_wrapper_image(_device, dstImage);
    if (!wimg) {
       __loge("ERROR: wrapper_CmdCopyBufferToImage: dstImage not tracked");
-      return;
-   }
-   struct wrapper_buffer* _srcBuffer = get_wrapper_buffer(_device, srcBuffer);
-   if (!_srcBuffer) {
-      __loge("ERROR: wrapper_CmdCopyBufferToImage: srcBuffer not tracked");
       return;
    }
 
@@ -1424,12 +1445,23 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
    // }
 
    // --- Decompression Path ---
-   __loge("Emulating support for format=%d", wimg->original_format);
+   _Atomic static int count = 0;
+   count++;
+   __loge("Emulating support for format=%d, count=%d", wimg->original_format, count);
 
+   struct wrapper_buffer* _srcBuffer = get_wrapper_buffer(_device, srcBuffer);
+   if (!_srcBuffer) {
+      __loge("ERROR: wrapper_CmdCopyBufferToImage: srcBuffer not tracked");
+      return;
+   }
+   
    for (uint32_t i = 0; i < regionCount; ++i) {
       const VkBufferImageCopy* region = &pRegions[i];
 
       // --- 2. Create resources for this region ---
+#ifdef USE_IMAGE_VIEW_OUTPUT
+
+#else
       VkBuffer stagingBuffer;
       VkDeviceMemory stagingBufferMemory;
       result = CreateStagingBuffer(
@@ -1444,52 +1476,34 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
       }
       __log("Created staging buffer: %p, memory: %p", stagingBuffer, stagingBufferMemory);
 
-      // Tie the lifetime of these temporary resources to the command buffer.
-      // They will be destroyed automatically by the meta-cleanup framework
-      // when the command buffer is reset or freed.
-      vk_meta_object_list_add_handle(&wcb->vk.meta_objects,
-                                    VK_OBJECT_TYPE_BUFFER,
-                                    (uint64_t)stagingBuffer);
-      vk_meta_object_list_add_handle(&wcb->vk.meta_objects,
-                                    VK_OBJECT_TYPE_DEVICE_MEMORY,
-                                    (uint64_t)stagingBufferMemory);
+      add_new_staging_buffer(wcb, stagingBuffer, stagingBufferMemory);
+#endif
 
-
-      // Use the compute shader to decompress the data if the format is BC1 or BC3, else fallback to host-side decompression
-      if (wimg->original_format == VK_FORMAT_BC1_RGB_UNORM_BLOCK ||
-         wimg->original_format == VK_FORMAT_BC1_RGB_SRGB_BLOCK ||
-         wimg->original_format == VK_FORMAT_BC1_RGBA_UNORM_BLOCK ||
-         wimg->original_format == VK_FORMAT_BC1_RGBA_SRGB_BLOCK ||
-         wimg->original_format == VK_FORMAT_BC3_UNORM_BLOCK ||
-         wimg->original_format == VK_FORMAT_BC3_SRGB_BLOCK ||
-         wimg->original_format == VK_FORMAT_BC7_UNORM_BLOCK ||
-         wimg->original_format == VK_FORMAT_BC7_SRGB_BLOCK
-      ) {
-         struct InterceptorState* state = &g_interceptorState_s3tc;
-         // If BC7, use the BC7 shader
-         if (wimg->original_format == VK_FORMAT_BC7_UNORM_BLOCK ||
-            wimg->original_format == VK_FORMAT_BC7_SRGB_BLOCK) {
-               state = &g_interceptorState_bc7;
-            }
-         struct CmdComputeShaderForDecompressionArgs args = {
-            ._device = _device,
-            .wimg = wimg,
-            .srcBuffer = srcBuffer,
-            .stagingBuffer = stagingBuffer,
-            .region = region,
-            .state = state,
-         };
-         CmdComputeShaderForDecompression(wcb, &args);
-      } else {
-         __loge("Using host-side decompression fallback for format %d", wimg->original_format);
-         HostSideDecompression(
-            _device,
-            _srcBuffer,
-            stagingBufferMemory,
-            region,
-            wimg->original_format);
+      struct InterceptorState* state = &g_interceptorState_s3tc;
+      // If BC7, use the BC7 shader
+      if (wimg->original_format == VK_FORMAT_BC7_UNORM_BLOCK || wimg->original_format == VK_FORMAT_BC7_SRGB_BLOCK) {
+         state = &g_interceptorState_bc7;
+      } else if (wimg->original_format == VK_FORMAT_BC6H_SFLOAT_BLOCK || wimg->original_format == VK_FORMAT_BC6H_UFLOAT_BLOCK) {
+         state = &g_interceptorState_bc6;
       }
+      struct CmdComputeShaderForDecompressionArgs args = {
+         ._device = _device,
+         .wimg = wimg,
+         .srcBuffer = srcBuffer,
+#ifdef USE_IMAGE_VIEW_OUTPUT
+         .dstImage = dstImage,
+         .dstImageLayout = dstImageLayout,
+#else
+         .stagingBuffer = stagingBuffer,
+#endif
+         .region = region,
+         .state = state,
+      };
+      CmdComputeShaderForDecompression(wcb, &args);
 
+#ifdef USE_IMAGE_VIEW_OUTPUT
+
+#else
       VkBufferMemoryBarrier bufferBarrier = {
          .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
          .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // Source access mask for shader write
@@ -1504,7 +1518,7 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
       vk_ CmdPipelineBarrier(
          commandBuffer,
          // Source stage: The compute shader stage where the buffer is written (or the host copy).
-         VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
          // Destination stage: The transfer pipeline stage where copies occur.
          VK_PIPELINE_STAGE_TRANSFER_BIT,
          0,
@@ -1517,6 +1531,7 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
       // Adjust the bufferOffset to point to the start of the staging buffer
       local_region.bufferOffset = 0;
       wrapper_device_trampolines.CmdCopyBufferToImage(_commandBuffer, stagingBuffer, dstImage, dstImageLayout, 1, &local_region);
+#endif
    }
 }
 
@@ -1545,7 +1560,7 @@ wrapper_BindBufferMemory2(
    VK_FROM_HANDLE(wrapper_device, _device, device);
 
    if (bindInfoCount == 0 || pBindInfos == NULL) {
-      __log("ERROR: wrapper_BindBufferMemory2 called with no bind infos");
+      __loge("ERROR: wrapper_BindBufferMemory2 called with no bind infos");
       return vk_error(&_device->vk, VK_ERROR_INVALID_EXTERNAL_HANDLE);
    }
 
@@ -1553,7 +1568,7 @@ wrapper_BindBufferMemory2(
    for (uint32_t i = 0; i < bindInfoCount; i++) {
       wrapper_buffer *_buffer = get_wrapper_buffer(_device, pBindInfos[i].buffer);
       if (!_buffer) {
-         __log("ERROR: wrapper_BindBufferMemory2: buffer %p not tracked", pBindInfos[i].buffer);
+         __loge("ERROR: wrapper_BindBufferMemory2: buffer %p not tracked", pBindInfos[i].buffer);
          return vk_error(&_device->vk, VK_ERROR_INVALID_EXTERNAL_HANDLE);
       }
       _buffer->memory = pBindInfos[i].memory;
