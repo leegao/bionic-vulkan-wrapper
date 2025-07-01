@@ -207,7 +207,7 @@ VK_TYPES_BLACKLIST = [
 ]
 
 WRAPPER_SPECIAL_TYPES = {
-    "VkFormat": "unwrap_vk_format",
+    # "VkFormat": "unwrap_vk_format",
 }
 
 ALL_VK_TYPES = []

@@ -46,7 +46,7 @@ static void __vk_print(const char* fmt, ...) {
 }
 
 static void __vk_println(const char* fmt, ...) {
-   /*
+   /**/
    ensure_fd();
    // int64_t ms = currentTimeMillis() - __vk_start_ms;
    // fprintf(__vk_print_fd, "%ld ", ms);
@@ -56,13 +56,13 @@ static void __vk_println(const char* fmt, ...) {
    va_end(args);
    fprintf(__vk_print_fd, "\n");
    fflush(__vk_print_fd);
-   */
+   //*/
 }
 
 static void __vk_flush() {
-   /*
+   /**/
    fflush(__vk_print_fd);
-   */
+   //*/
 }
 
 % for s in all_vk_types:

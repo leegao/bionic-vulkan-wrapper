@@ -42,7 +42,7 @@ WrappedStructs = {
 }
 
 SPECIAL_TYPES = {
-    "VkFormat": "unwrap_vk_format",
+    # "VkFormat": "unwrap_vk_format",
 }
 
 SKIP = ["VkExportMetalObjectsInfoEXT", "VkExportMetalIOSurfaceInfoEXT", "VkExportMetalTextureInfoEXT", "VkExportMetalCommandQueueInfoEXT"]
@@ -136,6 +136,9 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
     handle_unwrap_logic.append(f"#ifdef NEEDS_PRINTING_{command.name}")
     handle_unwrap_logic.append(f"    __vk_println(\"{command.name}\");")
     handle_unwrap_logic.append(f"#endif")
+
+    handle_unwrap_logic.append(f"")
+    idx = len(handle_unwrap_logic) - 1
     handle_unwrap_logic += print_param(command, params[0], mode='input')
     # Input
     for param in params[1:]:
@@ -272,7 +275,7 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
                 handle_wrap_logic.append(f"#error: Unhandled special+ptr2 {command.name} {param}")
         handle_wrap_logic.append(f"#endif")
         # Print if result failed
-        if command.return_type == 'VkResult':
+        if command.return_type == 'VkResult' and command.name != "AllocateDescriptorSets":
             handle_wrap_logic.append(f"if (result != VK_SUCCESS) {{")
             handle_wrap_logic.append(f"    __loge(\"Call to {command.name} with ({",".join(types)}) failed with result: %d\", {",".join(call)}, result);")
             handle_wrap_logic.append(f"}}")
@@ -280,6 +283,9 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
     return_block = "" if command.return_type == 'void' else "result"
     assign_block = "" if command.return_type == 'void' else f"{command.return_type} result = "
     
+    # handle_unwrap_logic[idx] = f"__loge(\"{command.name}({', '.join(types)})\", {', '.join([p.name for p in params])});"
+    # handle_wrap_logic.append(f"__loge(\"+ {command.name} finished\");")
+
     return TRAMPOLINE_TEMPLATE.substitute(
         return_type=command.return_type,
         name=command.name,

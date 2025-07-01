@@ -69,10 +69,6 @@ layout(set = 0, binding = 1) writeonly buffer DestinationBuffer {
 } dstBuffer;
 #endif
 
-// =================================================================================
-// BC6H DECODING LOGIC (Ported from granite_decode.txt)
-// =================================================================================
-
 const int weight_table3[8] = int[](0, 9, 18, 27, 37, 46, 55, 64);
 const int weight_table4[16] = int[](0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64);
 

@@ -77,11 +77,11 @@ static void* icd_handle;
 
 static void *get_vulkan_handle() 
 {
-   __log("in get_vulkan_handle");
+   // __log("in get_vulkan_handle");
    if (!icd_handle)
       icd_handle = get_vulkan_handle_icd();
-   void* vvl = dlopen("/data/user/0/com.winlator.cmod/files/imagefs/usr/lib/libVkLayer_khronos_validation.so", RTLD_NOW | RTLD_LOCAL);
-   __log("Got vvl layer: %p", vvl);
+   // void* vvl = dlopen("/data/user/0/com.winlator.cmod/files/imagefs/usr/lib/libVkLayer_khronos_validation.so", RTLD_NOW | RTLD_LOCAL);
+   // __log("Got vvl layer: %p", vvl);
    return icd_handle;
 }
 
@@ -269,37 +269,37 @@ wrapper_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
    wrapper_create_info.ppEnabledExtensionNames = wrapper_enable_extensions;
 
    // Initialize vvl
-   if (icd_handle != vulkan_library_handle) {
-      __log("Additional initialization - adding more pnext chains");
-      VkLayerInstanceCreateInfo *chain_info = (VkLayerInstanceCreateInfo *)&wrapper_create_info;
-      while ((chain_info->sType != VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO || chain_info->function != 0) && chain_info->pNext) {
-          chain_info = (VkLayerInstanceCreateInfo *)&chain_info->pNext;
-      }
-      if (chain_info->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO && chain_info->function == 0) {
-         __log("ERROR: Found a loader create info");
-         unreachable("");
-      } else {
-         if (!chain_info->pNext) {
-            __log("Starting new loader create info");
-            void* next = dlsym(icd_handle, "vkGetInstanceProcAddr");
-            __log("Next: %p", next);
-            VkLayerInstanceLink deviceInfo = {
-               .pfnNextGetInstanceProcAddr = next
-            };
+   // if (icd_handle != vulkan_library_handle) {
+   //    __log("Additional initialization - adding more pnext chains");
+   //    VkLayerInstanceCreateInfo *chain_info = (VkLayerInstanceCreateInfo *)&wrapper_create_info;
+   //    while ((chain_info->sType != VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO || chain_info->function != 0) && chain_info->pNext) {
+   //        chain_info = (VkLayerInstanceCreateInfo *)&chain_info->pNext;
+   //    }
+   //    if (chain_info->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO && chain_info->function == 0) {
+   //       __log("ERROR: Found a loader create info");
+   //       unreachable("");
+   //    } else {
+   //       if (!chain_info->pNext) {
+   //          __log("Starting new loader create info");
+   //          void* next = dlsym(icd_handle, "vkGetInstanceProcAddr");
+   //          __log("Next: %p", next);
+   //          VkLayerInstanceLink deviceInfo = {
+   //             .pfnNextGetInstanceProcAddr = next
+   //          };
 
-            VkLayerInstanceCreateInfo info = {
-               .sType = VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO,
-               .function = 0,
-               .u.pLayerInfo = &deviceInfo
-            };
-            chain_info->pNext = &info;
-            __log("Created new loader create info");
-         } else {
-            __log("ERROR");
-            unreachable("");
-         }
-      }
-   }
+   //          VkLayerInstanceCreateInfo info = {
+   //             .sType = VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO,
+   //             .function = 0,
+   //             .u.pLayerInfo = &deviceInfo
+   //          };
+   //          chain_info->pNext = &info;
+   //          __log("Created new loader create info");
+   //       } else {
+   //          __log("ERROR");
+   //          unreachable("");
+   //       }
+   //    }
+   // }
 
    result = dispatch_create_instance(&wrapper_create_info, pAllocator,
                             &instance->dispatch_handle);

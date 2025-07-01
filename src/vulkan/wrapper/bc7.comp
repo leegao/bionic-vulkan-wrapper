@@ -208,11 +208,22 @@ DecodedInterpolation decode_bc7_mode0(uvec4 payload, int linear_pixel)
 
     ivec3 rgb0 = ivec3(r0, g0, b0);
     ivec3 rgb1 = ivec3(r1, g1, b1);
+
+    // Combine the 4-bit color and 1-bit P-bit into a 5-bit value
+    // ivec3 v0_5bit = (rgb0 << 1) | sep0;
+    // ivec3 v1_5bit = (rgb1 << 1) | sep1;
+
+    // Replicate the 5-bit value to 8 bits
+    // rgb0 = (v0_5bit << 3) | (v0_5bit >> 2);
+    // rgb1 = (v1_5bit << 3) | (v1_5bit >> 2);
+    
+    // Note that this is an algebraic simplification of the original
+    // BC7 2-pass implementation shown above
     rgb0 = (rgb0 << 4) | (sep0 << 3) | (rgb0 >> 1);
     rgb1 = (rgb1 << 4) | (sep1 << 3) | (rgb1 >> 1);
 
     int w = weight_table3[index];
-    return DecodedInterpolation(uvec4(rgb0, 0xff), uvec4(rgb1, 0xff), uint(w), uint(w), 0);
+    return DecodedInterpolation(uvec4(rgb0, 0xff), uvec4(rgb1, 0xff), w, w, 0);
 }
 
 DecodedInterpolation decode_bc7_mode1(uvec4 payload, int linear_pixel)
@@ -242,7 +253,7 @@ DecodedInterpolation decode_bc7_mode1(uvec4 payload, int linear_pixel)
     rgb1 = (rgb1 << 2) | sep | (rgb1 >> 5);
 
     int w = weight_table3[index];
-    return DecodedInterpolation(uvec4(rgb0, 0xff), uvec4(rgb1, 0xff), uint(w), uint(w), 0);
+    return DecodedInterpolation(uvec4(rgb0, 0xff), uvec4(rgb1, 0xff), w, w, 0);
 }
 
 DecodedInterpolation decode_bc7_mode2(uvec4 payload, int linear_pixel)
@@ -270,7 +281,7 @@ DecodedInterpolation decode_bc7_mode2(uvec4 payload, int linear_pixel)
     rgb1 = (rgb1 << 3) | (rgb1 >> 2);
 
     int w = weight_table2[index];
-    return DecodedInterpolation(uvec4(rgb0, 0xff), uvec4(rgb1, 0xff), uint(w), uint(w), 0);
+    return DecodedInterpolation(uvec4(rgb0, 0xff), uvec4(rgb1, 0xff), w, w, 0);
 }
 
 DecodedInterpolation decode_bc7_mode3(uvec4 payload, int linear_pixel)
@@ -302,7 +313,7 @@ DecodedInterpolation decode_bc7_mode3(uvec4 payload, int linear_pixel)
     rgb1 = (rgb1 << 1) | sep1;
 
     int w = weight_table2[index];
-    return DecodedInterpolation(uvec4(rgb0, 0xff), uvec4(rgb1, 0xff), uint(w), uint(w), 0);
+    return DecodedInterpolation(uvec4(rgb0, 0xff), uvec4(rgb1, 0xff), w, w, 0);
 }
 
 DecodedInterpolation decode_bc7_mode4(uvec4 payload, int linear_pixel)
@@ -327,14 +338,14 @@ DecodedInterpolation decode_bc7_mode4(uvec4 payload, int linear_pixel)
             max(80 + linear_pixel * 3, 81),
             linear_pixel == 0 ? 2 : 3);
 
-    int color_weight_i = weight_table2[primary_index];
-    int alpha_weight_i = weight_table3[secondary_index];
+    int color_weight = weight_table2[primary_index];
+    int alpha_weight = weight_table3[secondary_index];
 
     if (isb)
     {
-        int tmp = color_weight_i;
-        color_weight_i = alpha_weight_i;
-        alpha_weight_i = tmp;
+        int tmp = color_weight;
+        color_weight = alpha_weight;
+        alpha_weight = tmp;
     }
 
     ivec3 rgb0 = ivec3(r0, g0, b0);
@@ -343,7 +354,7 @@ DecodedInterpolation decode_bc7_mode4(uvec4 payload, int linear_pixel)
     rgb1 = (rgb1 << 3) | (rgb1 >> 2);
     a0 = (a0 << 2) | (a0 >> 4);
     a1 = (a1 << 2) | (a1 >> 4);
-    return DecodedInterpolation(uvec4(rgb0, a0), uvec4(rgb1, a1), uint(color_weight_i), uint(alpha_weight_i), uint(rot));
+    return DecodedInterpolation(uvec4(rgb0, a0), uvec4(rgb1, a1), color_weight, alpha_weight, rot);
 }
 
 DecodedInterpolation decode_bc7_mode5(uvec4 payload, int linear_pixel)
@@ -374,7 +385,7 @@ DecodedInterpolation decode_bc7_mode5(uvec4 payload, int linear_pixel)
     ivec3 rgb1 = ivec3(r1, g1, b1);
     rgb0 = (rgb0 << 1) | (rgb0 >> 6);
     rgb1 = (rgb1 << 1) | (rgb1 >> 6);
-    return DecodedInterpolation(uvec4(rgb0, a0), uvec4(rgb1, a1), uint(color_weight), uint(alpha_weight), uint(rot));
+    return DecodedInterpolation(uvec4(rgb0, a0), uvec4(rgb1, a1), color_weight, alpha_weight, rot);
 }
 
 DecodedInterpolation decode_bc7_mode6(uvec4 payload, int linear_pixel)
@@ -390,8 +401,8 @@ DecodedInterpolation decode_bc7_mode6(uvec4 payload, int linear_pixel)
     int a0 = extract_bits(payload, 49, 7);
     int a1 = extract_bits(payload, 56, 7);
 
-    uvec4 ep0 = uvec4(r0, g0, b0, a0) * 2u + uint(sep0);
-    uvec4 ep1 = uvec4(r1, g1, b1, a1) * 2u + uint(sep1);
+    ivec4 ep0 = ivec4(r0, g0, b0, a0) * 2 + sep0;
+    ivec4 ep1 = ivec4(r1, g1, b1, a1) * 2 + sep1;
 
     int index = extract_bits(
             payload,
@@ -399,7 +410,7 @@ DecodedInterpolation decode_bc7_mode6(uvec4 payload, int linear_pixel)
             linear_pixel == 0 ? 3 : 4);
 
     int w = weight_table4[index];
-    return DecodedInterpolation(ep0, ep1, uint(w), uint(w), 0);
+    return DecodedInterpolation(ep0, ep1, w, w, 0);
 }
 
 DecodedInterpolation decode_bc7_mode7(uvec4 payload, int linear_pixel)
@@ -433,7 +444,7 @@ DecodedInterpolation decode_bc7_mode7(uvec4 payload, int linear_pixel)
     rgba1 = (rgba1 << 3) | (rgba1 >> 3) | (sep1 << 2);
 
     int w = weight_table2[index];
-    return DecodedInterpolation(uvec4(rgba0), uvec4(rgba1), uint(w), uint(w), 0);
+    return DecodedInterpolation(rgba0, rgba1, w, w, 0);
 }
 
 uvec4 interpolate_endpoint(DecodedInterpolation interp)
@@ -502,7 +513,7 @@ void main() {
         rgba_result = uvec4(255, 0, 255, 255);
     } else {
         // Find the specific pixel this thread is responsible for within its 4x4 block
-        ivec2 tile_coord = coord % 4;
+        ivec2 tile_coord = coord & 3;
         int linear_pixel = 4 * tile_coord.y + tile_coord.x;
 
         // findLSB() returns the bit index of the least significant bit.
@@ -543,15 +554,17 @@ void main() {
 
         rgba_result = interpolate_endpoint(interp); // Result is [0, 255] integer vector
     }
+    vec4 final_color = vec4(rgba_result) / 255.0;
+    if (push_constants.srcFormat == 146) {
+        final_color.rgb = srgb_to_linear(final_color.rgb);
+    }
     // Calculate the final destination coordinate including the offset
     ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + coord;
 #ifdef USE_IMAGE_VIEW_OUTPUT
-    imageStore(dstImage, final_dst_coord, vec4(rgba_result) / 255.0);
+    imageStore(dstImage, final_dst_coord, final_color);
 #else
-    // Pack the uvec4 into a single uint (AABBGGRR)
-    uint packed_color = (rgba_result.a << 24) | (rgba_result.b << 16) | (rgba_result.g << 8) | rgba_result.r;
     // Calculate the linear index into the destination buffer using its row length (dst_width is the stride)
     int dst_index = int(final_dst_coord.y * push_constants.dst_width + final_dst_coord.x);
-    dstBuffer.data[dst_index] =  packed_color;
+    dstBuffer.data[dst_index] =  packUnorm4x8(final_color);
 #endif
 }

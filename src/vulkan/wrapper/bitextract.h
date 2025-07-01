@@ -58,20 +58,13 @@ int extract_bits_reverse(uvec4 payload, int offset, int bits)
 	return result;
 }
 
-uint vec4_to_rgba8(vec4 color) {
-    // 1. Clamp the color to ensure it's within the [0.0, 1.0] range.
-    color = clamp(color, 0.0, 1.0);
-
-    // 2. Scale the floating-point components [0.0, 1.0] to the integer range [0, 255].
-    // We multiply by 255.0 and then convert to unsigned integer type.
-    uint r = uint(color.r * 255.0);
-    uint g = uint(color.g * 255.0);
-    uint b = uint(color.b * 255.0);
-    uint a = uint(color.a * 255.0);
-
-    // 3. Bit-shift each component to its correct position and combine using bitwise OR.
-    // The layout is AABBGGRR
-    return (a << 24) | (b << 16) | (g << 8) | r;
+vec3 srgb_to_linear(vec3 srgb)
+{
+    // A precise sRGB to linear conversion
+    bvec3 cutoff = lessThan(srgb, vec3(0.04045));
+    vec3 higher = pow((srgb + vec3(0.055)) / vec3(1.055), vec3(2.4));
+    vec3 lower = srgb / vec3(12.92);
+    return mix(higher, lower, cutoff);
 }
 
 #endif

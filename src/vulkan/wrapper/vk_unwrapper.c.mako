@@ -186,6 +186,7 @@ void unwrap_${s.name}(struct wrapper_device *device,
     ##VkBaseOutStructure **out_pnext_ptr = (VkBaseOutStructure **)&out_info->pNext;
     ##vk_foreach_struct_const(pnext, in_info->pNext) {
         ##switch ((int32_t)pnext->sType) {
+    /*
 % if s.name in pnext_map:
     // Has pNexts: ${pnext_map[s.name]}
     struct VkBaseOutStructure *head = NULL, *tail = NULL;
@@ -226,6 +227,7 @@ void unwrap_${s.name}(struct wrapper_device *device,
     out_info->pNext = head;
 
 % endif
+    */
         ##default:
         ##    /* The calculate function allocated space, now we copy it. */
         ##    memcpy(*out_pnext_ptr, pnext, vk_structure_type_size(pnext));

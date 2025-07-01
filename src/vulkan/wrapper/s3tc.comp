@@ -29,6 +29,19 @@
 #include "bitextract.h"
 #include "compute_shader_mode.h"
 
+#define VK_FORMAT_BC1_RGB_UNORM_BLOCK 131
+#define VK_FORMAT_BC1_RGB_SRGB_BLOCK 132
+#define VK_FORMAT_BC1_RGBA_UNORM_BLOCK 133
+#define VK_FORMAT_BC1_RGBA_SRGB_BLOCK 134
+#define VK_FORMAT_BC2_UNORM_BLOCK 135
+#define VK_FORMAT_BC2_SRGB_BLOCK 136
+#define VK_FORMAT_BC3_UNORM_BLOCK 137
+#define VK_FORMAT_BC3_SRGB_BLOCK 138
+#define VK_FORMAT_BC4_UNORM_BLOCK 139
+#define VK_FORMAT_BC4_SNORM_BLOCK 140
+#define VK_FORMAT_BC5_UNORM_BLOCK 141
+#define VK_FORMAT_BC5_SNORM_BLOCK 142
+
 // The shader will be dispatched with one invocation per pixel of the output image.
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -98,7 +111,7 @@ bool decode_endpoints_color(uint payload, out vec3 ep0, out vec3 ep1, uint src_f
     // The color block is always in 4-color mode if a separate alpha block (BC2, BC3) is present.
     // Otherwise, for BC1, it depends on the endpoint color values.
     // BC2 formats are 135-136, BC3 are 137-138.
-    bool has_separate_alpha = (src_format >= 135 && src_format <= 138);
+    bool has_separate_alpha = (src_format >= VK_FORMAT_BC2_UNORM_BLOCK && src_format <= VK_FORMAT_BC3_SRGB_BLOCK);
     bool opaque_mode = has_separate_alpha || (color0 > color1);
 
     ep0 = decode_endpoint_color(color0);
@@ -106,38 +119,40 @@ bool decode_endpoints_color(uint payload, out vec3 ep0, out vec3 ep1, uint src_f
     return opaque_mode;
 }
 
+
 vec4 interpolate_endpoint_color(vec3 ep0, vec3 ep1, int bits, bool opaque_mode)
 {
-    vec4 res;
-    vec3 lerped;
+    // Note: this was changed from the original into a direct LUT implementation of BC1 
+    // This gets rid of the clever use of mix and if-branches to avoid divergence
+    // This is counterintuitive as the prior implementation avoids computing the unnecessary
+    // palette entries, but FLOPs are relatively low-cost, and divergence is the main
+    // culprit of stalling in the GPU.
     if (opaque_mode)
     {
-        if (bits < 2)
-            lerped = bits != 0 ? ep1 : ep0;
-        else
-            lerped = mix(ep0, ep1, (1.0 / 3.0) * float(bits - 1));
-        res = vec4(lerped, 1.0);
+        // 4-color mode (BC1 opaque, BC2, BC3, BC5)
+        vec3 palette[4];
+        palette[0] = ep0;
+        palette[1] = ep1;
+        palette[2] = (2.0 * ep0 + 1.0 * ep1) / 3.0;
+        palette[3] = (1.0 * ep0 + 2.0 * ep1) / 3.0;
+        return vec4(palette[bits], 1.0);
     }
     else
     {
-        if (bits == 3) // Special transparent case for BC1
-        {
-            res = vec4(0);
-        }
-        else
-        {
-            if (bits == 0)
-                lerped = ep0;
-            else if (bits == 1)
-                lerped = ep1;
-            else
-                lerped = 0.5 * (ep0 + ep1);
-            res = vec4(lerped, 1.0);
+        // 3-color + transparent mode (BC1 with alpha)
+        vec3 palette[3];
+        palette[0] = ep0;
+        palette[1] = ep1;
+        palette[2] = 0.5 * (ep0 + ep1);
+
+        if (bits == 3) {
+            return vec4(0.0); // Transparent black
+        } else {
+            return vec4(palette[bits], 1.0);
         }
     }
-
-    return res;
 }
+
 
 vec4 decode_color_bc1_3(uvec2 color_payload, uint linear_pixel, uint src_format)
 {
@@ -164,8 +179,8 @@ void main() {
         ivec2 block_coord = pixel_coord / 4;
         uint block_stride = push_constants.srcRowLength / 4;
         uint block_index = block_coord.y * block_stride + block_coord.x;
-        bool is_bc1 = push_constants.srcFormat >= 131 && push_constants.srcFormat <= 134;
-        bool is_bc4 = push_constants.srcFormat == 139 || push_constants.srcFormat == 140;
+        bool is_bc1 = push_constants.srcFormat >= VK_FORMAT_BC1_RGB_UNORM_BLOCK && push_constants.srcFormat <= VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
+        bool is_bc4 = push_constants.srcFormat == VK_FORMAT_BC4_UNORM_BLOCK || push_constants.srcFormat == VK_FORMAT_BC4_SNORM_BLOCK;
 
         if (is_bc1 || is_bc4) {
             // 2 quads per 4x4 block
@@ -191,12 +206,19 @@ void main() {
     uvec4 payload = shared_block_data[shared_idx];
 
     // Find the specific pixel this thread is responsible for within its 4x4 block
-    ivec2 tile_coord = pixel_coord & 4;
+    ivec2 tile_coord = pixel_coord % 4;
     uint linear_pixel = 4 * tile_coord.y + tile_coord.x;
 
     vec4 decompressed_color;
     uint format = push_constants.srcFormat;
-    if (format >= 131 && format <= 134) {
+
+    bool is_srgb = false;
+    if (format == VK_FORMAT_BC1_RGB_SRGB_BLOCK || format == VK_FORMAT_BC1_RGBA_SRGB_BLOCK 
+        || format == VK_FORMAT_BC2_SRGB_BLOCK || format == VK_FORMAT_BC3_SRGB_BLOCK) {
+        is_srgb = true;
+    }
+
+    if (format >= VK_FORMAT_BC1_RGB_UNORM_BLOCK && format <= VK_FORMAT_BC1_RGBA_SRGB_BLOCK) {
         // VK_FORMAT_BC1_RGB_UNORM_BLOCK = 131,
         // VK_FORMAT_BC1_RGB_SRGB_BLOCK = 132,
         // VK_FORMAT_BC1_RGBA_UNORM_BLOCK = 133,
@@ -204,11 +226,11 @@ void main() {
         // BC1 blocks are 8 bytes (2 uints)
         uvec2 block_data = uvec2(payload.xy);
         decompressed_color = decode_color_bc1_3(block_data, linear_pixel, format);
-        // Check for RGB without alpha
-        if (format == 133 || format == 134) {
+        // Check for VK_FORMAT_BC1_RGB_UNORM_BLOCK/VK_FORMAT_BC1_RGB_SRGB_BLOCK without alpha
+        if (format == VK_FORMAT_BC1_RGB_UNORM_BLOCK || format == VK_FORMAT_BC1_RGB_SRGB_BLOCK) {
             decompressed_color.a = 1.0;
         }
-    } else if (format >= 135 && format <= 136) {
+    } else if (format >= VK_FORMAT_BC2_UNORM_BLOCK && format <= VK_FORMAT_BC2_SRGB_BLOCK) {
         // VK_FORMAT_BC2_UNORM_BLOCK = 135,
         // VK_FORMAT_BC2_SRGB_BLOCK = 136,
         // BC2 blocks are 16 bytes (4 uints)
@@ -216,7 +238,7 @@ void main() {
         uvec2 color_payload = payload.zw;
         decompressed_color = decode_color_bc1_3(color_payload, linear_pixel, format);
         decompressed_color.a = decode_alpha_4bit(alpha_payload, int(linear_pixel));
-    } else if (format == 137 || format == 138) {
+    } else if (format == VK_FORMAT_BC3_UNORM_BLOCK || format == VK_FORMAT_BC3_SRGB_BLOCK) {
         // VK_FORMAT_BC3_UNORM_BLOCK = 137,
         // VK_FORMAT_BC3_SRGB_BLOCK = 138,
         // BC3 blocks are 16 bytes (4 uints)
@@ -224,26 +246,26 @@ void main() {
         uvec2 color_payload = payload.zw;
         decompressed_color = decode_color_bc1_3(color_payload, linear_pixel, format);
         decompressed_color.a = decode_alpha_rgtc(alpha_payload, int(linear_pixel));
-    } else if (format == 139 || format == 140) {
+    } else if (format == VK_FORMAT_BC4_UNORM_BLOCK || format == VK_FORMAT_BC4_SNORM_BLOCK) {
         // VK_FORMAT_BC4_UNORM_BLOCK = 139,
         // VK_FORMAT_BC4_SNORM_BLOCK = 140,
         // BC4 blocks are 8 bytes (2 uints)
         uvec2 block_data = uvec2(payload.xy);
         float r;
-        if (format == 139) { // UNORM
+        if (format == VK_FORMAT_BC4_UNORM_BLOCK) { // UNORM
             r = decode_alpha_rgtc(block_data, int(linear_pixel));
         } else { // SNORM
             r = decode_alpha_rgtc_snorm(block_data, int(linear_pixel));
         }
         decompressed_color = vec4(r, r, r, 1.0);
-    } else if (format == 141 || format == 142) {
+    } else if (format == VK_FORMAT_BC5_UNORM_BLOCK || format == VK_FORMAT_BC5_SNORM_BLOCK) {
         // VK_FORMAT_BC5_UNORM_BLOCK = 141,
         // VK_FORMAT_BC5_SNORM_BLOCK = 142,
         // BC5 blocks are 16 bytes (4 uints)
         uvec2 r_payload = payload.xy;
         uvec2 g_payload = payload.zw;
         float r, g;
-        if (format == 141) { // UNORM
+        if (format == VK_FORMAT_BC5_UNORM_BLOCK) { // UNORM
             r = decode_alpha_rgtc(r_payload, int(linear_pixel));
             g = decode_alpha_rgtc(g_payload, int(linear_pixel));
         } else { // SNORM
@@ -256,6 +278,10 @@ void main() {
         decompressed_color = vec4(1.0, 0.0, 1.0, 1.0);
     }
 
+    if (is_srgb) {
+        decompressed_color.rgb = srgb_to_linear(decompressed_color.rgb);
+    }
+
     // Calculate the final destination coordinate including the offset
     ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + pixel_coord;
 #ifdef USE_IMAGE_VIEW_OUTPUT
@@ -263,6 +289,6 @@ void main() {
 #else
     // Calculate the linear index into the destination buffer using its row length (dst_width is the stride)
     int dst_index = int(final_dst_coord.y * push_constants.dst_width + final_dst_coord.x);
-    dstBuffer.data[dst_index] =  vec4_to_rgba8(decompressed_color);
+    dstBuffer.data[dst_index] =  packUnorm4x8(decompressed_color);
 #endif
 }

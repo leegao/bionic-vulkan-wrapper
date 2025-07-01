@@ -181,9 +181,7 @@ struct wrapper_device {
    simple_mtx_t resource_mutex;
    struct list_head command_buffer_list;
    struct list_head device_memory_list;
-   // struct list_head buffer_list;
 
-   struct hash_table_u64* buffer_map;
    struct hash_table_u64* image_map;
 
    struct wrapper_physical_device *physical;
@@ -208,6 +206,11 @@ typedef struct wrapper_cmd_buffer_staging_buffer {
    VkDeviceMemory memory;
 } wrapper_cmd_buffer_staging_buffer;
 
+typedef struct wrapper_cmd_buffer_staging_image_view {
+   struct list_head link;
+   VkImageView imageView;
+} wrapper_cmd_buffer_staging_image_view;
+
 struct wrapper_command_buffer {
    struct vk_command_buffer vk;
 
@@ -220,6 +223,7 @@ struct wrapper_command_buffer {
    struct list_head temp_descriptor_pools;
 
    struct list_head temp_staging_buffers;
+   struct list_head temp_staging_image_views;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_command_buffer, vk.base, VkCommandBuffer,
@@ -243,6 +247,22 @@ static struct wrapper_cmd_buffer_staging_buffer* add_new_staging_buffer(
    return new_buffer;
 }
 
+static struct wrapper_cmd_buffer_staging_image_view* add_new_staging_image_view(
+   struct wrapper_command_buffer *wcb, VkImageView imageView)
+{
+   struct wrapper_cmd_buffer_staging_image_view *new_image_view =
+      vk_alloc(&wcb->device->vk.alloc, sizeof(wrapper_cmd_buffer_staging_image_view), 8,
+               VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
+   if (!new_image_view) {
+      __loge("Failed to allocate staging buffer structure");
+      return NULL;
+   }
+
+   new_image_view->imageView = imageView;
+   list_addtail(&new_image_view->link, &wcb->temp_staging_buffers);
+   return new_image_view;
+}
+
 struct wrapper_image {
    struct vk_image vk;
 
@@ -264,16 +284,6 @@ struct wrapper_device_memory {
    VkDeviceMemory dispatch_handle;
    const VkAllocationCallbacks *alloc;
 };
-
-typedef struct wrapper_buffer {
-   struct vk_buffer vk;
-
-   struct wrapper_device *device;
-   VkBuffer dispatch_handle;
-
-   VkDeviceMemory memory; // Pointer to the memory allocated by vkAllocateMemory
-   VkDeviceSize memoryOffset; // Size of the memory allocated by vkAllocateMemory
-} wrapper_buffer;
 
 VkResult enumerate_physical_device(struct vk_instance *_instance);
 void destroy_physical_device(struct vk_physical_device *pdevice);
@@ -304,10 +314,9 @@ static struct wtype * get_##wtype(struct wrapper_device *device, vtype handle) {
 }
 
 CREATE_FROM_HANDLE_FUNCTION(wrapper_image, VkImage, image_map)
-CREATE_FROM_HANDLE_FUNCTION(wrapper_buffer, VkBuffer, buffer_map)
 
 #define CREATE_FUNCTION_BODY(wtype, vtype, map, vk_type, init) \
-   struct wtype *obj = vk_object_zalloc(&device->vk, pAllocator, sizeof(struct wtype), vk_type); \
+   struct wtype *obj = vk_zalloc2(&device->vk.alloc, pAllocator, sizeof(struct wtype), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT); \
    if (!obj) \
       return NULL; \
    init; \
@@ -328,16 +337,6 @@ static struct wrapper_image *wrapper_image_create(struct wrapper_device *device,
                         vk_image_init(&device->vk, &obj->vk, pCreateInfo));
 }
 
-static struct wrapper_buffer *wrapper_buffer_create(struct wrapper_device *device,
-                     const VkBufferCreateInfo *pCreateInfo,
-                     const VkAllocationCallbacks *pAllocator,
-                     VkBuffer dispatch_handle)
-{
-   CREATE_FUNCTION_BODY(wrapper_buffer, VkBuffer, buffer_map,
-                        VK_OBJECT_TYPE_BUFFER,
-                        vk_buffer_init(&device->vk, &obj->vk, pCreateInfo));
-}
-
 #define CREATE_DESTROY_FUNCTION(wtype, map, destroy) \
 static void wtype##_destroy(struct wrapper_device *device, struct wtype *obj, const VkAllocationCallbacks* pAllocator) { \
    simple_mtx_lock(&device->resource_mutex); \
@@ -348,12 +347,8 @@ static void wtype##_destroy(struct wrapper_device *device, struct wtype *obj, co
 
 CREATE_DESTROY_FUNCTION(wrapper_image, image_map, {
    // vk_image_finish(&obj->vk);
+   // vk_free2(&device->vk.alloc, pAllocator, obj);
    vk_image_destroy(&device->vk, pAllocator, &obj->vk);
-});
-
-CREATE_DESTROY_FUNCTION(wrapper_buffer, buffer_map, {
-   // vk_buffer_finish(&obj->vk);
-   vk_buffer_destroy(&device->vk, pAllocator, &obj->vk);
 });
 
 // For BCn emulation
@@ -452,9 +447,13 @@ typedef struct {
     } u;
 } VkLayerDeviceCreateInfo;
 
-static VkFormat unwrap_vk_format_physical_device(struct wrapper_physical_device* device, VkFormat in_format) {
+static VkFormat unwrap_vk_format_physical_device(struct wrapper_physical_device* pdevice, VkFormat in_format) {
+   if (!pdevice) {
+      __loge("unwrap_vk_format: null pdevice");
+      return in_format;
+   }
    // Replace BCn formats with R8G8B8A8_UNORM if they are emulated
-   if (is_bc_image_format(in_format) && !device->base_supported_features.textureCompressionBC) {
+   if (is_bc_image_format(in_format) && !pdevice->base_supported_features.textureCompressionBC) {
       // VK_FORMAT_BC1_RGB_UNORM_BLOCK = 131, -> VK_FORMAT_R8G8B8A8_UNORM
       // VK_FORMAT_BC1_RGB_SRGB_BLOCK = 132, -> VK_FORMAT_R8G8B8A8_UNORM
       // VK_FORMAT_BC1_RGBA_UNORM_BLOCK = 133, -> VK_FORMAT_R8G8B8A8_UNORM
@@ -486,6 +485,10 @@ static VkFormat unwrap_vk_format_physical_device(struct wrapper_physical_device*
 }
 
 static VkFormat unwrap_vk_format(struct wrapper_device* device, VkFormat in_format) {
+   if (!device) {
+      __loge("unwrap_vk_format: null device");
+      return in_format;
+   }
    // Replace BCn formats with R8G8B8A8_UNORM if they are emulated
    return unwrap_vk_format_physical_device(device->physical, in_format);
 }
