@@ -111,7 +111,7 @@ def print_param(command, param, mode='input'):
         else:
             output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type} = %x\", (int64_t){param.name})");
             pass
-    output.append("    __vk_flush();")
+    output.append("    __vk_flush(2);")
     output.append("#endif")
     return output
 
@@ -133,9 +133,9 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
     elif params[0].type in ("VkDevice"):
         device = "base"
 
-    handle_unwrap_logic.append(f"#ifdef NEEDS_PRINTING_{command.name}")
-    handle_unwrap_logic.append(f"    __vk_println(\"{command.name}\");")
-    handle_unwrap_logic.append(f"#endif")
+    # handle_unwrap_logic.append(f"#ifdef NEEDS_PRINTING_{command.name}")
+    handle_unwrap_logic.append(f"    __vk_println_all(\"{command.name}\");")
+    # handle_unwrap_logic.append(f"#endif")
 
     handle_unwrap_logic.append(f"")
     idx = len(handle_unwrap_logic) - 1
@@ -276,15 +276,16 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
         handle_wrap_logic.append(f"#endif")
         # Print if result failed
         if command.return_type == 'VkResult' and command.name != "AllocateDescriptorSets":
+            logger = "__loge" if command.name != "AllocateDescriptorSets" else "__log"
             handle_wrap_logic.append(f"if (result != VK_SUCCESS) {{")
-            handle_wrap_logic.append(f"    __loge(\"Call to {command.name} with ({",".join(types)}) failed with result: %d\", {",".join(call)}, result);")
+            handle_wrap_logic.append(f"    {logger}(\"Call to {command.name} with ({",".join(types)}) failed with result: %d\", {",".join(call)}, result);")
             handle_wrap_logic.append(f"}}")
 
     return_block = "" if command.return_type == 'void' else "result"
     assign_block = "" if command.return_type == 'void' else f"{command.return_type} result = "
     
-    # handle_unwrap_logic[idx] = f"__loge(\"{command.name}({', '.join(types)})\", {', '.join([p.name for p in params])});"
-    # handle_wrap_logic.append(f"__loge(\"+ {command.name} finished\");")
+    handle_unwrap_logic[idx] = f"__loga(\"{command.name}({', '.join(types)})\", {', '.join([p.name for p in params])});"
+    # handle_wrap_logic.append(f"__log(\"+ {command.name} finished\");")
 
     return TRAMPOLINE_TEMPLATE.substitute(
         return_type=command.return_type,

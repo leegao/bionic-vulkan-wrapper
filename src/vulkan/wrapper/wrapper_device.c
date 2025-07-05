@@ -402,8 +402,8 @@ wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
       wrapper_submits[i] = pSubmits[i];
       wrapper_submits[i].pCommandBuffers = command_buffers;
    }
-   result = queue->device->dispatch_table.QueueSubmit(
-      queue->dispatch_handle, submitCount, wrapper_submits, fence);
+   result = CHECK(QueueSubmit(
+      _queue, submitCount, wrapper_submits, fence));
 
    for (int i = 0; i < submitCount; i++)
       free((void *)wrapper_submits[i].pCommandBuffers);
@@ -433,8 +433,8 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
       wrapper_submits[i] = pSubmits[i];
       wrapper_submits[i].pCommandBufferInfos = command_buffers;
    }
-   result = queue->device->dispatch_table.QueueSubmit2(
-      queue->dispatch_handle, submitCount, wrapper_submits, fence);
+   result = CHECK(QueueSubmit2(
+      _queue, submitCount, wrapper_submits, fence));
 
    for (int i = 0; i < submitCount; i++)
       free((void *)wrapper_submits[i].pCommandBufferInfos);
@@ -493,27 +493,35 @@ wrapper_command_buffer_destroy(struct wrapper_device *device,
 static VkResult add_new_temp_pool_to_cmd_buffer(struct wrapper_command_buffer *wcb) {
    struct wrapper_device *device = wcb->device;
    VkDescriptorPool new_pool_handle;
-   VkDescriptorPoolSize pool_sizes = {
-      .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 
-      .descriptorCount = 256
+   VkDescriptorPoolSize pool_sizes[2] = {
+      {
+         .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+         .descriptorCount = 32 // Sufficient for 32 sets, each needing one
+      },
+#ifdef USE_IMAGE_VIEW_OUTPUT
+      {
+         .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+         .descriptorCount = 32 // Sufficient for 32 sets, each needing one
+      },
+#endif
    };
 
    const VkDescriptorPoolCreateInfo create_info = {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
       .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-      .maxSets = 256, // A reasonable number for one command buffer's temp usage
-      .poolSizeCount = 1,
-      .pPoolSizes = &pool_sizes,
+      .maxSets = 32, // A reasonable number for one command buffer's temp usage
+      .poolSizeCount = 2,
+      .pPoolSizes = pool_sizes,
    };
 
    VkResult result = CHECK(CreateDescriptorPool((VkDevice) device, &create_info, NULL, &new_pool_handle));
-
    if (result == VK_SUCCESS) {
       struct wrapper_cmd_buffer_pool *new_pool_node =
          vk_alloc(&wcb->device->vk.alloc, sizeof(struct wrapper_cmd_buffer_pool), 8,
                   VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
       new_pool_node->pool = new_pool_handle;
       list_addtail(&new_pool_node->link, &wcb->temp_descriptor_pools);
+      __log("Total of %d temp descriptor pools created for buffer %p", list_length(&wcb->temp_descriptor_pools), wcb);
    }
    return result;
 }
@@ -529,9 +537,7 @@ wrapper_AllocateCommandBuffers(VkDevice _device,
    VkResult result;
    uint32_t i;
    
-   result = device->dispatch_table.AllocateCommandBuffers(device->dispatch_handle,
-                                                          pAllocateInfo,
-                                                          dispatch_handles);
+   result = CHECK(AllocateCommandBuffers(_device, pAllocateInfo, dispatch_handles));
    if (result != VK_SUCCESS)
       return result;
 
@@ -573,6 +579,16 @@ wrapper_AllocateCommandBuffers(VkDevice _device,
    return result;
 }
 
+static void wrapper_command_buffer_reset(VkDevice device, struct wrapper_command_buffer* wcb) {
+   // // Clean up temporary descriptor pools associated with this command buffer
+   if (!list_is_empty(&wcb->temp_descriptor_pools)) {
+      list_for_each_entry_safe(struct wrapper_cmd_buffer_pool, pool_node, &wcb->temp_descriptor_pools, link) {
+         CHECKV(DestroyDescriptorPool(device, pool_node->pool, NULL));
+         list_del(&pool_node->link);
+         vk_free(&wcb->device->vk.alloc, pool_node);
+      }
+   }
+}
 
 VKAPI_ATTR void VKAPI_CALL
 wrapper_FreeCommandBuffers(VkDevice _device,
@@ -596,17 +612,7 @@ wrapper_FreeCommandBuffers(VkDevice _device,
          continue;
       }
       dispatch_handles[i] = wcb->dispatch_handle;
-
-      // // Clean up temporary descriptor pools associated with this command buffer
-      if (!list_is_empty(&wcb->temp_descriptor_pools)) {
-         list_for_each_entry_safe(struct wrapper_cmd_buffer_pool, pool_node, &wcb->temp_descriptor_pools, link) {
-            CHECKV(DestroyDescriptorPool(_device, pool_node->pool, NULL));
-            list_del(&pool_node->link);
-            vk_free(&wcb->device->vk.alloc, pool_node);
-         }
-      }
-      simple_mtx_destroy(&wcb->temp_pool_mutex);
-
+      wrapper_command_buffer_reset(_device, wcb);
       // Clean up temporary staging buffers associated with this command buffer
       if (!list_is_empty(&wcb->temp_staging_buffers)) {
          list_for_each_entry_safe(struct wrapper_cmd_buffer_staging_buffer, staging_buf, &wcb->temp_staging_buffers, link) {
@@ -632,6 +638,7 @@ wrapper_FreeCommandBuffers(VkDevice _device,
          }
       }
 
+      simple_mtx_destroy(&wcb->temp_pool_mutex);
       wrapper_command_buffer_destroy(device, wcb);
    }
 
@@ -1086,7 +1093,12 @@ static void CmdComputeShaderForDecompression(
    VkDescriptorSet descriptorSet;
    if (list_is_empty(&_commandBuffer->temp_descriptor_pools)) {
       // The current pool is full or fragmented, create a new one for this command buffer
-      add_new_temp_pool_to_cmd_buffer(_commandBuffer);
+      result = add_new_temp_pool_to_cmd_buffer(_commandBuffer);
+      if (result != VK_SUCCESS) {
+         __loge("Failed to allocate temp descriptor pool for command buffer: %d", result);
+         simple_mtx_unlock(&_commandBuffer->temp_pool_mutex);
+         return;
+      }
    }
    struct wrapper_cmd_buffer_pool *last_pool_node =
       list_last_entry(&_commandBuffer->temp_descriptor_pools, struct wrapper_cmd_buffer_pool, link);
@@ -1101,7 +1113,12 @@ static void CmdComputeShaderForDecompression(
    if (result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL) {
       // The current pool is full or fragmented, create a new one for this command buffer
       __log("Descriptor pool exhausted, creating a new one for command buffer %p", _commandBuffer);
-      add_new_temp_pool_to_cmd_buffer(_commandBuffer);
+      result = add_new_temp_pool_to_cmd_buffer(_commandBuffer);
+      if (result != VK_SUCCESS) {
+         __loge("Failed to allocate temp descriptor pool for command buffer: %d", result);
+         simple_mtx_unlock(&_commandBuffer->temp_pool_mutex);
+         return;
+      }
       last_pool_node = list_last_entry(&_commandBuffer->temp_descriptor_pools, struct wrapper_cmd_buffer_pool, link);
       allocInfo.descriptorPool = last_pool_node->pool;
       result = wrapper_device_trampolines.AllocateDescriptorSets((VkDevice) _device, &allocInfo, &descriptorSet);
@@ -1110,7 +1127,7 @@ static void CmdComputeShaderForDecompression(
 
    // If it still fails, there's a bigger problem.
    if (result != VK_SUCCESS) {
-      __loge("Failed to allocate descriptor set: %d", result);
+      __loge("Failed to allocate descriptor set for BCn decompression: %d", result);
       return;
    }
 

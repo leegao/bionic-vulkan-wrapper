@@ -18,51 +18,69 @@ extern "C" {
 static FILE* __vk_print_fd;
 static int64_t __vk_start_ms;
 
-static int64_t currentTimeMillis() {
-  struct timeval time;
-  gettimeofday(&time, NULL);
-  int64_t s1 = (int64_t)(time.tv_sec) * 1000;
-  int64_t s2 = (time.tv_usec / 1000);
-  return s1 + s2;
-}
 
-static void ensure_fd() {
-    if (__vk_print_fd == NULL) {
-      char buf[256];
-      sprintf(buf, "/sdcard/Documents/Wrapper/vk_commands.txt");
-      __vk_print_fd = fopen(buf, "a");
-      __vk_start_ms = currentTimeMillis();
+static bool __cmd_log_initialized;
+static int __cmd_log_level;
+static FILE* __cmd_log_fd;
+
+static int should_log_cmd() {
+   if (__cmd_log_initialized) {
+      return __cmd_log_level;
    }
+
+   const char *log_level = getenv("WRAPPER_CMD_LOG_LEVEL");
+   if (!log_level) {
+      __cmd_log_level = 0;
+   } else if (strcmp(log_level, "all") == 0) {
+      __cmd_log_level = 2;
+   } else if (strcmp(log_level, "name") == 0) {
+      __cmd_log_level = 1;
+   } else {
+      __cmd_log_level = 0;
+   }
+
+   char time_str[20];
+   get_current_time_string(time_str, sizeof(time_str));
+   char path[256];
+   sprintf(path, "/sdcard/Documents/Wrapper/wrapper_cmds_%s.%d.txt", time_str, getpid());
+   __cmd_log_fd = fopen(path, "w");
+   if (!__cmd_log_fd) {
+      __log_level = 0;
+   }
+   __cmd_log_initialized = true;
+   return __cmd_log_level;
 }
 
-static void __vk_print(const char* fmt, ...) {
-   /*
-   ensure_fd();
-   va_list args;
-   va_start(args, fmt);
-   vfprintf(__vk_print_fd, fmt, args);
-   va_end(args);
-   */
-}
 
 static void __vk_println(const char* fmt, ...) {
-   /**/
-   ensure_fd();
-   // int64_t ms = currentTimeMillis() - __vk_start_ms;
-   // fprintf(__vk_print_fd, "%ld ", ms);
+   if (should_log_cmd() < 2) {
+      return;
+   }
    va_list args;
    va_start(args, fmt);
-   vfprintf(__vk_print_fd, fmt, args);
+   vfprintf(__cmd_log_fd, fmt, args);
    va_end(args);
-   fprintf(__vk_print_fd, "\n");
-   fflush(__vk_print_fd);
-   //*/
+   fprintf(__cmd_log_fd, "\n");
+   fflush(__cmd_log_fd);
 }
 
-static void __vk_flush() {
-   /**/
-   fflush(__vk_print_fd);
-   //*/
+static void __vk_println_all(const char* fmt, ...) {
+   if (should_log_cmd() < 1) {
+      return;
+   }
+   va_list args;
+   va_start(args, fmt);
+   vfprintf(__cmd_log_fd, fmt, args);
+   va_end(args);
+   fprintf(__cmd_log_fd, "\n");
+   fflush(__cmd_log_fd);
+}
+
+static void __vk_flush(int level) {
+   if (should_log_cmd() < level) {
+      return;
+   }
+   fflush(__cmd_log_fd);
 }
 
 % for s in all_vk_types:

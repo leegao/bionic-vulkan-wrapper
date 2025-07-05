@@ -104,14 +104,53 @@ extern const struct vk_instance_extension_table wrapper_instance_extensions;
 extern const struct vk_device_extension_table wrapper_device_extensions;
 extern const struct vk_device_extension_table wrapper_filter_extensions;
 
+static bool __log_initialized;
+static int __log_level;
 static FILE* __log_fd;
 
+static void get_current_time_string(char* buffer, size_t bufferSize) {
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    if (tm_info == NULL) {
+        buffer[0] = '\0';
+        return;
+    }
+    strftime(buffer, bufferSize, "%Y_%m_%d_%H.%M.%S", tm_info);
+}
+
+static int should_log() {
+   if (__log_initialized) {
+      return __log_level;
+   }
+
+   const char *log_level = getenv("WRAPPER_LOG_LEVEL");
+   if (!log_level) {
+      __log_level = 1;
+   } else if (strcmp(log_level, "all") == 0) {
+      __log_level = 3;
+   } else if (strcmp(log_level, "verbose") == 0) {
+      __log_level = 2;
+   } else if (strcmp(log_level, "error") == 0) {
+      __log_level = 1;
+   } else {
+      __log_level = 0;
+   }
+
+   char time_str[20];
+   get_current_time_string(time_str, sizeof(time_str));
+   char path[256];
+   sprintf(path, "/sdcard/Documents/Wrapper/wrapper_log_%s.%d.txt", time_str, getpid());
+   __log_fd = fopen(path, "w");
+   if (!__log_fd) {
+      __log_level = 0;
+   }
+   __log_initialized = true;
+   return __log_level;
+}
+
 static void __log(const char* fmt, ...) {
-#ifdef LOG_VERBOSE
-   if (__log_fd == NULL) {
-      char buf[256];
-      sprintf(buf, "/sdcard/Documents/Wrapper/wrapper.txt");
-      __log_fd = fopen(buf, "a");
+   if (should_log() < 2) {
+      return;
    }
    va_list args;
    va_start(args, fmt);
@@ -119,16 +158,25 @@ static void __log(const char* fmt, ...) {
    va_end(args);
    fprintf(__log_fd, "\n");
    fflush(__log_fd);
-#endif
 }
 
 static void __loge(const char* fmt, ...) {
-   if (__log_fd == NULL) {
-      char buf[256];
-      sprintf(buf, "/sdcard/Documents/Wrapper/wrapper.txt");
-      __log_fd = fopen(buf, "a");
+   if (should_log() < 1) {
+      return;
    }
    fprintf(__log_fd, "[ERROR] ");
+   va_list args;
+   va_start(args, fmt);
+   vfprintf(__log_fd, fmt, args);
+   va_end(args);
+   fprintf(__log_fd, "\n");
+   fflush(__log_fd);
+}
+
+static void __loga(const char* fmt, ...) {
+   if (should_log() < 3) {
+      return;
+   }
    va_list args;
    va_start(args, fmt);
    vfprintf(__log_fd, fmt, args);

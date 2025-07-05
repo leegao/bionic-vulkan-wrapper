@@ -45,6 +45,10 @@ unwrap_VkDeviceCreateInfo(struct wrapper_device *device,
 #define NEEDS_UNWRAPPING_${s}
 % endfor
 
+// TODO: Fix once unwrapping is completed
+#undef NEEDS_UNWRAPPING_VkSubmitInfo
+#undef NEEDS_UNWRAPPING_VkSubmitInfo2
+
 #ifdef __cplusplus
 }
 #endif
