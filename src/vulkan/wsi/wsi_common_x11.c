@@ -1894,6 +1894,7 @@ x11_image_init(VkDevice device_h, struct x11_swapchain *chain,
 
    result = wsi_create_image(&chain->base, &chain->base.image_info,
                              &image->base);
+   LOG_A("wsi_create_image: %d", result);
    if (result != VK_SUCCESS)
       return result;
 
@@ -2334,6 +2335,7 @@ x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
                              const VkAllocationCallbacks* pAllocator,
                              struct wsi_swapchain **swapchain_out)
 {
+   LOG_A("in x11_surface_create_swapchain");
    struct x11_swapchain *chain;
    xcb_void_cookie_t cookie;
    VkResult result;
@@ -2364,7 +2366,6 @@ x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
    const uint16_t cur_width = geometry->width;
    const uint16_t cur_height = geometry->height;
    free(geometry);
-
    /* Allocate the actual swapchain. The size depends on image count. */
    size_t size = sizeof(*chain) + pCreateInfo->minImageCount * sizeof(chain->images[0]);
    chain = vk_zalloc(pAllocator, size, 8,
@@ -2392,7 +2393,6 @@ x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
       vk_free(pAllocator, chain);
       return VK_ERROR_OUT_OF_HOST_MEMORY;
    }
-
    struct wsi_base_image_params *image_params = NULL;
    struct wsi_cpu_image_params cpu_image_params;
    struct wsi_drm_image_params drm_image_params;
@@ -2425,7 +2425,6 @@ x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
       }
       image_params = &drm_image_params.base;
    }
-
    result = wsi_swapchain_init(wsi_device, &chain->base, device, pCreateInfo,
                                image_params, pAllocator);
 
@@ -2484,7 +2483,6 @@ x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
     * 'PresentOptionSuboptimal' complete mode.
     */
    chain->copy_is_suboptimal = false;
-
    if (!wsi_device->sw) {
       /* For our swapchain we need to listen to following Present extension events:
        * - Configure: Window dimensions changed. Images in the swapchain might need
@@ -2526,10 +2524,10 @@ x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
    for (; image < chain->base.image_count; image++) {
       result = x11_image_init(device, chain, pCreateInfo, pAllocator,
                               &chain->images[image]);
+      LOG_A("x11_image_init: result = %d", result);
       if (result != VK_SUCCESS)
          goto fail_init_images;
    }
-
    /* Initialize queues for images in our swapchain. Possible queues are:
     * - Present queue: for images sent to the X server but not yet presented.
     * - Acquire queue: for images already presented but not yet released by the
@@ -2586,7 +2584,6 @@ x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
    assert(chain->has_present_queue || !chain->has_acquire_queue);
 
    *swapchain_out = &chain->base;
-
    return VK_SUCCESS;
 
 fail_init_images:

@@ -289,6 +289,6 @@ void main() {
 #else
     // Calculate the linear index into the destination buffer using its row length (dst_width is the stride)
     int dst_index = int(final_dst_coord.y * push_constants.dst_width + final_dst_coord.x);
-    dstBuffer.data[dst_index] =  packUnorm4x8(decompressed_color);
+    dstBuffer.data[dst_index] = packUnorm4x8(decompressed_color);
 #endif
 }

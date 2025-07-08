@@ -87,31 +87,33 @@ def print_param(command, param, mode='input'):
     token = 'in' if is_input else 'out'
     output = [f"#ifdef NEEDS_PRINTING_{command.name}"]
     if is_wrapped:
-        output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type} (handle) = %p\", {param.name});");
+        output.append(f"    VK_CMD_LOGA(\"  {token}: {param.name}: {param.type} (handle) = %p\", {param.name});");
     elif is_struct:
         if not param.num_pointers: # Impossible
             output.append(f"#error: Impossible case struct+non-ptr {command.name} {param}")
         elif is_array and is_ptr1:
             # VkObject[10]
-            output.append(f"    __vk_println(\"  {token}: {param.name}[]: {param.type}\");");
+            output.append(f"    VK_CMD_LOGA(\"  {token}: {param.name}[]: {param.type}\");");
             output.append(f"    for (int i = 0; i < {param.len}; i++) {{")
-            output.append(f"        __vk_println(\"    {param.name}[%d]: {param.type}\", i);");
-            output.append(f"        vk_print_{param.type}(\"      \", &{param.name}[i]);")
+            output.append(f"        VK_CMD_LOGA(\"    {param.name}[%d]: {param.type}\", i);");
+            output.append(f"        VK_PRINT_{param.type}(\"      \", &{param.name}[i]);")
             output.append("    }")
         elif is_ptr1:
-            output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type}*\");");
-            output.append(f"    vk_print_{param.type}(\"    \", {param.name});")
+            output.append(f"    VK_CMD_LOGA(\"  {token}: {param.name}: {param.type}*\");");
+            output.append(f"    VK_PRINT_{param.type}(\"    \", {param.name});")
         else:
-            output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type}** = %p\", {param.name});");
+            output.append(f"    VK_CMD_LOGA(\"  {token}: {param.name}: {param.type}** = %p\", {param.name});");
     else:
         if not param.num_pointers:
-            output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type} = %x\", (int64_t){param.name});")
+            output.append(f"    VK_CMD_LOGA(\"  {token}: {param.name}: {param.type} = %x\", (int64_t){param.name});")
+        elif param.num_pointers and not is_input:
+            output.append(f"    VK_CMD_LOGA(\"  {token}: *{param.name}: {param.type} = %x\", (int64_t)*{param.name});")
         elif param.num_pointers:
-            output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type} = %x\", (int64_t){param.name});")
+            output.append(f"    VK_CMD_LOGA(\"  {token}: {param.name}: {param.type}{'*' * param.num_pointers} = %x\", (int64_t){param.name});")
         else:
-            output.append(f"    __vk_println(\"  {token}: {param.name}: {param.type} = %x\", (int64_t){param.name})");
+            output.append(f"    VK_CMD_LOGA(\"  {token}: {param.name}: {param.type} = %x\", (int64_t){param.name})");
             pass
-    output.append("    __vk_flush(2);")
+    output.append("    VK_CMD_FLUSH();")
     output.append("#endif")
     return output
 
@@ -134,7 +136,7 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
         device = "base"
 
     # handle_unwrap_logic.append(f"#ifdef NEEDS_PRINTING_{command.name}")
-    handle_unwrap_logic.append(f"    __vk_println_all(\"{command.name}\");")
+    handle_unwrap_logic.append(f"    VK_CMD_LOG(\"{command.name}\");")
     # handle_unwrap_logic.append(f"#endif")
 
     handle_unwrap_logic.append(f"")
@@ -276,7 +278,7 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
         handle_wrap_logic.append(f"#endif")
         # Print if result failed
         if command.return_type == 'VkResult' and command.name != "AllocateDescriptorSets":
-            logger = "__loge" if command.name != "AllocateDescriptorSets" else "__log"
+            logger = "WLOGE" if command.name not in ("AllocateDescriptorSets", "GetPhysicalDeviceImageFormatProperties") else "WLOG"
             handle_wrap_logic.append(f"if (result != VK_SUCCESS) {{")
             handle_wrap_logic.append(f"    {logger}(\"Call to {command.name} with ({",".join(types)}) failed with result: %d\", {",".join(call)}, result);")
             handle_wrap_logic.append(f"}}")
@@ -284,8 +286,7 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
     return_block = "" if command.return_type == 'void' else "result"
     assign_block = "" if command.return_type == 'void' else f"{command.return_type} result = "
     
-    handle_unwrap_logic[idx] = f"__loga(\"{command.name}({', '.join(types)})\", {', '.join([p.name for p in params])});"
-    # handle_wrap_logic.append(f"__log(\"+ {command.name} finished\");")
+    handle_unwrap_logic[idx] = f"WLOGA(\"{command.name}({', '.join(types)})\", {', '.join([p.name for p in params])});"
 
     return TRAMPOLINE_TEMPLATE.substitute(
         return_type=command.return_type,

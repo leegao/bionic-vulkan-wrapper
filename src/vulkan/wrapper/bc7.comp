@@ -44,10 +44,10 @@ layout(push_constant) uniform PushConstants {
     uint srcImageHeight;
 
     // The destination image parameters.
-    int offsetx;
-    int offsety;
-    uint dst_width;
-    uint dst_height;
+    int offsetx; // region->imageOffset.x
+    int offsety; // region->imageOffset.y
+    uint dst_width; // region->imageExtent.width
+    uint dst_height; // region->imageExtent.height
 } push_constants;
 
 // --- Buffers ---
@@ -71,8 +71,8 @@ layout(set = 0, binding = 1) writeonly buffer DestinationBuffer {
 
 // --- BC7 Tables and Helper Functions ---
 
-const int weight_table2[4] = int[](0, 21, 43, 64);
-const int weight_table3[8] = int[](0, 9, 18, 27, 37, 46, 55, 64);
+const int weight_table2[16] = int[](0, 21, 43, 64, 0,0,0,0, 0,0,0,0, 0,0,0,0);
+const int weight_table3[16] = int[](0, 9, 18, 27, 37, 46, 55, 64, 0,0,0,0, 0,0,0,0);
 const int weight_table4[16] = int[](0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64);
 
 #define P3(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) \
@@ -82,39 +82,77 @@ const int weight_table4[16] = int[](0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47,
     ((m) << 24) | ((n) << 26) | ((o) << 28) | ((p) << 30))
 
 const int partition_table3[64] = int[](
-    P3(0, 0, 1, 1, 0, 0, 1, 1, 0, 2, 2, 1, 2, 2, 2, 2), P3(0, 0, 0, 1, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2, 2, 1),
-    P3(0, 0, 0, 0, 2, 0, 0, 1, 2, 2, 1, 1, 2, 2, 1, 1), P3(0, 2, 2, 2, 0, 0, 2, 2, 0, 0, 1, 1, 0, 1, 1, 1),
-    P3(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2), P3(0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 2, 2, 0, 0, 2, 2),
-    P3(0, 0, 2, 2, 0, 0, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1), P3(0, 0, 1, 1, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1),
-    P3(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2), P3(0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2),
-    P3(0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2), P3(0, 0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2),
-    P3(0, 1, 1, 2, 0, 1, 1, 2, 0, 1, 1, 2, 0, 1, 1, 2), P3(0, 1, 2, 2, 0, 1, 2, 2, 0, 1, 2, 2, 0, 1, 2, 2),
-    P3(0, 0, 1, 1, 0, 1, 1, 2, 1, 1, 2, 2, 1, 2, 2, 2), P3(0, 0, 1, 1, 2, 0, 0, 1, 2, 2, 0, 0, 2, 2, 2, 0),
-    P3(0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 2, 1, 1, 2, 2), P3(0, 1, 1, 1, 0, 0, 1, 1, 2, 0, 0, 1, 2, 2, 0, 0),
-    P3(0, 0, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2), P3(0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 1, 1, 1, 1),
-    P3(0, 1, 1, 1, 0, 1, 1, 1, 0, 2, 2, 2, 0, 2, 2, 2), P3(0, 0, 0, 1, 0, 0, 0, 1, 2, 2, 2, 1, 2, 2, 2, 1),
-    P3(0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 2, 2, 0, 1, 2, 2), P3(0, 0, 0, 0, 1, 1, 0, 0, 2, 2, 1, 0, 2, 2, 1, 0),
-    P3(0, 1, 2, 2, 0, 1, 2, 2, 0, 0, 1, 1, 0, 0, 0, 0), P3(0, 0, 1, 2, 0, 0, 1, 2, 1, 1, 2, 2, 2, 2, 2, 2),
-    P3(0, 1, 1, 0, 1, 2, 2, 1, 1, 2, 2, 1, 0, 1, 1, 0), P3(0, 0, 0, 0, 0, 1, 1, 0, 1, 2, 2, 1, 1, 2, 2, 1),
-    P3(0, 0, 2, 2, 1, 1, 0, 2, 1, 1, 0, 2, 0, 0, 2, 2), P3(0, 1, 1, 0, 0, 1, 1, 0, 2, 0, 0, 2, 2, 2, 2, 2),
-    P3(0, 0, 1, 1, 0, 1, 2, 2, 0, 1, 2, 2, 0, 0, 1, 1), P3(0, 0, 0, 0, 2, 0, 0, 0, 2, 2, 1, 1, 2, 2, 2, 1),
-    P3(0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 2, 2, 1, 2, 2, 2), P3(0, 2, 2, 2, 0, 0, 2, 2, 0, 0, 1, 2, 0, 0, 1, 1),
-    P3(0, 0, 1, 1, 0, 0, 1, 2, 0, 0, 2, 2, 0, 2, 2, 2), P3(0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2, 0),
-    P3(0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 0, 0, 0, 0), P3(0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0),
-    P3(0, 1, 2, 0, 2, 0, 1, 2, 1, 2, 0, 1, 0, 1, 2, 0), P3(0, 0, 1, 1, 2, 2, 0, 0, 1, 1, 2, 2, 0, 0, 1, 1),
-    P3(0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 0, 0, 0, 0, 1, 1), P3(0, 1, 0, 1, 0, 1, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2),
-    P3(0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 2, 1, 2, 1, 2, 1), P3(0, 0, 2, 2, 1, 1, 2, 2, 0, 0, 2, 2, 1, 1, 2, 2),
-    P3(0, 0, 2, 2, 0, 0, 1, 1, 0, 0, 2, 2, 0, 0, 1, 1), P3(0, 2, 2, 0, 1, 2, 2, 1, 0, 2, 2, 0, 1, 2, 2, 1),
-    P3(0, 1, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 0, 1, 0, 1), P3(0, 0, 0, 0, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1),
-    P3(0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 2, 2, 2, 2), P3(0, 2, 2, 2, 0, 1, 1, 1, 0, 2, 2, 2, 0, 1, 1, 1),
-    P3(0, 0, 0, 2, 1, 1, 1, 2, 0, 0, 0, 2, 1, 1, 1, 2), P3(0, 0, 0, 0, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2),
-    P3(0, 2, 2, 2, 0, 1, 1, 1, 0, 1, 1, 1, 0, 2, 2, 2), P3(0, 0, 0, 2, 1, 1, 1, 2, 1, 1, 1, 2, 0, 0, 0, 2),
-    P3(0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 2, 2, 2, 2), P3(0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 2, 2, 1, 1, 2),
-    P3(0, 1, 1, 0, 0, 1, 1, 0, 2, 2, 2, 2, 2, 2, 2, 2), P3(0, 0, 2, 2, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 2, 2),
-    P3(0, 0, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 0, 0, 2, 2), P3(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 2),
-    P3(0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1), P3(0, 2, 2, 2, 1, 2, 2, 2, 0, 2, 2, 2, 1, 2, 2, 2),
-    P3(0, 1, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2), P3(0, 1, 1, 1, 2, 0, 1, 1, 2, 2, 0, 1, 2, 2, 2, 0)
-);
+    P3(0, 0, 1, 1, 0, 0, 1, 1, 0, 2, 2, 1, 2, 2, 2, 2),
+    P3(0, 0, 0, 1, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2, 2, 1),
+    P3(0, 0, 0, 0, 2, 0, 0, 1, 2, 2, 1, 1, 2, 2, 1, 1),
+    P3(0, 2, 2, 2, 0, 0, 2, 2, 0, 0, 1, 1, 0, 1, 1, 1),
+    P3(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2),
+    P3(0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 2, 2, 0, 0, 2, 2),
+    P3(0, 0, 2, 2, 0, 0, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1),
+    P3(0, 0, 1, 1, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1),
+
+    P3(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2),
+    P3(0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2),
+    P3(0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2),
+    P3(0, 0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2),
+    P3(0, 1, 1, 2, 0, 1, 1, 2, 0, 1, 1, 2, 0, 1, 1, 2),
+    P3(0, 1, 2, 2, 0, 1, 2, 2, 0, 1, 2, 2, 0, 1, 2, 2),
+    P3(0, 0, 1, 1, 0, 1, 1, 2, 1, 1, 2, 2, 1, 2, 2, 2),
+    P3(0, 0, 1, 1, 2, 0, 0, 1, 2, 2, 0, 0, 2, 2, 2, 0),
+
+    P3(0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 2, 1, 1, 2, 2),
+    P3(0, 1, 1, 1, 0, 0, 1, 1, 2, 0, 0, 1, 2, 2, 0, 0),
+    P3(0, 0, 0, 0, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2),
+    P3(0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 1, 1, 1, 1),
+    P3(0, 1, 1, 1, 0, 1, 1, 1, 0, 2, 2, 2, 0, 2, 2, 2),
+    P3(0, 0, 0, 1, 0, 0, 0, 1, 2, 2, 2, 1, 2, 2, 2, 1),
+    P3(0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 2, 2, 0, 1, 2, 2),
+    P3(0, 0, 0, 0, 1, 1, 0, 0, 2, 2, 1, 0, 2, 2, 1, 0),
+
+    P3(0, 1, 2, 2, 0, 1, 2, 2, 0, 0, 1, 1, 0, 0, 0, 0),
+    P3(0, 0, 1, 2, 0, 0, 1, 2, 1, 1, 2, 2, 2, 2, 2, 2),
+    P3(0, 1, 1, 0, 1, 2, 2, 1, 1, 2, 2, 1, 0, 1, 1, 0),
+    P3(0, 0, 0, 0, 0, 1, 1, 0, 1, 2, 2, 1, 1, 2, 2, 1),
+    P3(0, 0, 2, 2, 1, 1, 0, 2, 1, 1, 0, 2, 0, 0, 2, 2),
+    P3(0, 1, 1, 0, 0, 1, 1, 0, 2, 0, 0, 2, 2, 2, 2, 2),
+    P3(0, 0, 1, 1, 0, 1, 2, 2, 0, 1, 2, 2, 0, 0, 1, 1),
+    P3(0, 0, 0, 0, 2, 0, 0, 0, 2, 2, 1, 1, 2, 2, 2, 1),
+
+    P3(0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 2, 2, 1, 2, 2, 2),
+    P3(0, 2, 2, 2, 0, 0, 2, 2, 0, 0, 1, 2, 0, 0, 1, 1),
+    P3(0, 0, 1, 1, 0, 0, 1, 2, 0, 0, 2, 2, 0, 2, 2, 2),
+    P3(0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2, 0, 0, 1, 2, 0),
+    P3(0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 0, 0, 0, 0),
+    P3(0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0),
+    P3(0, 1, 2, 0, 2, 0, 1, 2, 1, 2, 0, 1, 0, 1, 2, 0),
+    P3(0, 0, 1, 1, 2, 2, 0, 0, 1, 1, 2, 2, 0, 0, 1, 1),
+
+    P3(0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 0, 0, 0, 0, 1, 1),
+    P3(0, 1, 0, 1, 0, 1, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2),
+    P3(0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 2, 1, 2, 1, 2, 1),
+    P3(0, 0, 2, 2, 1, 1, 2, 2, 0, 0, 2, 2, 1, 1, 2, 2),
+    P3(0, 0, 2, 2, 0, 0, 1, 1, 0, 0, 2, 2, 0, 0, 1, 1),
+    P3(0, 2, 2, 0, 1, 2, 2, 1, 0, 2, 2, 0, 1, 2, 2, 1),
+    P3(0, 1, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 0, 1, 0, 1),
+    P3(0, 0, 0, 0, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1),
+
+    P3(0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 2, 2, 2, 2),
+    P3(0, 2, 2, 2, 0, 1, 1, 1, 0, 2, 2, 2, 0, 1, 1, 1),
+    P3(0, 0, 0, 2, 1, 1, 1, 2, 0, 0, 0, 2, 1, 1, 1, 2),
+    P3(0, 0, 0, 0, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2),
+    P3(0, 2, 2, 2, 0, 1, 1, 1, 0, 1, 1, 1, 0, 2, 2, 2),
+    P3(0, 0, 0, 2, 1, 1, 1, 2, 1, 1, 1, 2, 0, 0, 0, 2),
+    P3(0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 2, 2, 2, 2),
+    P3(0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 2, 2, 1, 1, 2),
+
+    P3(0, 1, 1, 0, 0, 1, 1, 0, 2, 2, 2, 2, 2, 2, 2, 2),
+    P3(0, 0, 2, 2, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 2, 2),
+    P3(0, 0, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 0, 0, 2, 2),
+    P3(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 1, 2),
+    P3(0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1),
+    P3(0, 2, 2, 2, 1, 2, 2, 2, 0, 2, 2, 2, 1, 2, 2, 2),
+    P3(0, 1, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2),
+    P3(0, 1, 1, 1, 2, 0, 1, 1, 2, 2, 0, 1, 2, 2, 2, 0));
 
 #define P2(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) \
     (((a) << 0) | ((b) << 1) | ((c) << 2) | ((d) << 3) | \
@@ -122,46 +160,87 @@ const int partition_table3[64] = int[](
     ((i) << 8) | ((j) << 9) | ((k) << 10) | ((l) << 11) | \
     ((m) << 12) | ((n) << 13) | ((o) << 14) | ((p) << 15))
 const int partition_table2[64] = int[](
-    P2(0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1), P2(0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1),
-    P2(0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1), P2(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1),
-    P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1), P2(0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1),
-    P2(0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1), P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1),
-    P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1), P2(0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-    P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1), P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1),
-    P2(0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1), P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1),
-    P2(0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1), P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1),
-    P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1), P2(0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0),
-    P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0), P2(0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0),
-    P2(0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0), P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0),
-    P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0), P2(0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1),
-    P2(0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0), P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0),
-    P2(0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0), P2(0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0),
-    P2(0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0), P2(0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0),
-    P2(0, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0), P2(0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0),
-    P2(0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1), P2(0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1),
-    P2(0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0), P2(0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0),
-    P2(0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0), P2(0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0),
-    P2(0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1), P2(0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1),
-    P2(0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0), P2(0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0),
-    P2(0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0), P2(0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0),
-    P2(0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0), P2(0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1),
-    P2(0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1), P2(0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0),
-    P2(0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0), P2(0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0),
-    P2(0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0), P2(0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0),
-    P2(0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1), P2(0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1),
-    P2(0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0), P2(0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0),
-    P2(0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1), P2(0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1),
-    P2(0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1), P2(0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1),
-    P2(0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1), P2(0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0),
-    P2(0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0), P2(0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1)
-);
+    P2(0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1),
+    P2(0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1),
+    P2(0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1),
+    P2(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1),
+    P2(0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1),
+
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1),
+    P2(0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1),
+    P2(0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1),
+
+    P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1),
+    P2(0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0),
+    P2(0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0),
+    P2(0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+    P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0),
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0),
+    P2(0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1),
+
+    P2(0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0),
+    P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0),
+    P2(0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0),
+    P2(0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0),
+    P2(0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0),
+    P2(0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0),
+    P2(0, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0),
+    P2(0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0),
+
+    P2(0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1),
+    P2(0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1),
+    P2(0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0),
+    P2(0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0),
+    P2(0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0),
+    P2(0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0),
+    P2(0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1),
+    P2(0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1),
+
+    P2(0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0),
+    P2(0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0),
+    P2(0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0),
+    P2(0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0),
+    P2(0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0),
+    P2(0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1),
+    P2(0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1),
+    P2(0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0),
+
+    P2(0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0),
+    P2(0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0),
+    P2(0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0),
+    P2(0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0),
+    P2(0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1),
+    P2(0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1),
+    P2(0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0),
+    P2(0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0),
+
+    P2(0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1),
+    P2(0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1),
+    P2(0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1),
+    P2(0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1),
+    P2(0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1),
+    P2(0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0),
+    P2(0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0),
+    P2(0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1));
 
 const int anchor_table2[64] = int[](
-    15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
-    15, 2, 8, 2, 2, 8, 8, 15, 2, 8, 2, 2, 8, 8, 2, 2,
-    15, 15, 6, 8, 2, 8, 15, 15, 2, 8, 2, 2, 2, 15, 15, 6,
-    6, 2, 6, 8, 15, 15, 2, 2, 15, 15, 15, 15, 15, 2, 2, 15
-);
+    15, 15, 15, 15, 15, 15, 15, 15,
+    15, 15, 15, 15, 15, 15, 15, 15,
+    15, 2, 8, 2, 2, 8, 8, 15,
+    2, 8, 2, 2, 8, 8, 2, 2,
+    15, 15, 6, 8, 2, 8, 15, 15,
+    2, 8, 2, 2, 2, 15, 15, 6,
+    6, 2, 6, 8, 15, 15, 2, 2,
+    15, 15, 15, 15, 15, 2, 2, 15);
 
 const ivec2 anchor_table3[64] = ivec2[](
     ivec2(3, 15), ivec2(3, 8), ivec2(15, 8), ivec2(15, 3), ivec2(8, 15), ivec2(3, 15), ivec2(15, 3), ivec2(15, 8),
@@ -447,10 +526,20 @@ DecodedInterpolation decode_bc7_mode7(uvec4 payload, int linear_pixel)
     return DecodedInterpolation(rgba0, rgba1, w, w, 0);
 }
 
+// int interpolate(int e0, int e1, int w) {
+//     w = w & 63;
+//     return (e0 * (64 - w) + e1 * w + 32) >> 6;
+// }
+
 uvec4 interpolate_endpoint(DecodedInterpolation interp)
 {
     uvec3 rgb = (((64u - interp.color_weight) * interp.ep0.rgb + interp.color_weight * interp.ep1.rgb + 32) >> 6);
     uint a = (((64u - interp.alpha_weight) * interp.ep0.a + interp.alpha_weight * interp.ep1.a + 32) >> 6);
+    // int r = interpolate(int(interp.ep0.r), int(interp.ep1.r), int(interp.color_weight));
+    // int g = interpolate(int(interp.ep0.g), int(interp.ep1.g), int(interp.color_weight));
+    // int b = interpolate(int(interp.ep0.b), int(interp.ep1.b), int(interp.color_weight));
+    // int a = interpolate(int(interp.ep0.a), int(interp.ep1.a), int(interp.alpha_weight));
+
     uvec4 rgba = uvec4(rgb, a);
 
     switch (interp.rotation)
@@ -506,65 +595,168 @@ void main() {
     // All invocations read the shared memory (only leaders fetch from main memory)
     uvec4 payload = shared_block_data[shared_idx];
     
-    uvec4 rgba_result;
-    // VK_FORMAT_BC7_... is 145 or 146. This shader only handles these.
-    if (push_constants.srcFormat < 145 || push_constants.srcFormat > 146) {
-        // Unsupported format for this shader, write an error color (magenta)
-        rgba_result = uvec4(255, 0, 255, 255);
-    } else {
-        // Find the specific pixel this thread is responsible for within its 4x4 block
-        ivec2 tile_coord = coord & 3;
-        int linear_pixel = 4 * tile_coord.y + tile_coord.x;
+    // Find the specific pixel this thread is responsible for within its 4x4 block
+    ivec2 tile_coord = coord & 3;
+    int linear_pixel = 4 * tile_coord.y + tile_coord.x;
 
-        // findLSB() returns the bit index of the least significant bit.
-        // This is the standard way to determine the BC7 mode.
-        int mode = findLSB(payload.x);
-        DecodedInterpolation interp;
-        switch (mode) {
-        case 0:
-            interp = decode_bc7_mode0(payload, linear_pixel);
-            break;
-        case 1:
-            interp = decode_bc7_mode1(payload, linear_pixel);
-            break;
-        case 2:
-            interp = decode_bc7_mode2(payload, linear_pixel);
-            break;
-        case 3:
-            interp = decode_bc7_mode3(payload, linear_pixel);
-            break;
-        case 4:
-            interp = decode_bc7_mode4(payload, linear_pixel);
-            break;
-        case 5:
-            interp = decode_bc7_mode5(payload, linear_pixel);
-            break;
-        case 6:
-            interp = decode_bc7_mode6(payload, linear_pixel);
-            break;
-        case 7:
-            interp = decode_bc7_mode7(payload, linear_pixel);
-            break;
-        default:
-            // Invalid mode, should not happen for valid BC7 data.
-            // We'll output magenta.
-            interp = DecodedInterpolation(uvec4(255, 0, 255, 255), uvec4(255, 0, 255, 255), 0, 0, 0);
-            break;
-        }
+    DecodedInterpolation interp;
+    // findLSB() returns the bit index of the least significant bit.
+    // This is the standard way to determine the BC7 mode.
+    int mode = findLSB(payload.x);
+    switch (mode) {
+    case 0:
+        interp = decode_bc7_mode0(payload, linear_pixel);
+        break;
+    case 1:
+        interp = decode_bc7_mode1(payload, linear_pixel);
+        break;
+    case 2:
+        interp = decode_bc7_mode2(payload, linear_pixel);
+        break;
+    case 3:
+        interp = decode_bc7_mode3(payload, linear_pixel);
+        break;
+    case 4:
+        interp = decode_bc7_mode4(payload, linear_pixel);
+        break;
+    case 5:
+        interp = decode_bc7_mode5(payload, linear_pixel);
+        break;
+    case 6:
+        interp = decode_bc7_mode6(payload, linear_pixel);
+        break;
+    case 7:
+        interp = decode_bc7_mode7(payload, linear_pixel);
+        break;
+    default:
+        // Invalid mode, should not happen for valid BC7 data.
+        interp = DecodedInterpolation(uvec4(255, 0, 255, 255), uvec4(255, 0, 255, 255), 0, 0, 0);
+        break;
+    }
 
-        rgba_result = interpolate_endpoint(interp); // Result is [0, 255] integer vector
-    }
-    vec4 final_color = vec4(rgba_result) / 255.0;
-    if (push_constants.srcFormat == 146) {
-        final_color.rgb = srgb_to_linear(final_color.rgb);
-    }
+    uvec4 rgba_result = interpolate_endpoint(interp);
     // Calculate the final destination coordinate including the offset
     ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + coord;
+
+    // NEW
+
+    // // Get the global coordinate of the pixel this invocation is responsible for.
+    // ivec2 global_coord = ivec2(gl_GlobalInvocationID.xy);
+
+    // // Apply boundary checks based on the destination region's extent.
+    // if (global_coord.x >= push_constants.dst_width || global_coord.y >= push_constants.dst_height)
+    // {
+    //     return;
+    // }
+
+    // // Calculate the final destination coordinate by applying the offset.
+    // ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + global_coord;
+    // // ivec2 dst_dims = imageSize(dstImage);
+    // // if (any(lessThan(final_dst_coord, ivec2(0))) || any(greaterThanEqual(final_dst_coord, dst_dims)))
+    // // {
+    // //     return;
+    // // }
+
+    // // --- GUARD 3: Source Stride Sanity Check ---
+    // // A stride of 0 in blocks would cause problems for any image taller than one block.
+    // uint blocks_per_row = push_constants.srcRowLength >> 2;
+    // // if (blocks_per_row == 0) {
+    // //     // This is an invalid configuration. Draw an error color and exit.
+    // //     imageStore(dstImage, final_dst_coord, uvec4(255, 0, 0, 255)); // Red = Bad Stride
+    // //     return;
+    // // }
+    // // --- Locate and fetch the BC7 block data from the source buffer ---
+
+    // // 1. Find the coordinate of the 4x4 pixel block (tile) this pixel belongs to.
+    // ivec2 tile_coord = global_coord >> 2; // Equivalent to final_dst_coord / 4
+
+    // // 2. Calculate the linear index of this block in the source buffer.
+    // // The source stride is given in pixels, so we convert it to blocks.
+    // // uint blocks_per_row = push_constants.srcRowLength >> 2;
+    // // Each block is 16 bytes (4 uints).
+    // uint buffer_base_index = (tile_coord.y * blocks_per_row + tile_coord.x) * 4;
+
+    // // --- GUARD 4: Physical Source Buffer Bounds Check (MOST CRITICAL) ---
+    // // This is the most likely source of a GPU fault.
+    // // Check if the 16 bytes (4 uints) we *intend* to read are within the allocated buffer size.
+    // // uint buffer_len = srcBuffer.data.length();
+    // // if (buffer_base_index + 3 >= buffer_len) {
+    // //     // We are about to read out of bounds. To help debug, we can write a special
+    // //     // color to the output image to see where the error is happening.
+    // //     imageStore(dstImage, final_dst_coord, uvec4(0, 0, 255, 255)); // Blue = Out-of-Bounds Read
+    // //     return;
+    // // }
+
+
+
+    // // 3. Fetch the 128-bit (16-byte) block data.
+    // uvec4 payload = uvec4(
+    //     srcBuffer.data[buffer_base_index + 0],
+    //     srcBuffer.data[buffer_base_index + 1],
+    //     srcBuffer.data[buffer_base_index + 2],
+    //     srcBuffer.data[buffer_base_index + 3]
+    // );
+
+    // // --- Decode the pixel color using the fetched block data ---
+
+    // // 1. Find the pixel's 2D coordinate within its 4x4 block.
+    // ivec2 pixel_in_tile_coord = final_dst_coord & 3; // Equivalent to final_dst_coord % 4
+
+    // // 2. Convert the 2D coordinate to a linear index (0-15).
+    // int linear_pixel = 4 * pixel_in_tile_coord.y + pixel_in_tile_coord.x;
+
+    // // 3. Decode the block using the same logic as the original shader.
+    // DecodedInterpolation interp;
+    // int mode = findLSB(payload.x);
+    // switch (mode)
+    // {
+    // case 0:
+    //     interp = decode_bc7_mode0(payload, linear_pixel);
+    //     break;
+    // case 1:
+    //     interp = decode_bc7_mode1(payload, linear_pixel);
+    //     break;
+    // case 2:
+    //     interp = decode_bc7_mode2(payload, linear_pixel);
+    //     break;
+    // case 3:
+    //     interp = decode_bc7_mode3(payload, linear_pixel);
+    //     break;
+    // case 4:
+    //     interp = decode_bc7_mode4(payload, linear_pixel);
+    //     break;
+    // case 5:
+    //     interp = decode_bc7_mode5(payload, linear_pixel);
+    //     break;
+    // case 6:
+    //     interp = decode_bc7_mode6(payload, linear_pixel);
+    //     break;
+    // case 7:
+    //     interp = decode_bc7_mode7(payload, linear_pixel);
+    //     break;
+    // default:
+    //     // This case handles invalid block data (mode bit not in 0-7).
+    //     // Produces a black, transparent pixel.
+    //     interp = DecodedInterpolation(uvec4(0), uvec4(0), 0, 0, 0);
+    //     break;
+    // }
+
+    // // Interpolate the final color and handle component rotation.
+    // uvec4 rgba_result = interpolate_endpoint(interp);
+    // // ivec2 offset = ivec2(push_constants.offsetx, push_constants.offsety);
+    // // final_dst_coord = offset + global_coord;
+
+    // // ivec2 dst_dims = imageSize(dstImage);
+    // // if (any(greaterThanEqual(final_dst_coord, dst_dims))) {
+    // //     return;
+    // // }
+
 #ifdef USE_IMAGE_VIEW_OUTPUT
-    imageStore(dstImage, final_dst_coord, final_color);
+    imageStore(dstImage, final_dst_coord, rgba_result / 255.0);
+    // imageStore(dstImage, final_dst_coord, vec4(1.0,0,1.0,1.0));
 #else
     // Calculate the linear index into the destination buffer using its row length (dst_width is the stride)
     int dst_index = int(final_dst_coord.y * push_constants.dst_width + final_dst_coord.x);
-    dstBuffer.data[dst_index] =  packUnorm4x8(final_color);
+    dstBuffer.data[dst_index] =  packUnorm4x8(rgba_result);
 #endif
 }

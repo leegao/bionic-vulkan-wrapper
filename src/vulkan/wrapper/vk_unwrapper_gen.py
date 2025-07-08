@@ -204,6 +204,11 @@ VK_TYPES_BLACKLIST = [
     'VkCuLaunchInfoNVX', # void**
     'VkCudaLaunchInfoNV', # void**
     'VkPipelineCreationFeedbackCreateInfo', # VkPipelineCreationFeedback**
+    'StdVideoH264PictureParameterSet',
+    'StdVideoH264SequenceParameterSet',
+    'StdVideoH265VideoParameterSet',
+    'StdVideoH265SequenceParameterSet',
+    'StdVideoH265PictureParameterSet',
 ]
 
 WRAPPER_SPECIAL_TYPES = {

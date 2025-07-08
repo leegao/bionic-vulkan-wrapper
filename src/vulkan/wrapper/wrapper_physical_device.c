@@ -11,13 +11,7 @@
 #include "vk_util.h"
 #include "wsi_common.h"
 #include "util/os_misc.h"
-
-int __android_log_print(
-  int prio,
-  const char *tag,
-  const char *fmt,
-  ...
-);
+#include "vk_printers.h"
 
 static VkResult
 wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
@@ -32,6 +26,15 @@ wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
 
    if (result != VK_SUCCESS)
       return result;
+   
+   static bool has_already_logged_properties = false;
+   if (!has_already_logged_properties) {
+      has_already_logged_properties = true;
+      WLOGD("EnumerateDeviceExtensionProperties:");
+      for (int i = 0; i < pdevice_extension_count; i++) {
+         LOG_STRUCT(VkExtensionProperties, &pdevice_extensions[i]);
+      }
+   }
 
    *exts = wrapper_device_extensions;
 
@@ -54,6 +57,12 @@ wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
    }
 
    exts->KHR_present_wait = exts->KHR_timeline_semaphore;
+   if (check_flag("NO_PRESENT_WAIT", true)) {
+      if (exts->KHR_present_wait) {
+         WLOG("Disabling KHR_present_wait, some drivers misreport KHR_timeline_semaphore support (e.g. Adreno 6XX, disable by setting NO_PRESENT_WAIT=0)");
+         exts->KHR_present_wait = false;
+      }
+   }
 
    return VK_SUCCESS;
 }
@@ -147,6 +156,13 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       supported_features->presentWait = supported_features->timelineSemaphore;
       supported_features->swapchainMaintenance1 = true;
       supported_features->imageCompressionControlSwapchain = false;
+
+      if (check_flag("FORCE_BCN_EMULATION", false)) {
+         if (pdevice->base_supported_features.textureCompressionBC) {
+            WLOG("Forcing BCn emulation (disable by setting FORCE_BCN_EMULATION=0)");
+            pdevice->base_supported_features.textureCompressionBC = false;
+         }
+      }
       
       result = wsi_device_init(&pdevice->wsi_device,
                                wrapper_physical_device_to_handle(pdevice),
@@ -170,12 +186,23 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
          .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
          .pNext = &pdevice->driver_properties,
       };
+
+      LOG("Calling GetPhysicalDeviceProperties2");
       pdevice->dispatch_table.GetPhysicalDeviceProperties2(
          pdevice->dispatch_handle, &pdevice->properties2);
-         
+      
+      LOG("Calling GetPhysicalDeviceMemoryProperties");
       pdevice->dispatch_table.GetPhysicalDeviceMemoryProperties(
          pdevice->dispatch_handle, &pdevice->memory_properties);
-     
+      
+      static bool has_already_logged_properties = false;
+      if (!has_already_logged_properties) {
+         has_already_logged_properties = true;
+         WLOGD("GetPhysicalDeviceProperties2:");
+         LOG_STRUCT(VkPhysicalDeviceProperties2, &pdevice->properties2);
+         WLOGD("GetPhysicalDeviceMemoryProperties");
+         LOG_STRUCT(VkPhysicalDeviceMemoryProperties, &pdevice->memory_properties);
+      }
       const char *app_name = instance->vk.app_info.app_name
          ? instance->vk.app_info.app_name : "wrapper";
 
@@ -328,8 +355,8 @@ wrapper_GetPhysicalDeviceImageFormatProperties(VkPhysicalDevice physicalDevice,
    VkResult result;
    VK_FROM_HANDLE(wrapper_physical_device, pdevice, physicalDevice);
 
-   result = pdevice->dispatch_table.GetPhysicalDeviceImageFormatProperties(
-      pdevice->dispatch_handle, format, type, tiling, usage, flags, pImageFormatProperties);
+   result = wrapper_physical_device_trampolines.GetPhysicalDeviceImageFormatProperties(
+      physicalDevice, format, type, tiling, usage, flags, pImageFormatProperties);
       
    if (result == VK_ERROR_FORMAT_NOT_SUPPORTED && is_bc_image_format(format)) {
       if (type & VK_IMAGE_TYPE_1D) {
@@ -383,8 +410,8 @@ wrapper_GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
 {
    VkResult result;
    VK_FROM_HANDLE(wrapper_physical_device, pdevice, physicalDevice);
-   result = pdevice->dispatch_table.GetPhysicalDeviceImageFormatProperties2(
-         pdevice->dispatch_handle, pImageFormatInfo, pImageFormatProperties);
+   result = wrapper_physical_device_trampolines.GetPhysicalDeviceImageFormatProperties2(
+         physicalDevice, pImageFormatInfo, pImageFormatProperties);
    if (result == VK_ERROR_FORMAT_NOT_SUPPORTED && is_bc_image_format(pImageFormatInfo->format)) {
       if (pImageFormatInfo->type & VK_IMAGE_TYPE_1D) {
          pImageFormatProperties->imageFormatProperties.maxExtent.width = pdevice->properties2.properties.limits.maxImageDimension1D;

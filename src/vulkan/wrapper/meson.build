@@ -159,9 +159,40 @@ bc7 = custom_target(
 )
 
 
+s3tc_iv = custom_target(
+  's3tc_iv.spv.h',
+  input : [files('s3tc.comp')],
+  output : 's3tc_iv.spv.h',
+  command : [
+      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '-o', '@OUTPUT@', '@INPUT@',
+      glslang_quiet, glslang_depfile,
+  ],
+  depfile : 's3tc_iv.spv.h.d',
+)
+bc6_iv = custom_target(
+  'bc6_iv.spv.h',
+  input : [files('bc6.comp')],
+  output : 'bc6_iv.spv.h',
+  command : [
+      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '-o', '@OUTPUT@', '@INPUT@',
+      glslang_quiet, glslang_depfile,
+  ],
+  depfile : 'bc6_iv.spv.h.d',
+)
+bc7_iv = custom_target(
+  'bc7_iv.spv.h',
+  input : [files('bc7.comp')],
+  output : 'bc7_iv.spv.h',
+  command : [
+      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '-o', '@OUTPUT@', '@INPUT@',
+      glslang_quiet, glslang_depfile,
+  ],
+  depfile : 'bc7_iv.spv.h.d',
+)
+
 libvulkan_wrapper = shared_library(
   'vulkan_wrapper',
-  [wrapper_entrypoints, wrapper_trampolines, wrapper_features, wrapper_files, unwrappers, vk_printers, s3tc, bc6, bc7],
+  [wrapper_entrypoints, wrapper_trampolines, wrapper_features, wrapper_files, unwrappers, vk_printers, s3tc, bc6, bc7, s3tc_iv, bc6_iv, bc7_iv],
   include_directories: [
     inc_include,
     inc_src,

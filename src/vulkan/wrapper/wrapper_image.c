@@ -22,13 +22,14 @@ wrapper_CreateImage(VkDevice _device,
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
    bool emulate_bcn = is_bc_image_format(pCreateInfo->format)
-      && !device->physical->base_supported_features.textureCompressionBC;
+      && !device->physical->base_supported_features.textureCompressionBC
+      ;
 
    VkImageCreateInfo create_info = *pCreateInfo;
    VkResult result;
 
    if (emulate_bcn) {
-      __log("Calling CreateImage with bcn texture: %d", pCreateInfo->format);
+      WLOGD("Calling CreateImage with bcn texture: %d", pCreateInfo->format);
       create_info.format = unwrap_vk_format(device, pCreateInfo->format); // Done within the next layer
       create_info.usage |=  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
       create_info.flags &= 0xffffff7f;
@@ -39,7 +40,7 @@ wrapper_CreateImage(VkDevice _device,
          case VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO:
             VkImageFormatListCreateInfo *ext = (VkImageFormatListCreateInfo *) pnext;
             for (int i = 0; i < ext->viewFormatCount; i++) {
-               __log("  Replacing %d from view formats", ext->pViewFormats[i]);
+               WLOGD("  Replacing %d from view formats", ext->pViewFormats[i]);
             }
             if (ext->pViewFormats) {
                ext->viewFormatCount = 1;
@@ -54,13 +55,13 @@ wrapper_CreateImage(VkDevice _device,
                                                pAllocator,
                                                pImage);
    if (result != VK_SUCCESS) {
-      __loge("ERROR: CreateImage failed with result %d", result);
+      WLOGE("CreateImage failed with result %d", result);
       return result;
    }
 
    struct wrapper_image *w_image = wrapper_image_create(device, &create_info, pAllocator, *pImage);
    if (!w_image) {
-      __loge("ERROR: wrapper_image_create failed");
+      WLOGE("wrapper_image_create failed");
       return vk_error(&device->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
    }
 
@@ -81,7 +82,7 @@ wrapper_DestroyImage(VkDevice _device,
 
    struct wrapper_image* wimg = get_wrapper_image(device, _image);
    if (!wimg) {
-      __log("Could not get wrapper image for %p", _image);
+      WLOGD("Could not get wrapper image for %p", _image);
       return;
    }
 

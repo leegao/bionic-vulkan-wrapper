@@ -381,6 +381,15 @@ wsi_device_supports_explicit_sync(struct wsi_device *device);
       } \
    } while (0)
 
+int __android_log_print(
+  int prio,
+  const char *tag,
+  const char *fmt,
+  ...
+);
+
+#define LOG_A(...) __android_log_print(6, "Wrapper", __VA_ARGS__)
+
 #ifdef __cplusplus
 }
 #endif

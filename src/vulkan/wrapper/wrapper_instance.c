@@ -251,7 +251,6 @@ wrapper_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
          vk_instance_extensions[idx].extensionName;
    }
 
-   // __log("Hi there");
    set_wrapper_required_extensions(&instance->vk,
                                    &wrapper_enable_extension_count,
                                    wrapper_enable_extensions);

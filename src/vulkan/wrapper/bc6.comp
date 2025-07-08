@@ -800,9 +800,9 @@ void main() {
     imageStore(dstImage, final_dst_coord, final_rbga_color);
 #else
     // Pack into AABBGGRR format. Alpha is always 1.0 for BC6.
-    uint packed_color = (0xFF << 24) | (rgb8.b << 16) | (rgb8.g << 8) | rgb8.r;
+    // uint packed_color = (0xFF << 24) | (rgb8.b << 16) | (rgb8.g << 8) | rgb8.r;
     // Calculate the linear index into the destination buffer using its row length (dst_width is the stride)
     int dst_index = int(final_dst_coord.y * push_constants.dst_width + final_dst_coord.x);
-    dstBuffer.data[dst_index] =  packed_color;
+    dstBuffer.data[dst_index] =  0xffff00ff; // Magenta for now
 #endif
 }

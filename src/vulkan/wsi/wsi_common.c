@@ -768,6 +768,7 @@ wsi_create_image(const struct wsi_swapchain *chain,
                  const struct wsi_image_info *info,
                  struct wsi_image *image)
 {
+   LOG_A("In wsi_create_image");
    const struct wsi_device *wsi = chain->wsi;
    VkResult result;
 
@@ -785,6 +786,7 @@ wsi_create_image(const struct wsi_swapchain *chain,
       goto fail;
 
    result = info->create_mem(chain, info, image);
+   LOG_A("info->create_mem: %d", result);
    if (result != VK_SUCCESS)
       goto fail;
 
@@ -1036,6 +1038,7 @@ wsi_CreateSwapchainKHR(VkDevice _device,
                        const VkAllocationCallbacks *pAllocator,
                        VkSwapchainKHR *pSwapchain)
 {
+   LOG_A("Inside of wsi_CreateSwapchainKHR");
    MESA_TRACE_FUNC();
    VK_FROM_HANDLE(vk_device, device, _device);
    ICD_FROM_HANDLE(VkIcdSurfaceBase, surface, pCreateInfo->surface);
@@ -1068,6 +1071,7 @@ wsi_CreateSwapchainKHR(VkDevice _device,
    VkResult result = iface->create_swapchain(surface, _device, wsi_device,
                                              &info, alloc,
                                              &swapchain);
+   LOG_A("iface->create_swapchain: %d", result);
    if (result != VK_SUCCESS)
       return result;
 
@@ -1080,7 +1084,7 @@ wsi_CreateSwapchainKHR(VkDevice _device,
       return VK_ERROR_OUT_OF_HOST_MEMORY;
    }
 
-   if (wsi_device->khr_present_wait) {
+   if (wsi_device->khr_present_wait && false) {
       const VkSemaphoreTypeCreateInfo type_info = {
          .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
          .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
@@ -1813,6 +1817,7 @@ wsi_select_memory_type(const struct wsi_device *wsi,
    assert(type_bits != 0);
 
    VkMemoryPropertyFlags common_props = ~0;
+   uint32_t last_bit = -1;
    u_foreach_bit(t, type_bits) {
       const VkMemoryType type = wsi->memory_props.memoryTypes[t];
 
@@ -1823,6 +1828,10 @@ wsi_select_memory_type(const struct wsi_device *wsi,
 
       if (!(req_props & ~type.propertyFlags))
          return t;
+   }
+
+   if (last_bit > 0) {
+      return last_bit;
    }
 
    if ((deny_props & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) &&

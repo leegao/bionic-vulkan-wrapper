@@ -75,6 +75,7 @@ wsi_create_ahardware_buffer_image_mem(const struct wsi_swapchain *chain,
                                       const struct wsi_image_info *info,
                                       struct wsi_image *image)
 {
+   LOG_A("In wsi_create_ahardware_buffer_image_mem");
    const struct wsi_device *wsi = chain->wsi;
    VkImage old_image = image->image;
    VkResult result;
@@ -105,6 +106,9 @@ wsi_create_ahardware_buffer_image_mem(const struct wsi_swapchain *chain,
    if (result != VK_SUCCESS)
       return vk_errorf(NULL, result, "Failed to create image");
    wsi->DestroyImage(chain->device, old_image, &chain->alloc);
+   VkMemoryRequirements imageMemoryRequirements;
+   wsi->GetImageMemoryRequirements(chain->device, image->image, &imageMemoryRequirements);
+
    const VkMemoryDedicatedAllocateInfo memory_dedicated_info = {
       .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
       .image = image->image,
@@ -125,6 +129,7 @@ wsi_create_ahardware_buffer_image_mem(const struct wsi_swapchain *chain,
    };
    result = wsi->AllocateMemory(chain->device, &memory_info,
                                 &chain->alloc, &image->memory);
+   LOG_A("wsi->AllocateMemory: %d", result);
    if (result != VK_SUCCESS)
       return vk_errorf(NULL, result, "Failed to allocate memory");
    image->num_planes = 1;

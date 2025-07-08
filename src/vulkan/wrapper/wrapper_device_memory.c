@@ -304,24 +304,18 @@ wrapper_AllocateMemory(VkDevice _device,
    struct wrapper_device_memory *mem;
    VkResult result;
 
+   // LOG("in wrapper_AllocateMemory");
 
-#ifdef NEEDS_PRINTING_AllocateMemory
-    __vk_println("AllocateMemory");
-#endif
-#ifdef NEEDS_PRINTING_AllocateMemory
-    __vk_println("  in: device: VkDevice (handle) = %p", _device);
-    __vk_flush();
-#endif
-#ifdef NEEDS_PRINTING_AllocateMemory
-    __vk_println("  in: pAllocateInfo: VkMemoryAllocateInfo*");
-    vk_print_VkMemoryAllocateInfo("    ", pAllocateInfo);
-    __vk_flush();
-#endif
-#ifdef NEEDS_PRINTING_AllocateMemory
-    __vk_println("  in: pAllocator: VkAllocationCallbacks*");
-    vk_print_VkAllocationCallbacks("    ", pAllocator);
-    __vk_flush();
-#endif
+   //  __vk_println_all("AllocateMemory");
+   //  __loga("AllocateMemory(device: %p, pAllocateInfo: %p, pAllocator: %p, pMemory: %p)", device, pAllocateInfo, pAllocator, pMemory);
+   //  __vk_println("  in: device: VkDevice (handle) = %p", device);
+   //  __vk_flush(2);
+   //  __vk_println("  in: pAllocateInfo: VkMemoryAllocateInfo*");
+   //  vk_print_VkMemoryAllocateInfo("    ", pAllocateInfo);
+   //  __vk_flush(2);
+   //  __vk_println("  in: pAllocator: VkAllocationCallbacks*");
+   //  vk_print_VkAllocationCallbacks("    ", pAllocator);
+   //  __vk_flush(2);
 
    VkMemoryPropertyFlags property_flags =
       device->physical->memory_properties.memoryTypes[
@@ -375,19 +369,10 @@ wrapper_AllocateMemory(VkDevice _device,
 
 out:
    simple_mtx_unlock(&mem->device->resource_mutex);
-#ifdef NEEDS_PRINTING_AllocateMemory
-    __vk_println("  out: pMemory: VkDeviceMemory = %x (out)", (int64_t)*pMemory);
-    __vk_flush();
-#endif
    return result;
 
 fallback:
-   result = device->dispatch_table.AllocateMemory(device->dispatch_handle,
-      pAllocateInfo, pAllocator, pMemory);
-#ifdef NEEDS_PRINTING_AllocateMemory
-    __vk_println("  out: pMemory: VkDeviceMemory = %x (fallback)", (int64_t)*pMemory);
-    __vk_flush();
-#endif
+   result = CHECK(AllocateMemory(_device, pAllocateInfo, pAllocator, pMemory));
    return result;
 }
 

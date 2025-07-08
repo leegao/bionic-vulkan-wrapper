@@ -137,6 +137,7 @@ TEMPLATE_C = Template(COPYRIGHT + """
 #include "wrapper_private.h"
 #include "vk_physical_device_features.h"
 #include "vk_util.h"
+#include "vk_printers.h"
 
 void
 wrapper_setup_device_features(struct wrapper_physical_device *physical_device)
@@ -158,6 +159,13 @@ wrapper_setup_device_features(struct wrapper_physical_device *physical_device)
 
    physical_device->dispatch_table.GetPhysicalDeviceFeatures2(
       vk_physical_device, &supported_features2);
+   
+    static bool has_already_logged_properties = false;
+    if (!has_already_logged_properties) {
+        has_already_logged_properties = true;
+        WLOG("GetPhysicalDeviceFeatures2");
+        LOG_STRUCT(VkPhysicalDeviceFeatures2, &supported_features2);
+    }
 
    vk_set_physical_device_features(&physical_device->vk.supported_features,
                                    &supported_features2);

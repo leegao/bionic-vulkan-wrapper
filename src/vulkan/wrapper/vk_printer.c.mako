@@ -15,68 +15,97 @@ ${all_vk_types}
 % if s.name not in blacklisted_vk_types or s.name == 'VkShaderModuleCreateInfo':
 
 void
-vk_print_${s.name}(const char* prefix, const ${s.name} *in_info)
+vk_print_${s.name}(int can_log_level, int log_level, FILE* fd, const char* prefix, const ${s.name} *in_info)
 {
+    if (can_log_level < log_level) {
+        return;
+    }
+
     if (!in_info)
         return;
 
-    char next_prefix[256];
+    char next_prefix[32];
     sprintf(next_prefix, "  %s", prefix);
 
 % for member in s.members:
     // ${member.typep} ${member.name} = ${member}
     % if member.is_handle and member.num_pointers == 0:
-    __vk_println("%s.${member.name}: ${member.typep} (handle) = %p", prefix, in_info->${member.name});
+    VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} (handle) = %p", prefix, in_info->${member.name});
     % elif member.name == 'pNext':
     // Skipping pNext
     % elif member.name == 'sType':
     // Skipping sType
-    % elif '[' in member.text and ']' in member.text:
+    % elif member.type in blacklisted_vk_types:
+    // Skipping blacklisted type
+    % elif '[' in member.text and ']' in member.text and member.type == "char":
+    VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = '%s'", prefix, in_info->${member.name});
+    % elif '[' in member.text and ']' in member.text and not member.array_count_member:
     // Skipping array type
-    __vk_println("%s.${member.name}[...]: ${member.type} = '%p'", prefix, in_info->${member.name});
-    % elif member.num_pointers > 0:
+    VK_CMD_LOG_FD(fd, "%s.${member.name}[...]: ${member.type} = '%p'", prefix, in_info->${member.name});
+    % elif member.num_pointers > 0 or member.array_count_member:
         % if member.array_count_member and member.array_count_member == 'null-terminated': ## CStr
-    __vk_println("%s.${member.name}: ${member.typep} = '%s'", prefix, in_info->${member.name});
+    VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = '%s'", prefix, in_info->${member.name});
         % elif member.array_count_member and "latexmath" not in member.array_count_member: ## Array
     int count_${member.name} = in_info->${member.array_count_member};
     if (in_info->${member.name}) {
             % if member.type == 'void':
-        __vk_println("%s.${member.name}: ${member.typep} = %x", prefix, (int64_t)(in_info->${member.name}));
+        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = 0x%x", prefix, (int64_t)(in_info->${member.name}));
             % elif member.num_pointers > 1:
-        __vk_println("%s.${member.name}: ${member.typep} = %x", prefix, (int64_t)(in_info->${member.name}));
+        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = 0x%x", prefix, (int64_t)(in_info->${member.name}));
             % else:
         for (uint32_t i = 0; i < count_${member.name}; i++) {
                 % if member.is_handle and get_wrapper_type_for_vk_type(member.type):
-            __vk_println("%s.${member.name}[%d]: ${member.typep} (handle) = %p", prefix, i, in_info->${member.name});
-                % elif member.is_struct or member.is_union:
+            VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep} (handle) = %p", prefix, i, in_info->${member.name});
+                % elif member.resolved_type in all_vk_types:
                     % if member.num_pointers == 2:
             #error "Not implemented ${member.text}"
                     % else:
             // Type[i] = ${member.text}
-            __vk_println("%s.${member.name}[%d]: ${member.typep}", prefix, i);
-            vk_print_${member.type}(next_prefix, &in_info->${member.name}[i]);
+            VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep}", prefix, i);
+            vk_print_${member.type}(can_log_level, log_level, fd, next_prefix, &in_info->${member.name}[i]);
                     % endif
                 % else:
-            __vk_println("%s.${member.name}[%d]: ${member.typep}", prefix, i);
+            VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep} = 0x%x", prefix, i, (int64_t)(in_info->${member.name}[i]));
                 % endif
         }
             % endif
     }
         % elif member.is_handle:
-    __vk_println("%s.${member.name}: ${member.typep} (handle) = %p", prefix, in_info->${member.name});
-        % elif member.is_struct or member.is_union:
+    VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} (handle) = %p", prefix, in_info->${member.name});
+        % elif member.resolved_type in all_vk_types:
     if (in_info->${member.name}) {
-        __vk_println("%s.${member.name}: ${member.typep}", prefix);
-        vk_print_${member.type}(next_prefix, in_info->${member.name});
+        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep}", prefix);
+        vk_print_${member.type}(can_log_level, log_level, fd, next_prefix, in_info->${member.name});
     }
+        % else:
+        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = %p", prefix, in_info->${member.name});
         % endif
     % elif member.resolved_type in all_vk_types: ## Struct types
-    __vk_println("%s.${member.name}: ${member.typep}", prefix);
-    vk_print_${member.type}(next_prefix, &in_info->${member.name}); // Structs ${member}
+    VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep}", prefix);
+    vk_print_${member.type}(can_log_level, log_level, fd, next_prefix, &in_info->${member.name}); // Structs ${member}
     % elif member.num_pointers == 0 and member.type not in blacklisted_vk_types: ## Non-ptr types
-    __vk_println("%s.${member.name}: ${member.typep} = %x", prefix, (int64_t)(in_info->${member.name})); // Non-ptr types
+    VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = 0x%x", prefix, (int64_t)(in_info->${member.name})); // Non-ptr types
     % endif
 % endfor
+% if s.name in pnext_map:
+    // Has pNexts: ${pnext_map[s.name]}
+    if (in_info->pNext) {
+        vk_foreach_struct_const(pnext, in_info->pNext) {
+            switch ((int32_t)pnext->sType) {
+    % for ext_name in pnext_map[s.name]:
+            // "${s.name}: pNext extension ${ext_name}"
+            case ${ext_name.sType}:
+                VK_CMD_LOG_FD(fd, "%s.pNext(${ext_name})", prefix);
+                vk_print_${ext_name}(can_log_level, log_level, fd, next_prefix, (const ${ext_name} *)pnext);
+                break;
+    % endfor
+            default:
+                VK_CMD_LOG_FD(fd, "%s.pNext(UNKNOWN %s / %d)", prefix, vk_StructureType_to_str(pnext->sType), pnext->sType);
+                break;
+            }
+        }
+    }
+% endif
 }
 
 
