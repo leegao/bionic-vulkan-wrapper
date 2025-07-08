@@ -256,6 +256,31 @@ VKAPI_ATTR void VKAPI_CALL
 wrapper_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
                                    VkPhysicalDeviceFeatures2* pFeatures) {                                                              
    vk_common_GetPhysicalDeviceFeatures2(physicalDevice, pFeatures);
+   // Fake select dxvk 1.10.3 mandatory features
+   vk_foreach_struct(pnext, pFeatures->pNext) {
+      switch (pnext->sType) {
+         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT:
+         {
+            VkPhysicalDeviceTransformFeedbackFeaturesEXT *extTransformFeedback = (VkPhysicalDeviceTransformFeedbackFeaturesEXT*) pnext;
+            extTransformFeedback->transformFeedback = true;
+            extTransformFeedback->geometryStreams = true;
+            break;
+         }
+         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT:
+         {
+            VkPhysicalDeviceCustomBorderColorFeaturesEXT *extCustomBorderColor = (VkPhysicalDeviceCustomBorderColorFeaturesEXT*) pnext;
+            extCustomBorderColor->customBorderColors = VK_TRUE;
+            extCustomBorderColor->customBorderColorWithoutFormat = VK_TRUE;
+            break;
+         }
+         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES_EXT:
+            VkPhysicalDeviceHostQueryResetFeaturesEXT *extHostQueryReset = (VkPhysicalDeviceHostQueryResetFeaturesEXT*) pnext;
+            extHostQueryReset->hostQueryReset = VK_TRUE;
+            break;
+         default:
+            break;
+      }
+   }
 }
 
 VKAPI_ATTR void VKAPI_CALL
@@ -297,6 +322,22 @@ wrapper_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
          float_prop->shaderRoundingModeRTEFloat32 = false;
          float_prop->shaderSignedZeroInfNanPreserveFloat16 = false;
          float_prop->shaderSignedZeroInfNanPreserveFloat32 = false;
+         break;
+      }
+      case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT:
+      {
+         VkPhysicalDeviceTransformFeedbackPropertiesEXT *feedback_prop = 
+              (VkPhysicalDeviceTransformFeedbackPropertiesEXT *)prop;
+         feedback_prop->maxTransformFeedbackStreams = 4;
+         feedback_prop->maxTransformFeedbackBuffers = 4;
+         feedback_prop->maxTransformFeedbackBufferSize = 0xffffffff;
+         feedback_prop->maxTransformFeedbackStreamDataSize = 512;
+         feedback_prop->maxTransformFeedbackBufferDataSize = 512;
+         feedback_prop->maxTransformFeedbackBufferDataStride = 512;
+         feedback_prop->transformFeedbackQueries = true;
+         feedback_prop->transformFeedbackStreamsLinesTriangles = true;
+         feedback_prop->transformFeedbackRasterizationStreamSelect = false;
+         feedback_prop->transformFeedbackDraw = true;
          break;
       }
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES:

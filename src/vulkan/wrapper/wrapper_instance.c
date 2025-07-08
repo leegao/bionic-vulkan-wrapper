@@ -4,6 +4,7 @@
 #include "vk_common_entrypoints.h"
 #include "vk_dispatch_table.h"
 #include "vk_extensions.h"
+#include "vk_debug_utils.h"
 
 const struct vk_instance_extension_table wrapper_instance_extensions = {
    .KHR_get_surface_capabilities2 = true,
@@ -62,13 +63,13 @@ static void *get_vulkan_handle_icd()
    struct stat sb;
 
    if (hooks && path && (stat(path, &sb) == 0)) {
-      __log("get_vulkan_handle: hooks=%s, path=%s, name=%s", hooks, path, name);
+      WLOG("get_vulkan_handle: hooks=%s, path=%s, name=%s", hooks, path, name);
       char *temp;
       asprintf(&temp, "%s%s", path, "temp");
       mkdir(temp, S_IRWXU | S_IRWXG);
       return  adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, temp, hooks, path, name, NULL, NULL);
    } else  {
-      __log("get_vulkan_handle: defaulting to %s", DEFAULT_VULKAN_PATH);
+      WLOG("get_vulkan_handle: defaulting to %s", DEFAULT_VULKAN_PATH);
       return dlopen(DEFAULT_VULKAN_PATH, RTLD_NOW | RTLD_LOCAL);
    }
 }
@@ -201,6 +202,34 @@ set_wrapper_required_extensions(const struct vk_instance *instance,
    *enable_extension_count = count;
 }
 
+
+static void wrapper_register_internal_log_callback(struct wrapper_instance *instance)
+{
+    struct vk_debug_utils_messenger *messenger =
+       vk_alloc(&instance->vk.alloc, sizeof(*messenger), 8,
+                VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE);
+    if (!messenger)
+       return;
+
+    vk_object_base_instance_init(&instance->vk, &messenger->base,
+                                 VK_OBJECT_TYPE_DEBUG_UTILS_MESSENGER_EXT);
+
+    // We want to receive all messages
+    messenger->severity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                          VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+                          VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                          VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    messenger->type = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                      VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                      VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    messenger->callback = wrapper_debug_callback;
+    messenger->data = NULL;
+   //  mtx_lock(&instance->vk.debug_utils.callbacks_mutex);
+    list_addtail(&messenger->link, &instance->vk.debug_utils.callbacks);
+   //  mtx_unlock(&instance->vk.debug_utils.callbacks_mutex);
+    instance->internal_debug_messenger = messenger;
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL
 wrapper_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
                        const VkAllocationCallbacks *pAllocator,
@@ -311,6 +340,8 @@ wrapper_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
                                    dispatch_get_instance_proc_addr,
                                    instance->dispatch_handle);
 
+   wrapper_register_internal_log_callback(instance);
+
    *pInstance = wrapper_instance_to_handle(instance);
 
    return VK_SUCCESS;
@@ -321,6 +352,17 @@ wrapper_DestroyInstance(VkInstance _instance,
                         const VkAllocationCallbacks *pAllocator)
 {
    VK_FROM_HANDLE(wrapper_instance, instance, _instance);
+
+   if (instance->internal_debug_messenger) {
+        // Lock, remove from list, unlock, then free
+        mtx_lock(&instance->vk.debug_utils.callbacks_mutex);
+        list_del(&instance->internal_debug_messenger->link);
+        mtx_unlock(&instance->vk.debug_utils.callbacks_mutex);
+
+        vk_free(&instance->vk.alloc, instance->internal_debug_messenger);
+        instance->internal_debug_messenger = NULL;
+    }
+
    instance->dispatch_table.DestroyInstance(instance->dispatch_handle,
                                             pAllocator);
 }

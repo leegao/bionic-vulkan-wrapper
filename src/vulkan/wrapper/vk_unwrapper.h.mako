@@ -27,16 +27,6 @@ unwrap_${s.name}(struct wrapper_device *device,
 
 % endfor
 
-void
-unwrap_VkDeviceCreateInfo_members_only(struct wrapper_device *device,
-                          VkDeviceCreateInfo *out_info,
-                          const VkDeviceCreateInfo *in_info);
-
-void
-unwrap_VkDeviceCreateInfo(struct wrapper_device *device,
-                          VkDeviceCreateInfo *out_info,
-                          const VkDeviceCreateInfo *in_info);
-
 ##% for s in wrapped_handles:
 ###define NEEDS_UNWRAPPING_${s}
 ##% endfor

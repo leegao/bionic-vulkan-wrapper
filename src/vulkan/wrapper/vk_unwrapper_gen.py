@@ -190,7 +190,7 @@ VK_TYPES_BLACKLIST = [
     'VkWin32KeyedMutexAcquireReleaseInfoNV',
     'VkWin32SurfaceCreateInfoKHR',
     # Too complex, and not needed
-    'VkDeviceCreateInfo', # 2d array of cstrings
+    # 'VkDeviceCreateInfo', # 2d array of cstrings
     'VkInstanceCreateInfo',
     'VkMicromapVersionInfoEXT', # latexmath
     'VkPipelineMultisampleStateCreateInfo', # latexmath

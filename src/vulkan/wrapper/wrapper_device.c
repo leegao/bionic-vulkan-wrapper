@@ -263,6 +263,9 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    VkPhysicalDeviceFeatures *pdf;
    VkResult result;
 
+   WLOGD("wrapper_CreateDevice: Application requested the following features");
+   LOG_STRUCT(VkDeviceCreateInfo, pCreateInfo);
+
    device = vk_zalloc2(&physical_device->instance->vk.alloc, pAllocator,
                        sizeof(*device), 8, VK_SYSTEM_ALLOCATION_SCOPE_DEVICE);
    if (!device)
@@ -284,10 +287,32 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    vk_device_dispatch_table_from_entrypoints(
       &dispatch_table, &wrapper_device_trampolines, false);
 
+#define DISABLE_EXT(extension, type, clear) \
+   if (!physical_device->base_supported_extensions.extension) { \
+      VK_STRUCTURE_TYPE_##type##_cast *ext = (VK_STRUCTURE_TYPE_##type##_cast *) vk_find_struct_const(pCreateInfo, type); \
+      if (ext) { \
+         WLOG("Faking extension support for " #extension); \
+         clear; \
+      } \
+   }
+
+   DISABLE_EXT(EXT_transform_feedback, PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT, {
+      ext->geometryStreams = false;
+      ext->transformFeedback = false;
+   });
+   DISABLE_EXT(EXT_host_query_reset, PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES_EXT, {
+      ext->hostQueryReset = false;
+   });
+   DISABLE_EXT(EXT_custom_border_color, PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT, {
+      ext->customBorderColors = false;
+      ext->customBorderColorWithoutFormat = false;
+   });
+
    result = vk_device_init(&device->vk, &physical_device->vk,
                            &dispatch_table, pCreateInfo, pAllocator);
 
    if (result != VK_SUCCESS) {
+      WLOGE("wrapper_CreateDevice: vk_device_init failed with %d", result);
       vk_free2(&physical_device->instance->vk.alloc, pAllocator,
                device);
       return vk_error(physical_device, result);
@@ -306,69 +331,43 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    pdf2 = __vk_find_struct((void *)pCreateInfo->pNext,
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2);
    
-   WLOG("wrapper_CreateDevice: Application requested the following features");
-   if (pdf2) {
-      LOG_STRUCT(VkPhysicalDeviceFeatures2, pdf2);
-   } else if (pdf) {
-      LOG_STRUCT(VkPhysicalDeviceFeatures, pdf);
+#define DISABLE_FEAT(feature) \
+   if (!physical_device->base_supported_features.feature) { \
+      WLOG("Faking feature support for " #feature); \
+   } \
+   if (pdf && pdf->feature) { \
+      pdf->feature &= physical_device->base_supported_features.feature; \
+   } \
+   if (pdf2 && pdf2->features.feature) { \
+      pdf2->features.feature &= physical_device->base_supported_features.feature; \
    }
-    
-   if (pdf && pdf->textureCompressionBC) {
-      pdf->textureCompressionBC &= 
-          physical_device->base_supported_features.textureCompressionBC;
-   }
-   if (pdf2 && pdf2->features.textureCompressionBC) {
-      pdf2->features.textureCompressionBC &=
-          physical_device->base_supported_features.textureCompressionBC;
-   }
-   if (pdf && pdf->multiViewport) {
-         pdf->multiViewport &=
-            physical_device->base_supported_features.multiViewport;
-   }
-   if (pdf2 && pdf2->features.multiViewport) {
-         pdf2->features.multiViewport &=
-            physical_device->base_supported_features.multiViewport;
-   }
-   if (pdf && pdf->depthClamp) {
-        pdf->depthClamp &=
-            physical_device->base_supported_features.depthClamp;
-   }
-   if (pdf2 && pdf2->features.depthClamp) {
-        pdf2->features.depthClamp &=
-            physical_device->base_supported_features.depthClamp;
-   }
-   if (pdf && pdf->depthBiasClamp) {
-       pdf->depthBiasClamp &=
-            physical_device->base_supported_features.depthBiasClamp;
-   }
-   if (pdf2 && pdf2->features.depthBiasClamp) {
-       pdf2->features.depthBiasClamp &=
-            physical_device->base_supported_features.depthBiasClamp;
-   }
-    if (pdf && pdf->fillModeNonSolid) {
-       pdf->fillModeNonSolid &=
-            physical_device->base_supported_features.fillModeNonSolid;
-   }
-   if (pdf2 && pdf2->features.fillModeNonSolid) {
-       pdf2->features.fillModeNonSolid &=
-            physical_device->base_supported_features.fillModeNonSolid;
-   }
-    if (pdf && pdf->shaderClipDistance) {
-       pdf->shaderClipDistance &=
-            physical_device->base_supported_features.shaderClipDistance;
-   }
-   if (pdf2 && pdf2->features.shaderClipDistance) {
-       pdf2->features.shaderClipDistance &=
-            physical_device->base_supported_features.shaderClipDistance;
-   }
-   if (pdf && pdf->shaderCullDistance) {
-       pdf->shaderCullDistance &=
-            physical_device->base_supported_features.shaderCullDistance;
-   }
-   if (pdf2 && pdf2->features.shaderCullDistance) {
-       pdf2->features.shaderCullDistance &=
-            physical_device->base_supported_features.shaderCullDistance;
-   }
+   
+   DISABLE_FEAT(textureCompressionBC);
+   DISABLE_FEAT(multiViewport);
+   DISABLE_FEAT(logicOp);
+   DISABLE_FEAT(variableMultisampleRate);
+   DISABLE_FEAT(fillModeNonSolid);
+   DISABLE_FEAT(samplerAnisotropy);
+   DISABLE_FEAT(shaderImageGatherExtended);
+   DISABLE_FEAT(vertexPipelineStoresAndAtomics);
+   DISABLE_FEAT(dualSrcBlend);
+   DISABLE_FEAT(multiDrawIndirect);
+   DISABLE_FEAT(shaderCullDistance);
+   DISABLE_FEAT(shaderClipDistance);
+   DISABLE_FEAT(geometryShader);
+   DISABLE_FEAT(robustBufferAccess);
+   DISABLE_FEAT(tessellationShader);
+   DISABLE_FEAT(depthClamp);
+   DISABLE_FEAT(depthBiasClamp);
+   DISABLE_FEAT(shaderStorageImageExtendedFormats);
+   DISABLE_FEAT(shaderStorageImageWriteWithoutFormat);
+   DISABLE_FEAT(sampleRateShading);
+   DISABLE_FEAT(occlusionQueryPrecise);
+   DISABLE_FEAT(independentBlend);
+   DISABLE_FEAT(fullDrawIndexUint32);
+   DISABLE_FEAT(imageCubeArray);
+   DISABLE_FEAT(drawIndirectFirstInstance);
+   DISABLE_FEAT(fragmentStoresAndAtomics);
    
    result = physical_device->dispatch_table.CreateDevice(
       physical_device->dispatch_handle, &wrapper_create_info,

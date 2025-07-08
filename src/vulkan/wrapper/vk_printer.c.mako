@@ -45,6 +45,15 @@ vk_print_${s.name}(int can_log_level, int log_level, FILE* fd, const char* prefi
     % elif member.num_pointers > 0 or member.array_count_member:
         % if member.array_count_member and member.array_count_member == 'null-terminated': ## CStr
     VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = '%s'", prefix, in_info->${member.name});
+        % elif member.array_count_member and ',null-terminated' in member.array_count_member: ## CStr[]
+    int count_${member.name} = in_info->${member.array_count_member.split(',')[0]};
+    if (in_info->${member.name}) {
+        for (uint32_t i = 0; i < count_${member.name}; i++) {
+            if (in_info->${member.name}[i]) {
+                VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.type}* = '%s'", prefix, i, in_info->${member.name}[i]);
+            }
+        }
+    }
         % elif member.array_count_member and "latexmath" not in member.array_count_member: ## Array
     int count_${member.name} = in_info->${member.array_count_member};
     if (in_info->${member.name}) {

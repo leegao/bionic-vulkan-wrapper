@@ -239,28 +239,3 @@ void unwrap_${s.name}(struct wrapper_device *device,
 }
 
 % endfor
-
-
-void
-unwrap_VkDeviceCreateInfo_members_only(struct wrapper_device *device,
-                          VkDeviceCreateInfo *out_info,
-                          const VkDeviceCreateInfo *in_info)
-{
-    if (!in_info)
-        return;
-
-    *out_info = *in_info;
-}
-
-
-
-void
-unwrap_VkDeviceCreateInfo(struct wrapper_device *device,
-                          VkDeviceCreateInfo *out_info,
-                          const VkDeviceCreateInfo *in_info)
-{
-    if (!in_info)
-        return;
-
-    unwrap_VkDeviceCreateInfo_members_only(device, out_info, in_info);
-}

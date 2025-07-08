@@ -98,40 +98,9 @@ static void __wlog(const char* fmt, ...) {
    fflush(__log_fd);
 }
 
-
-static void __log(const char* fmt, ...) {
-   if (should_log() < LOG_LEVEL_VERBOSE) {
-      return;
-   }
-   va_list args;
-   va_start(args, fmt);
-   vfprintf(__log_fd, fmt, args);
-   va_end(args);
-   fprintf(__log_fd, "\n");
-   fflush(__log_fd);
-}
-
-static void __loge(const char* fmt, ...) {
-   if (should_log() < LOG_LEVEL_ERROR) {
-      return;
-   }
-   fprintf(__log_fd, "[ERROR] ");
-   va_list args;
-   va_start(args, fmt);
-   vfprintf(__log_fd, fmt, args);
-   va_end(args);
-   fprintf(__log_fd, "\n");
-   fflush(__log_fd);
-}
-
-static void __loga(const char* fmt, ...) {
-   if (should_log() < LOG_LEVEL_ALL) {
-      return;
-   }
-   va_list args;
-   va_start(args, fmt);
-   vfprintf(__log_fd, fmt, args);
-   va_end(args);
-   fprintf(__log_fd, "\n");
-   fflush(__log_fd);
-}
+VKAPI_ATTR VkBool32 VKAPI_CALL
+wrapper_debug_callback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT           messageSeverity,
+    VkDebugUtilsMessageTypeFlagsEXT                  messageType,
+    const VkDebugUtilsMessengerCallbackDataEXT*      pCallbackData,
+    void*                                            pUserData);
