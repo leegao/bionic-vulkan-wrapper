@@ -287,26 +287,20 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    vk_device_dispatch_table_from_entrypoints(
       &dispatch_table, &wrapper_device_trampolines, false);
 
-#define DISABLE_EXT(extension, type, clear) \
-   if (!physical_device->base_supported_extensions.extension) { \
+#define DISABLE_EXT(extension, type, feature) \
+   if (!physical_device->base_supported_features.feature) { \
       VK_STRUCTURE_TYPE_##type##_cast *ext = (VK_STRUCTURE_TYPE_##type##_cast *) vk_find_struct_const(pCreateInfo, type); \
       if (ext) { \
-         WLOG("Faking extension support for " #extension); \
-         clear; \
+         WLOG("Faking extension support for " #extension "->" #feature); \
+         ext->feature = ext->feature & physical_device->base_supported_features.feature; \
       } \
    }
 
-   DISABLE_EXT(EXT_transform_feedback, PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT, {
-      ext->geometryStreams = false;
-      ext->transformFeedback = false;
-   });
-   DISABLE_EXT(EXT_host_query_reset, PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES_EXT, {
-      ext->hostQueryReset = false;
-   });
-   DISABLE_EXT(EXT_custom_border_color, PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT, {
-      ext->customBorderColors = false;
-      ext->customBorderColorWithoutFormat = false;
-   });
+   DISABLE_EXT(EXT_transform_feedback, PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT, geometryStreams);
+   DISABLE_EXT(EXT_transform_feedback, PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT, transformFeedback);
+   DISABLE_EXT(EXT_host_query_reset, PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES_EXT, hostQueryReset);
+   DISABLE_EXT(EXT_custom_border_color, PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT, customBorderColors);
+   DISABLE_EXT(EXT_custom_border_color, PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT, customBorderColorWithoutFormat);
 
    result = vk_device_init(&device->vk, &physical_device->vk,
                            &dispatch_table, pCreateInfo, pAllocator);
@@ -331,10 +325,8 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    pdf2 = __vk_find_struct((void *)pCreateInfo->pNext,
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2);
    
-#define DISABLE_FEAT(feature) \
-   if (!physical_device->base_supported_features.feature) { \
-      WLOG("Faking feature support for " #feature); \
-   } \
+   #define DISABLE_FEATURE(feature) \
+   if (!physical_device->base_supported_features.feature) WLOG("Faking feature support for " #feature); \
    if (pdf && pdf->feature) { \
       pdf->feature &= physical_device->base_supported_features.feature; \
    } \
@@ -342,32 +334,14 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
       pdf2->features.feature &= physical_device->base_supported_features.feature; \
    }
    
-   DISABLE_FEAT(textureCompressionBC);
-   DISABLE_FEAT(multiViewport);
-   DISABLE_FEAT(logicOp);
-   DISABLE_FEAT(variableMultisampleRate);
-   DISABLE_FEAT(fillModeNonSolid);
-   DISABLE_FEAT(samplerAnisotropy);
-   DISABLE_FEAT(shaderImageGatherExtended);
-   DISABLE_FEAT(vertexPipelineStoresAndAtomics);
-   DISABLE_FEAT(dualSrcBlend);
-   DISABLE_FEAT(multiDrawIndirect);
-   DISABLE_FEAT(shaderCullDistance);
-   DISABLE_FEAT(shaderClipDistance);
-   DISABLE_FEAT(geometryShader);
-   DISABLE_FEAT(robustBufferAccess);
-   DISABLE_FEAT(tessellationShader);
-   DISABLE_FEAT(depthClamp);
-   DISABLE_FEAT(depthBiasClamp);
-   DISABLE_FEAT(shaderStorageImageExtendedFormats);
-   DISABLE_FEAT(shaderStorageImageWriteWithoutFormat);
-   DISABLE_FEAT(sampleRateShading);
-   DISABLE_FEAT(occlusionQueryPrecise);
-   DISABLE_FEAT(independentBlend);
-   DISABLE_FEAT(fullDrawIndexUint32);
-   DISABLE_FEAT(imageCubeArray);
-   DISABLE_FEAT(drawIndirectFirstInstance);
-   DISABLE_FEAT(fragmentStoresAndAtomics);
+   DISABLE_FEATURE(textureCompressionBC);
+   DISABLE_FEATURE(multiViewport);
+   DISABLE_FEATURE(depthClamp);
+   DISABLE_FEATURE(depthBiasClamp);
+   DISABLE_FEATURE(fillModeNonSolid);
+   DISABLE_FEATURE(shaderClipDistance);
+   DISABLE_FEATURE(shaderCullDistance);
+   
    
    result = physical_device->dispatch_table.CreateDevice(
       physical_device->dispatch_handle, &wrapper_create_info,

@@ -64,6 +64,11 @@ wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
       }
    }
 
+   // Needed by dxvk
+   exts->EXT_transform_feedback = true;
+   exts->EXT_host_query_reset = true;
+   exts->EXT_custom_border_color = true;
+
    return VK_SUCCESS;
 }
 
@@ -156,6 +161,16 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       supported_features->presentWait = supported_features->timelineSemaphore;
       supported_features->swapchainMaintenance1 = true;
       supported_features->imageCompressionControlSwapchain = false;
+
+      // dxvk extension features support
+      supported_features->geometryStreams = true;
+      supported_features->transformFeedback = true;
+      supported_features->hostQueryReset = true;
+      supported_features->customBorderColors = true;
+      supported_features->customBorderColorWithoutFormat = true;
+
+      // DEBUG:
+      // pdevice->base_supported_features.geometryStreams = false;
 
       if (check_flag("FORCE_BCN_EMULATION", false)) {
          if (pdevice->base_supported_features.textureCompressionBC) {
