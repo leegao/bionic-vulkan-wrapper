@@ -894,7 +894,9 @@ wrapper_BindBufferMemory2(
       wrapper_buffer *_buffer = get_wrapper_buffer(_device, pBindInfos[i].buffer);
       if (!_buffer) {
          WLOGE("wrapper_BindBufferMemory2: buffer %p not tracked", pBindInfos[i].buffer);
-         return vk_error(&_device->vk, VK_ERROR_INVALID_EXTERNAL_HANDLE);
+         // return vk_error(&_device->vk, VK_ERROR_INVALID_EXTERNAL_HANDLE);
+         // TODO(leegao): figure out what's going wrong here, but there are reports of this
+         continue;
       }
       _buffer->memory = pBindInfos[i].memory;
       _buffer->memoryOffset = pBindInfos[i].memoryOffset;
