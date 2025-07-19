@@ -26,7 +26,6 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "bitextract.h"
-#include "compute_shader_mode.h"
 
 // The shader will be dispatched with one invocation per pixel of the output image.
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -48,6 +47,8 @@ layout(push_constant) uniform PushConstants {
     int offsety;
     uint dst_width;
     uint dst_height;
+
+    uint srcBufferSize;
 } push_constants;
 
 // --- Buffers ---
@@ -69,57 +70,13 @@ layout(set = 0, binding = 1) writeonly buffer DestinationBuffer {
 } dstBuffer;
 #endif
 
-const int weight_table3[8] = int[](0, 9, 18, 27, 37, 46, 55, 64);
-const int weight_table4[16] = int[](0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64);
+layout(std140, set = 0, binding = 2) uniform LUTs {
+    int weight_table3[16];
+    int weight_table4[16];
 
-#define P2(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) \
-    (((a) << 0) | ((b) << 1) | ((c) << 2) | ((d) << 3) | \
-    ((e) << 4) | ((f) << 5) | ((g) << 6) | ((h) << 7) | \
-    ((i) << 8) | ((j) << 9) | ((k) << 10) | ((l) << 11) | \
-    ((m) << 12) | ((n) << 13) | ((o) << 14) | ((p) << 15))
-
-const int partition_table2[32] = int[](
-    P2(0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1),
-    P2(0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1),
-    P2(0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1),
-    P2(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1),
-    P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1),
-    P2(0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1),
-    P2(0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1),
-    P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1),
-
-    P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1),
-    P2(0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-    P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1),
-    P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1),
-    P2(0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-    P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1),
-    P2(0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-    P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1),
-
-    P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1),
-    P2(0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0),
-    P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0),
-    P2(0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0),
-    P2(0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0),
-    P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0),
-    P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0),
-    P2(0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1),
-
-    P2(0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0),
-    P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0),
-    P2(0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0),
-    P2(0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0),
-    P2(0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0),
-    P2(0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0),
-    P2(0, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0),
-    P2(0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0));
-
-const int anchor_table2[32] = int[](
-    15, 15, 15, 15, 15, 15, 15, 15,
-    15, 15, 15, 15, 15, 15, 15, 15,
-    15, 2, 8, 2, 2, 8, 8, 15,
-    2, 8, 2, 2, 8, 8, 2, 2);
+    int partition_table2[32];
+    int anchor_table2[32];
+} constants;
 
 struct DecodedInterpolation
 {
@@ -205,7 +162,7 @@ DecodedInterpolation decode_bc6_mode0(uvec4 payload, int linear_pixel, int part,
         max(81 + linear_pixel * 3 - int(linear_pixel > anchor_pixel), 82),
         (linear_pixel == 0 || linear_pixel == anchor_pixel) ? 2 : 3);
 
-    int w = weight_table3[index];
+    int w = constants.weight_table3[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -248,7 +205,7 @@ DecodedInterpolation decode_bc6_mode1(uvec4 payload, int linear_pixel, int part,
         max(81 + linear_pixel * 3 - int(linear_pixel > anchor_pixel), 82),
         (linear_pixel == 0 || linear_pixel == anchor_pixel) ? 2 : 3);
 
-    int w = weight_table3[index];
+    int w = constants.weight_table3[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -291,7 +248,7 @@ DecodedInterpolation decode_bc6_mode2(uvec4 payload, int linear_pixel, int part,
         max(81 + linear_pixel * 3 - int(linear_pixel > anchor_pixel), 82),
         (linear_pixel == 0 || linear_pixel == anchor_pixel) ? 2 : 3);
 
-    int w = weight_table3[index];
+    int w = constants.weight_table3[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -314,7 +271,7 @@ DecodedInterpolation decode_bc6_mode3(uvec4 payload, int linear_pixel, bool is_s
         max(64 + linear_pixel * 4, 65),
         linear_pixel == 0 ? 3 : 4);
 
-    int w = weight_table4[index];
+    int w = constants.weight_table4[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -357,7 +314,7 @@ DecodedInterpolation decode_bc6_mode6(uvec4 payload, int linear_pixel, int part,
         max(81 + linear_pixel * 3 - int(linear_pixel > anchor_pixel), 82),
         (linear_pixel == 0 || linear_pixel == anchor_pixel) ? 2 : 3);
 
-    int w = weight_table3[index];
+    int w = constants.weight_table3[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -385,7 +342,7 @@ DecodedInterpolation decode_bc6_mode7(uvec4 payload, int linear_pixel, bool is_s
         max(64 + linear_pixel * 4, 65),
         linear_pixel == 0 ? 3 : 4);
 
-    int w = weight_table4[index];
+    int w = constants.weight_table4[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -428,7 +385,7 @@ DecodedInterpolation decode_bc6_mode10(uvec4 payload, int linear_pixel, int part
         max(81 + linear_pixel * 3 - int(linear_pixel > anchor_pixel), 82),
         (linear_pixel == 0 || linear_pixel == anchor_pixel) ? 2 : 3);
 
-    int w = weight_table3[index];
+    int w = constants.weight_table3[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -456,7 +413,7 @@ DecodedInterpolation decode_bc6_mode11(uvec4 payload, int linear_pixel, bool is_
         max(64 + linear_pixel * 4, 65),
         linear_pixel == 0 ? 3 : 4);
 
-    int w = weight_table4[index];
+    int w = constants.weight_table4[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -500,7 +457,7 @@ DecodedInterpolation decode_bc6_mode14(uvec4 payload, int linear_pixel, int part
         max(81 + linear_pixel * 3 - int(linear_pixel > anchor_pixel), 82),
         (linear_pixel == 0 || linear_pixel == anchor_pixel) ? 2 : 3);
 
-    int w = weight_table3[index];
+    int w = constants.weight_table3[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -528,7 +485,7 @@ DecodedInterpolation decode_bc6_mode15(uvec4 payload, int linear_pixel, bool is_
         max(64 + linear_pixel * 4, 65),
         linear_pixel == 0 ? 3 : 4);
 
-    int w = weight_table4[index];
+    int w = constants.weight_table4[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -571,7 +528,7 @@ DecodedInterpolation decode_bc6_mode18(uvec4 payload, int linear_pixel, int part
         max(81 + linear_pixel * 3 - int(linear_pixel > anchor_pixel), 82),
         (linear_pixel == 0 || linear_pixel == anchor_pixel) ? 2 : 3);
 
-    int w = weight_table3[index];
+    int w = constants.weight_table3[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -615,7 +572,7 @@ DecodedInterpolation decode_bc6_mode22(uvec4 payload, int linear_pixel, int part
         max(81 + linear_pixel * 3 - int(linear_pixel > anchor_pixel), 82),
         (linear_pixel == 0 || linear_pixel == anchor_pixel) ? 2 : 3);
 
-    int w = weight_table3[index];
+    int w = constants.weight_table3[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -659,7 +616,7 @@ DecodedInterpolation decode_bc6_mode26(uvec4 payload, int linear_pixel, int part
         max(81 + linear_pixel * 3 - int(linear_pixel > anchor_pixel), 82),
         (linear_pixel == 0 || linear_pixel == anchor_pixel) ? 2 : 3);
 
-    int w = weight_table3[index];
+    int w = constants.weight_table3[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -703,7 +660,7 @@ DecodedInterpolation decode_bc6_mode30(uvec4 payload, int linear_pixel, int part
         max(81 + linear_pixel * 3 - int(linear_pixel > anchor_pixel), 82),
         (linear_pixel == 0 || linear_pixel == anchor_pixel) ? 2 : 3);
 
-    int w = weight_table3[index];
+    int w = constants.weight_table3[index];
     return DecodedInterpolation(ep0, ep1, w);
 }
 
@@ -714,9 +671,10 @@ shared uvec4 shared_block_data[4]; // One 128-bit block for each 4x4 quad-group 
 void main() {
     // Calculate pixel coordinate from workgroup and local invocation IDs
     ivec2 coord = ivec2(gl_WorkGroupID.xy) * 8 + ivec2(gl_LocalInvocationID.xy);
+    ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + coord;
 
     // Check if this invocation is out of bounds for the destination image
-    if (coord.x >= push_constants.dst_width || coord.y >= push_constants.dst_height) {
+    if (final_dst_coord.x >= push_constants.dst_width || final_dst_coord.y >= push_constants.dst_height) {
         return;
     }
 
@@ -726,11 +684,21 @@ void main() {
     int shared_idx = (local_coords.y / 4) * 2 + (local_coords.x / 4);
 
     // Load the 128-bit block data into shared memory if this invocation is a leader
+    ivec2 block_coord = coord / 4;
+    uint block_stride = push_constants.srcRowLength > 0 ? push_constants.srcRowLength / 4 : push_constants.dst_width;
+    uint block_index = block_coord.y * block_stride + block_coord.x;
+    uint buffer_offset = block_index * 4;
+
+    // This fetch might overflow, return a magenta for now
+    if ((buffer_offset + 3) * 4 >= push_constants.srcBufferSize) {
+#ifdef USE_IMAGE_VIEW_OUTPUT
+        imageStore(dstImage, final_dst_coord, ivec4(0x3c00, 0x3c00, 0, 0x3c00));
+#endif
+        return;
+    }
+
+    // Load the 128-bit block data into shared memory if this invocation is a leader
     if (is_leader) {
-        ivec2 block_coord = coord / 4;
-        uint block_stride = push_constants.srcRowLength / 4;
-        uint block_index = block_coord.y * block_stride + block_coord.x;
-        uint buffer_offset = block_index * 4;
         shared_block_data[shared_idx] = uvec4(
             srcBuffer.data[buffer_offset + 0], srcBuffer.data[buffer_offset + 1],
             srcBuffer.data[buffer_offset + 2], srcBuffer.data[buffer_offset + 3]
@@ -752,8 +720,8 @@ void main() {
 
     int mode = extract_bits(payload, 0, 5);
     int part_index = extract_bits(payload, 77, 5);
-    int part = (partition_table2[part_index] >> linear_pixel) & 1;
-    int anchor_pixel = anchor_table2[part_index];
+    int part = (constants.partition_table2[part_index] >> linear_pixel) & 1;
+    int anchor_pixel = constants.anchor_table2[part_index];
 
     // The switch statement is the same, but now passes `is_signed` to the decode functions.
     if ((mode & 2) == 0) {
@@ -792,8 +760,6 @@ void main() {
         rgba_result = (rgba_result * 31) >> 6;
     }
 
-    // Calculate final destination coordinates and write to buffer
-    ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + coord;
 #ifdef USE_IMAGE_VIEW_OUTPUT
     uvec4 final_rbga_color = uvec4(rgba_result, 0x3c00); // Alpha is always 1.0 for BC6.
     // vec4 final_rbga_color = vec4(1.0, 0.0, 1.0, 1.0); // Convert to normalized float and set alpha to 1.0

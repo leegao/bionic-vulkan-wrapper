@@ -497,6 +497,7 @@ typedef struct {
     int32_t imageOffsetY;
     uint32_t imageExtentX;
     uint32_t imageExtentY;
+    uint32_t srcBufferSize;
 } PushConstantData;
 
 typedef struct __attribute__((aligned(16))) ivec2_t_std140 {
@@ -504,20 +505,20 @@ typedef struct __attribute__((aligned(16))) ivec2_t_std140 {
     int32_t y;
 } ivec2_t_std140;
 
-typedef struct __attribute__((aligned(16))) int32_t_std145 {
+typedef struct __attribute__((aligned(16))) int32_t_std140 {
     int32_t x;
-} int32_t_std145;
+} int32_t_std140;
 
 // This struct will be mapped directly to the GPU buffer.
 // The `alignas(16)` on the struct itself ensures it starts on a 16-byte boundary.
 typedef struct __attribute__((aligned(16))) Bc7Constants {
-   int32_t_std145 weight_table2[16];
-   int32_t_std145 weight_table3[16];
-   int32_t_std145 weight_table4[16];
+   int32_t_std140 weight_table2[16];
+   int32_t_std140 weight_table3[16];
+   int32_t_std140 weight_table4[16];
 
-   int32_t_std145 partition_table3[64];
-   int32_t_std145 partition_table2[64];
-   int32_t_std145 anchor_table2[64];
+   int32_t_std140 partition_table3[64];
+   int32_t_std140 partition_table2[64];
+   int32_t_std140 anchor_table2[64];
    ivec2_t_std140 anchor_table3[64];
 } Bc7Constants;
 
@@ -535,15 +536,14 @@ typedef struct __attribute__((aligned(16))) Bc7Constants {
     ((i) << 8) | ((j) << 9) | ((k) << 10) | ((l) << 11) | \
     ((m) << 12) | ((n) << 13) | ((o) << 14) | ((p) << 15))
 
-
 #pragma GCC diagnostic ignored "-Wmissing-braces"
 // --- Weight Tables ---
-static const int32_t_std145 WEIGHT_TABLE2_DATA[16] = {0, 21, 43, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-static const int32_t_std145 WEIGHT_TABLE3_DATA[16] = {0, 9, 18, 27, 37, 46, 55, 64, 0, 0, 0, 0, 0, 0, 0, 0};
-static const int32_t_std145 WEIGHT_TABLE4_DATA[16] = {0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64};
+static const int32_t_std140 BC7_WEIGHT_TABLE2_DATA[16] = {0, 21, 43, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static const int32_t_std140 BC7_WEIGHT_TABLE3_DATA[16] = {0, 9, 18, 27, 37, 46, 55, 64, 0, 0, 0, 0, 0, 0, 0, 0};
+static const int32_t_std140 BC7_WEIGHT_TABLE4_DATA[16] = {0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64};
 
 // --- Partition Tables ---
-static const int32_t_std145 PARTITION_TABLE2_DATA[64] = {
+static const int32_t_std140 BC7_PARTITION_TABLE2_DATA[64] = {
     P2(0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1), P2(0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1),
     P2(0,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1), P2(0,0,0,1,0,0,1,1,0,0,1,1,0,1,1,1),
     P2(0,0,0,0,0,0,0,1,0,0,0,1,0,0,1,1), P2(0,0,1,1,0,1,1,1,0,1,1,1,1,1,1,1),
@@ -577,7 +577,7 @@ static const int32_t_std145 PARTITION_TABLE2_DATA[64] = {
     P2(0,0,0,0,1,1,1,1,0,0,1,1,0,0,1,1), P2(0,0,1,1,0,0,1,1,1,1,1,1,0,0,0,0),
     P2(0,0,1,0,0,0,1,0,1,1,1,0,1,1,1,0), P2(0,1,0,0,0,1,0,0,0,1,1,1,0,1,1,1)
 };
-static const int32_t_std145 PARTITION_TABLE3_DATA[64] = {
+static const int32_t_std140 BC7_PARTITION_TABLE3_DATA[64] = {
     P3(0,0,1,1,0,0,1,1,0,2,2,1,2,2,2,2), P3(0,0,0,1,0,0,1,1,2,2,1,1,2,2,2,1),
     P3(0,0,0,0,2,0,0,1,2,2,1,1,2,2,1,1), P3(0,2,2,2,0,0,2,2,0,0,1,1,0,1,1,1),
     P3(0,0,0,0,0,0,0,0,1,1,2,2,1,1,2,2), P3(0,0,1,1,0,0,1,1,0,0,2,2,0,0,2,2),
@@ -613,13 +613,13 @@ static const int32_t_std145 PARTITION_TABLE3_DATA[64] = {
 };
 
 // --- Anchor Tables ---
-static const int32_t_std145 ANCHOR_TABLE2_DATA[64] = {
+static const int32_t_std140 BC7_ANCHOR_TABLE2_DATA[64] = {
     15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,
     15,2,8,2,2,8,8,15,2,8,2,2,8,8,2,2,
     15,15,6,8,2,8,15,15,2,8,2,2,2,15,15,6,
     6,2,6,8,15,15,2,2,15,15,15,15,15,2,2,15
 };
-static const ivec2_t_std140 ANCHOR_TABLE3_DATA[64] = {
+static const ivec2_t_std140 BC7_ANCHOR_TABLE3_DATA[64] = {
     {3,15},{3,8},{15,8},{15,3},{8,15},{3,15},{15,3},{15,8},
     {8,15},{8,15},{6,15},{6,15},{6,15},{5,15},{3,15},{3,8},
     {3,15},{3,8},{8,15},{15,3},{3,15},{3,8},{6,15},{10,8},
@@ -629,14 +629,79 @@ static const ivec2_t_std140 ANCHOR_TABLE3_DATA[64] = {
     {3,15},{15,3},{5,15},{5,15},{5,15},{8,15},{5,15},{10,15},
     {5,15},{10,15},{8,15},{13,15},{15,3},{12,15},{3,15},{3,8}
 };
+
+static void populate_bc7_decoding_constants(Bc7Constants* constants) {
+    memcpy(constants->weight_table2,     BC7_WEIGHT_TABLE2_DATA,     sizeof(BC7_WEIGHT_TABLE2_DATA));
+    memcpy(constants->weight_table3,     BC7_WEIGHT_TABLE3_DATA,     sizeof(BC7_WEIGHT_TABLE3_DATA));
+    memcpy(constants->weight_table4,     BC7_WEIGHT_TABLE4_DATA,     sizeof(BC7_WEIGHT_TABLE4_DATA));
+    memcpy(constants->partition_table2,  BC7_PARTITION_TABLE2_DATA,  sizeof(BC7_PARTITION_TABLE2_DATA));
+    memcpy(constants->partition_table3,  BC7_PARTITION_TABLE3_DATA,  sizeof(BC7_PARTITION_TABLE3_DATA));
+    memcpy(constants->anchor_table2,     BC7_ANCHOR_TABLE2_DATA,     sizeof(BC7_ANCHOR_TABLE2_DATA));
+    memcpy(constants->anchor_table3,     BC7_ANCHOR_TABLE3_DATA,     sizeof(BC7_ANCHOR_TABLE3_DATA));
+}
+
+typedef struct __attribute__((aligned(16))) Bc6Constants {
+   int32_t_std140 weight_table3[16];
+   int32_t_std140 weight_table4[16];
+
+   int32_t_std140 partition_table2[32];
+   int32_t_std140 anchor_table2[32];
+} Bc6Constants;
+
+
+static const int32_t_std140 BC6_WEIGHT_TABLE3_DATA[16] = {0, 9, 18, 27, 37, 46, 55, 64, 0,0,0,0,0,0,0,0};
+static const int32_t_std140 BC6_WEIGHT_TABLE4_DATA[16] = {0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64};
+
+static const int32_t_std140 BC6_PARTITION_TABLE2_DATA[32] = {
+    P2(0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1),
+    P2(0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1),
+    P2(0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1),
+    P2(0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1),
+    P2(0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1),
+
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1),
+    P2(0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1),
+    P2(0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1),
+
+    P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1),
+    P2(0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0),
+    P2(0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0),
+    P2(0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+    P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0),
+    P2(0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0),
+    P2(0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1),
+
+    P2(0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0),
+    P2(0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0),
+    P2(0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0),
+    P2(0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0),
+    P2(0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0),
+    P2(0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0),
+    P2(0, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0),
+    P2(0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0)
+};
+
+static const int32_t_std140 BC6_ANCHOR_TABLE2_DATA[32] = {
+    15, 15, 15, 15, 15, 15, 15, 15,
+    15, 15, 15, 15, 15, 15, 15, 15,
+    15, 2, 8, 2, 2, 8, 8, 15,
+    2, 8, 2, 2, 8, 8, 2, 2
+};
+
 #pragma GCC diagnostic pop
 
-static void populate_bc_decoding_constants(Bc7Constants* constants) {
-    memcpy(constants->weight_table2,     WEIGHT_TABLE2_DATA,     sizeof(WEIGHT_TABLE2_DATA));
-    memcpy(constants->weight_table3,     WEIGHT_TABLE3_DATA,     sizeof(WEIGHT_TABLE3_DATA));
-    memcpy(constants->weight_table4,     WEIGHT_TABLE4_DATA,     sizeof(WEIGHT_TABLE4_DATA));
-    memcpy(constants->partition_table2,  PARTITION_TABLE2_DATA,  sizeof(PARTITION_TABLE2_DATA));
-    memcpy(constants->partition_table3,  PARTITION_TABLE3_DATA,  sizeof(PARTITION_TABLE3_DATA));
-    memcpy(constants->anchor_table2,     ANCHOR_TABLE2_DATA,     sizeof(ANCHOR_TABLE2_DATA));
-    memcpy(constants->anchor_table3,     ANCHOR_TABLE3_DATA,     sizeof(ANCHOR_TABLE3_DATA));
+static void populate_bc6_decoding_constants(Bc6Constants* constants) {
+    memcpy(constants->weight_table3,     BC6_WEIGHT_TABLE3_DATA,     sizeof(BC6_WEIGHT_TABLE3_DATA));
+    memcpy(constants->weight_table4,     BC6_WEIGHT_TABLE4_DATA,     sizeof(BC6_WEIGHT_TABLE4_DATA));
+    memcpy(constants->partition_table2,  BC6_PARTITION_TABLE2_DATA,  sizeof(BC6_PARTITION_TABLE2_DATA));
+    memcpy(constants->anchor_table2,     BC6_ANCHOR_TABLE2_DATA,     sizeof(BC6_ANCHOR_TABLE2_DATA));
 }

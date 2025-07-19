@@ -165,7 +165,7 @@ s3tc_iv = custom_target(
   input : [files('s3tc.comp')],
   output : 's3tc_iv.spv.h',
   command : [
-      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '--nan-clamp', '-Os', '--spirv-dis', '-o', '@OUTPUT@', '@INPUT@',
+      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '--nan-clamp', '-Os', '-o', '@OUTPUT@', '@INPUT@',
       glslang_quiet, glslang_depfile,
   ],
   depfile : 's3tc_iv.spv.h.d',

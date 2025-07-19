@@ -998,7 +998,6 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
       );
 
       void* data;
-      // vkMapMemory(device, state->constantsBufferMemory, 0, sizeof(Bc7Constants), 0, &data);
       VkMemoryMapInfoKHR mapInfoSrc = {
          .sType = VK_STRUCTURE_TYPE_MEMORY_MAP_INFO_KHR,
          .memory = state->constantsBufferMemory,
@@ -1010,8 +1009,33 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
          return result;
       }
       Bc7Constants bc7_uniform_constants;
-      populate_bc_decoding_constants(&bc7_uniform_constants);
+      populate_bc7_decoding_constants(&bc7_uniform_constants);
       memcpy(data, &bc7_uniform_constants, sizeof(Bc7Constants));
+      wrapper_UnmapMemory(device, state->constantsBufferMemory);
+   } else if (bc_mode == 6) {
+      bindingCount = 3;
+
+      CreateConstantsUniformBuffer(
+         _device,
+         sizeof(Bc6Constants),
+         &state->constantsBuffer,      // Pass pointers to be filled
+         &state->constantsBufferMemory // Pass pointers to be filled
+      );
+
+      void* data;
+      VkMemoryMapInfoKHR mapInfoSrc = {
+         .sType = VK_STRUCTURE_TYPE_MEMORY_MAP_INFO_KHR,
+         .memory = state->constantsBufferMemory,
+         .offset = 0,
+         .size = sizeof(Bc6Constants),
+      };
+      VkResult result = CHECK_W(MapMemory2KHR(device, &mapInfoSrc, &data));
+      if (result != VK_SUCCESS) {
+         return result;
+      }
+      Bc6Constants bc6_uniform_constants;
+      populate_bc6_decoding_constants(&bc6_uniform_constants);
+      memcpy(data, &bc6_uniform_constants, sizeof(Bc6Constants));
       wrapper_UnmapMemory(device, state->constantsBufferMemory);
    }
 
@@ -1444,6 +1468,23 @@ final:
    wrapper_UnmapMemory((VkDevice) _device, srcBuffer->memory);
 }
 
+static VkDeviceSize calculate_bc_copy_size(const VkBufferImageCopy* region, uint32_t block_size_in_bytes) {
+    // For BC1 (and other BC formats), the block dimensions are 4x4 texels.
+    uint32_t copy_extent_in_blocks_x = (region->imageExtent.width + 3) / 4;
+    uint32_t copy_extent_in_blocks_y = (region->imageExtent.height + 3) / 4;
+
+    VkDeviceSize row_pitch_in_bytes;
+    if (region->bufferRowLength == 0) {
+        row_pitch_in_bytes = copy_extent_in_blocks_x * block_size_in_bytes;
+    } else {
+        uint32_t row_length_in_blocks = region->bufferRowLength / 4;
+        row_pitch_in_bytes = row_length_in_blocks * block_size_in_bytes;
+    }
+    VkDeviceSize last_row_size_in_bytes = copy_extent_in_blocks_x * block_size_in_bytes;
+    VkDeviceSize offset_to_last_row = (copy_extent_in_blocks_y - 1) * row_pitch_in_bytes;
+
+    return offset_to_last_row + last_row_size_in_bytes;
+}
 
 static void CmdComputeShaderForDecompression(
     struct wrapper_command_buffer* _commandBuffer,
@@ -1539,20 +1580,31 @@ static void CmdComputeShaderForDecompression(
       return;
    }
 
+   bool is_bc1 = wimg->original_format >= VK_FORMAT_BC1_RGB_UNORM_BLOCK && wimg->original_format <= VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
+   bool is_bc4 = wimg->original_format == VK_FORMAT_BC4_UNORM_BLOCK || wimg->original_format == VK_FORMAT_BC4_SNORM_BLOCK;
+   bool is_bc6 = wimg->original_format == VK_FORMAT_BC6H_UFLOAT_BLOCK || wimg->original_format == VK_FORMAT_BC6H_SFLOAT_BLOCK;
+   bool is_bc7 = wimg->original_format == VK_FORMAT_BC7_UNORM_BLOCK || wimg->original_format == VK_FORMAT_BC7_SRGB_BLOCK;
+
    VkDescriptorType dstDescriptorType;
+
+   // Calculate the buffer size for an image
+   // Normally 4x4 block is compressed to 16 bytes (1bpp), except for BC1 and BC4 (0.5 bpp)
+   uint32_t srcBufferSize = calculate_bc_copy_size(region, 16);
+   if (is_bc1 || is_bc4) {
+      srcBufferSize = calculate_bc_copy_size(region, 8);
+   }
 
    VkDescriptorBufferInfo srcBufferInfo = {
       .buffer = srcBuffer,
       .offset = region->bufferOffset,
-      .range = VK_WHOLE_SIZE
+      .range = srcBufferSize,
    };
 
    VkDescriptorBufferInfo uniformConstantBufferInfo = {
       .buffer = state->constantsBuffer,
       .offset = 0,
-      .range = sizeof(Bc7Constants)
+      .range = is_bc7 ? sizeof(Bc7Constants) : (is_bc6 ? sizeof(Bc6Constants) : 0),
    };
-
 
    VkWriteDescriptorSet writeSet[3] = {
       {
@@ -1622,7 +1674,7 @@ static void CmdComputeShaderForDecompression(
       writeSet[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
    }
 
-   int writeSetCount = wimg->original_format == VK_FORMAT_BC7_UNORM_BLOCK || wimg->original_format == VK_FORMAT_BC7_SRGB_BLOCK ? 3 : 2;
+   int writeSetCount = is_bc6 || is_bc7 ? 3 : 2;
    vk_ UpdateDescriptorSets(state->device, writeSetCount, writeSet, 0, NULL);
 
    vk_ CmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, state->pipeline);
@@ -1638,7 +1690,8 @@ static void CmdComputeShaderForDecompression(
          .imageOffsetX = region->imageOffset.x,
          .imageOffsetY = region->imageOffset.y,
          .imageExtentX = region->imageExtent.width,
-         .imageExtentY = region->imageExtent.height
+         .imageExtentY = region->imageExtent.height,
+         .srcBufferSize = srcBufferSize,
    };
 
    vk_ CmdPushConstants(commandBuffer, state->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -1700,7 +1753,7 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
       return;
    }
 
-   if (!wimg->is_bcn_emulated /**|| wimg->original_format == VK_FORMAT_BC7_UNORM_BLOCK/**/) { // Debug BC7
+   if (!wimg->is_bcn_emulated) {
       // If no BCn emulation needed, just fall-through
       wrapper_device_trampolines.CmdCopyBufferToImage(_commandBuffer, srcBuffer, dstImage,
                                                       dstImageLayout, 1, pRegions);

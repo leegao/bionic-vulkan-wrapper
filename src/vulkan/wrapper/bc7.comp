@@ -48,6 +48,8 @@ layout(push_constant) uniform PushConstants {
     int offsety; // region->imageOffset.y
     uint dst_width; // region->imageExtent.width
     uint dst_height; // region->imageExtent.height
+
+    uint srcBufferSize;
 } push_constants;
 
 // --- Buffers ---
@@ -394,9 +396,10 @@ shared uvec4 shared_block_data[4]; // One 128-bit block for each 4x4 quad-group 
 void main() {
     // Calculate pixel coordinate from workgroup and local invocation IDs
     ivec2 coord = ivec2(gl_WorkGroupID.xy) * 8 + ivec2(gl_LocalInvocationID.xy);
+    ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + coord;
 
     // Check if this invocation is out of bounds for the destination image
-    if (coord.x >= push_constants.dst_width || coord.y >= push_constants.dst_height) {
+    if (final_dst_coord.x >= push_constants.dst_width || final_dst_coord.y >= push_constants.dst_height) {
         return;
     }
 
@@ -406,11 +409,21 @@ void main() {
     int shared_idx = (local_coords.y / 4) * 2 + (local_coords.x / 4);
 
     // Load the 128-bit block data into shared memory if this invocation is a leader
+    ivec2 block_coord = coord / 4;
+    uint block_stride = push_constants.srcRowLength > 0 ? push_constants.srcRowLength / 4 : push_constants.dst_width;
+    uint block_index = block_coord.y * block_stride + block_coord.x;
+    uint buffer_offset = block_index * 4;
+
+    // This fetch might overflow, return a magenta for now
+    if ((buffer_offset + 3) * 4 >= push_constants.srcBufferSize) {
+#ifdef USE_IMAGE_VIEW_OUTPUT
+        imageStore(dstImage, final_dst_coord, vec4(0.0, 1.0, 1.0, 1.0));
+#endif
+        return;
+    }
+
+    // Load the 128-bit block data into shared memory if this invocation is a leader
     if (is_leader) {
-        ivec2 block_coord = coord / 4;
-        uint block_stride = push_constants.srcRowLength / 4;
-        uint block_index = block_coord.y * block_stride + block_coord.x;
-        uint buffer_offset = block_index * 4;
         shared_block_data[shared_idx] = uvec4(
             srcBuffer.data[buffer_offset + 0], srcBuffer.data[buffer_offset + 1],
             srcBuffer.data[buffer_offset + 2], srcBuffer.data[buffer_offset + 3]
@@ -462,8 +475,6 @@ void main() {
     }
 
     uvec4 rgba_result = interpolate_endpoint(interp);
-    // Calculate the final destination coordinate including the offset
-    ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + coord;
 #ifdef USE_IMAGE_VIEW_OUTPUT
     imageStore(dstImage, final_dst_coord, rgba_result / 255.0);
     // imageStore(dstImage, final_dst_coord, vec4(1.0,0,1.0,1.0));

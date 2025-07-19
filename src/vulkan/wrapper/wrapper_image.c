@@ -29,7 +29,7 @@ wrapper_CreateImage(VkDevice _device,
    VkResult result;
 
    if (emulate_bcn) {
-      WLOGD("Calling CreateImage with bcn texture: %d", pCreateInfo->format);
+      WLOGD("Calling CreateImage (%dx%d) with bcn texture: %d", pCreateInfo->extent.width, pCreateInfo->extent.height, pCreateInfo->format);
       create_info.format = unwrap_vk_format(device, pCreateInfo->format); // Done within the next layer
       create_info.usage |=  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
       create_info.flags &= 0xffffff7f;
@@ -39,9 +39,9 @@ wrapper_CreateImage(VkDevice _device,
          switch ((int32_t)pnext->sType) {
          case VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO:
             VkImageFormatListCreateInfo *ext = (VkImageFormatListCreateInfo *) pnext;
-            for (int i = 0; i < ext->viewFormatCount; i++) {
-               WLOGD("  Replacing %d from view formats", ext->pViewFormats[i]);
-            }
+            // for (int i = 0; i < ext->viewFormatCount; i++) {
+            //    WLOGD("  Replacing %d from view formats", ext->pViewFormats[i]);
+            // }
             if (ext->pViewFormats) {
                ext->viewFormatCount = 1;
                ((VkFormat*)ext->pViewFormats)[0] = unwrap_vk_format(device, pCreateInfo->format);

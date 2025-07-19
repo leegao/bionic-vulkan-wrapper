@@ -65,6 +65,8 @@ layout(push_constant) uniform PushConstants {
     int offsety;
     uint dst_width;
     uint dst_height;
+
+    uint srcBufferSize;
 } push_constants;
 
 // --- Buffers ---
@@ -165,26 +167,46 @@ vec4 decode_color_bc1_3(uvec2 color_payload, uint linear_pixel, uint src_format)
 shared uvec4 shared_block_data[4]; // One 128-bit block for each 4x4 quad-group in the 8x8 workgroup.
 
 void main() {
+    // uvec4 shared_block_data[4];
+
+    bool is_bc1 = push_constants.srcFormat >= VK_FORMAT_BC1_RGB_UNORM_BLOCK && push_constants.srcFormat <= VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
+    bool is_bc4 = push_constants.srcFormat == VK_FORMAT_BC4_UNORM_BLOCK || push_constants.srcFormat == VK_FORMAT_BC4_SNORM_BLOCK;
+    bool is_8bpp = is_bc1 || is_bc4;
+
     ivec2 pixel_coord = ivec2(gl_WorkGroupID.xy) * 8 + ivec2(gl_LocalInvocationID.xy);
-    if (pixel_coord.x >= push_constants.dst_width || pixel_coord.y >= push_constants.dst_height) {
+    ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + pixel_coord;
+    if (final_dst_coord.x >= push_constants.dst_width || final_dst_coord.y >= push_constants.dst_height) {
         return;
     }
     ivec2 local_coords = ivec2(gl_LocalInvocationID.xy); // on 8x8 warp grid
     // The first worker in the 4x4 squad is the leader who's responsible for fetching data
     bool is_leader = (local_coords.x % 4 == 0) && (local_coords.y % 4 == 0);
+    // 0 1
+    // 2 3
     int shared_idx = (local_coords.y / 4) * 2 + (local_coords.x / 4);
 
     // Load the 128-bit block data into shared memory if this invocation is a leader
-    if (is_leader) {
-        ivec2 block_coord = pixel_coord / 4;
-        uint block_stride = push_constants.srcRowLength / 4;
-        uint block_index = block_coord.y * block_stride + block_coord.x;
-        bool is_bc1 = push_constants.srcFormat >= VK_FORMAT_BC1_RGB_UNORM_BLOCK && push_constants.srcFormat <= VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
-        bool is_bc4 = push_constants.srcFormat == VK_FORMAT_BC4_UNORM_BLOCK || push_constants.srcFormat == VK_FORMAT_BC4_SNORM_BLOCK;
+    ivec2 block_coord = pixel_coord / 4;
+    uint block_stride = push_constants.srcRowLength > 0 ? push_constants.srcRowLength / 4 : push_constants.dst_width;
+    uint block_index = block_coord.y * block_stride + block_coord.x;
+    uint buffer_offset = is_8bpp ? block_index * 2 : block_index * 4;
 
-        if (is_bc1 || is_bc4) {
+    // This fetch might overflow, return a magenta for now
+    if (is_8bpp && (buffer_offset + 1) * 4 >= push_constants.srcBufferSize) {
+#ifdef USE_IMAGE_VIEW_OUTPUT
+        imageStore(dstImage, final_dst_coord, vec4(1.0, 0.0, 1.0, 1.0));
+#endif
+        return;
+    } else if ((buffer_offset + 3) * 4 >= push_constants.srcBufferSize) {
+#ifdef USE_IMAGE_VIEW_OUTPUT
+        imageStore(dstImage, final_dst_coord, vec4(1.0, 0.0, 1.0, 1.0));
+#endif
+        return;
+    }
+
+    if (is_leader) {
+        if (is_8bpp) {
             // 2 quads per 4x4 block
-            uint buffer_offset = block_index * 2;
             shared_block_data[shared_idx] = uvec4(
                 srcBuffer.data[buffer_offset + 0], srcBuffer.data[buffer_offset + 1],
                 // Do not use zw
@@ -192,7 +214,6 @@ void main() {
             );
         } else {
             // 4 quads per 4x4 block
-            uint buffer_offset = block_index * 4;
             shared_block_data[shared_idx] = uvec4(
                 srcBuffer.data[buffer_offset + 0], srcBuffer.data[buffer_offset + 1],
                 srcBuffer.data[buffer_offset + 2], srcBuffer.data[buffer_offset + 3]
@@ -282,8 +303,6 @@ void main() {
         decompressed_color.rgb = srgb_to_linear(decompressed_color.rgb);
     }
 
-    // Calculate the final destination coordinate including the offset
-    ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + pixel_coord;
 #ifdef USE_IMAGE_VIEW_OUTPUT
     imageStore(dstImage, final_dst_coord, decompressed_color);
 #else
