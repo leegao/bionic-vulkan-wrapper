@@ -168,6 +168,7 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       supported_features->hostQueryReset = true;
       supported_features->customBorderColors = true;
       supported_features->customBorderColorWithoutFormat = true;
+      supported_features->dualSrcBlend = true; // Missing on G715 r38p1
 
       // DEBUG:
       // pdevice->base_supported_features.geometryStreams = false;
