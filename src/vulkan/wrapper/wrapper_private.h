@@ -201,16 +201,6 @@ struct wrapper_command_buffer {
 VK_DEFINE_HANDLE_CASTS(wrapper_command_buffer, vk.base, VkCommandBuffer,
                        VK_OBJECT_TYPE_COMMAND_BUFFER)
 
-struct wrapper_image {
-   struct vk_image vk;
-
-   struct wrapper_device *device;
-   VkImage dispatch_handle;
-
-   bool is_bcn_emulated;
-   VkFormat original_format;
-};
-
 struct wrapper_device_memory {
    struct AHardwareBuffer *ahardware_buffer;
    struct wrapper_device *device;
@@ -241,6 +231,13 @@ wrapper_device_memory_create(struct wrapper_device *device,
 void
 wrapper_device_memory_destroy(struct wrapper_device_memory *mem);
 
+// hash_map based lookup types
+#define COMMON_FIELDS(T) \
+   struct wrapper_device *device; \
+   T dispatch_handle; \
+   simple_mtx_t resource_mutex; \
+   struct list_head staging_resources; \
+   uint32_t obj_id
 
 #define CREATE_FROM_HANDLE_FUNCTION(wtype, vtype, map) \
 static struct wtype * get_##wtype(struct wrapper_device *device, vtype handle) { \
@@ -251,8 +248,6 @@ static struct wtype * get_##wtype(struct wrapper_device *device, vtype handle) {
    return obj; \
 }
 
-CREATE_FROM_HANDLE_FUNCTION(wrapper_image, VkImage, image_map)
-
 #define CREATE_FUNCTION_BODY(wtype, vtype, map, vk_type, init) \
    struct wtype *obj = vk_zalloc2(&device->vk.alloc, pAllocator, sizeof(struct wtype), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT); \
    if (!obj) \
@@ -260,10 +255,90 @@ CREATE_FROM_HANDLE_FUNCTION(wrapper_image, VkImage, image_map)
    init; \
    obj->device = device; \
    obj->dispatch_handle = dispatch_handle; \
+   list_inithead(&obj->staging_resources); \
+   simple_mtx_init(&obj->resource_mutex, mtx_plain); \
    simple_mtx_lock(&device->resource_mutex); \
+   static uint32_t obj_id = 0; \
+   obj->obj_id = obj_id++; \
    _mesa_hash_table_u64_insert(device->map, (uint64_t) dispatch_handle, obj); \
    simple_mtx_unlock(&device->resource_mutex); \
    return obj;
+
+typedef struct wrapper_staging_resources {
+   struct list_head link;
+   VkObjectType type;
+   bool use_vk_object;
+   void* handle;
+   void* parent; // the parent object tracking this resource
+   // In the future, add a fence for when this object is no longer needed
+} wrapper_staging_resources;
+
+#define TRACK_STAGING(device, type, handle, parent) add_staging_resource_to(device, &parent->staging_resources, VK_OBJECT_TYPE_##type, handle, parent)
+
+static void add_staging_resource_to(
+   struct wrapper_device *device,
+   struct list_head *staging_resources,
+   VkObjectType type,
+   void* handle,
+   void* parent) {
+   struct wrapper_staging_resources *obj =
+         vk_alloc(&device->vk.alloc, sizeof(struct wrapper_staging_resources), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
+   obj->type = type;
+   obj->handle = handle;
+   obj->parent = parent;
+   list_addtail(&obj->link, staging_resources);
+}
+
+static void free_staging_resources_from(struct wrapper_device *device, void* handle, struct list_head* list) {
+   // // Clean up temporary objects associated with this object
+   if (!list_is_empty(list)) {
+      WLOGD("Releasing %d staging resources for BCn handle %p", list_length(list), handle);
+      list_for_each_entry_safe(struct wrapper_staging_resources, resource, list, link) {
+         if (!resource->handle) {
+            continue;
+         }
+         switch (resource->type) {
+#define FREE_STAGING_RESOURCE_(t1, t2, free) \
+         case VK_OBJECT_TYPE_##t1: \
+            CHECKV(free((VkDevice) device, (Vk##t2) resource->handle, NULL)); \
+            break;
+#define FREE_STAGING_RESOURCE(t1, t2) FREE_STAGING_RESOURCE_(t1, t2, Destroy##t2)
+         FREE_STAGING_RESOURCE(IMAGE_VIEW, ImageView)
+         FREE_STAGING_RESOURCE(BUFFER, Buffer)
+         FREE_STAGING_RESOURCE_(DEVICE_MEMORY, DeviceMemory, FreeMemory)
+#undef FREE_STAGING_RESOURCE
+#undef FREE_STAGING_RESOURCE_
+         default:
+            WLOGE("Staging resource of type %d is not handled");
+            break;
+         }
+         resource->handle = NULL;
+         list_del(&resource->link);
+         vk_free(&device->vk.alloc, resource);
+      }
+   }
+}
+
+#define CREATE_DESTROY_FUNCTION(wtype, map, destroy) \
+static void wtype##_destroy(struct wrapper_device *device, struct wtype *obj, const VkAllocationCallbacks* pAllocator) { \
+   free_staging_resources_from(device, obj, &obj->staging_resources); \
+   simple_mtx_destroy(&obj->resource_mutex); \
+   simple_mtx_lock(&device->resource_mutex); \
+   _mesa_hash_table_u64_remove(device->map, (uint64_t) obj->dispatch_handle); \
+   simple_mtx_unlock(&device->resource_mutex); \
+   destroy; \
+}
+
+struct wrapper_image {
+   struct vk_image vk;
+
+   COMMON_FIELDS(VkImage);
+
+   bool is_bcn_emulated;
+   VkFormat original_format;
+};
+
+CREATE_FROM_HANDLE_FUNCTION(wrapper_image, VkImage, image_map)
 
 static struct wrapper_image *wrapper_image_create(struct wrapper_device *device,
                      const VkImageCreateInfo *pCreateInfo,
@@ -273,14 +348,6 @@ static struct wrapper_image *wrapper_image_create(struct wrapper_device *device,
    CREATE_FUNCTION_BODY(wrapper_image, VkImage, image_map,
                         VK_OBJECT_TYPE_IMAGE,
                         vk_image_init(&device->vk, &obj->vk, pCreateInfo));
-}
-
-#define CREATE_DESTROY_FUNCTION(wtype, map, destroy) \
-static void wtype##_destroy(struct wrapper_device *device, struct wtype *obj, const VkAllocationCallbacks* pAllocator) { \
-   simple_mtx_lock(&device->resource_mutex); \
-   _mesa_hash_table_u64_remove(device->map, (uint64_t) obj->dispatch_handle); \
-   simple_mtx_unlock(&device->resource_mutex); \
-   destroy; \
 }
 
 CREATE_DESTROY_FUNCTION(wrapper_image, image_map, {
@@ -304,16 +371,11 @@ typedef struct wrapper_buffer_staging_resources {
 typedef struct wrapper_buffer {
    struct vk_buffer vk;
 
-   struct wrapper_device *device;
-   VkBuffer dispatch_handle;
+   COMMON_FIELDS(VkBuffer);
 
+   struct list_head temp_descriptor_pools;
    VkDeviceMemory memory; // Pointer to the memory allocated by vkAllocateMemory
    VkDeviceSize memoryOffset; // Size of the memory allocated by vkAllocateMemory
-
-   simple_mtx_t resource_mutex;
-   struct list_head staging_resources;
-   struct list_head temp_descriptor_pools;
-   int bcn_id;
 } wrapper_buffer;
 
 CREATE_FROM_HANDLE_FUNCTION(wrapper_buffer, VkBuffer, buffer_map)

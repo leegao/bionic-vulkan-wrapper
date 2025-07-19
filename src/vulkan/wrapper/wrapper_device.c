@@ -344,7 +344,7 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    DISABLE_FEATURE(fillModeNonSolid);
    DISABLE_FEATURE(shaderClipDistance);
    DISABLE_FEATURE(shaderCullDistance);
-   
+   DISABLE_FEATURE(dualSrcBlend);
    
    result = physical_device->dispatch_table.CreateDevice(
       physical_device->dispatch_handle, &wrapper_create_info,
@@ -758,7 +758,7 @@ static VkResult add_new_temp_pool_to_buffer(struct wrapper_buffer *wbuf) {
                   VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
       new_pool_node->pool = new_pool_handle;
       list_addtail(&new_pool_node->link, &wbuf->temp_descriptor_pools);
-      WLOG("Total of %d temp descriptor pools created for buffer %d (%p)", list_length(&wbuf->temp_descriptor_pools), wbuf->bcn_id, wbuf->dispatch_handle);
+      WLOG("Total of %d temp descriptor pools created for buffer %d (%p)", list_length(&wbuf->temp_descriptor_pools), wbuf->obj_id, wbuf->dispatch_handle);
    }
    return result;
 }
@@ -770,41 +770,6 @@ static void free_temp_pool_from_buffer(VkDevice device, struct wrapper_buffer* w
          CHECKV(DestroyDescriptorPool(device, pool_node->pool, NULL));
          list_del(&pool_node->link);
          vk_free(&wbuf->device->vk.alloc, pool_node);
-      }
-   }
-}
-
-static void add_new_staging_resource_to_buffer(
-   struct wrapper_buffer *wbuf, 
-   VkBuffer stagingBuffer, 
-   VkDeviceMemory stagingBufferMemory, 
-   VkImageView stagingImageView) {
-   struct wrapper_buffer_staging_resources *obj =
-         vk_alloc(&wbuf->device->vk.alloc, sizeof(struct wrapper_buffer_staging_resources), 8,
-                  VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
-   obj->stagingBuffer = stagingBuffer;
-   obj->stagingBufferMemory = stagingBufferMemory;
-   obj->stagingImageView = stagingImageView;
-   list_addtail(&obj->link, &wbuf->staging_resources);
-   WLOG("Total of %d staging resources tracked for buffer %d (%p)", list_length(&wbuf->staging_resources), wbuf->bcn_id, wbuf->dispatch_handle);
-}
-
-static void free_staging_resources_from_buffer(VkDevice device, struct wrapper_buffer* wbuf, const VkAllocationCallbacks* pAllocator) {
-   // // Clean up temporary descriptor pools associated with this command buffer
-   if (!list_is_empty(&wbuf->staging_resources)) {
-      WLOG("Releasing %d staging resources for BCn buffer %d", list_length(&wbuf->staging_resources), wbuf->bcn_id);
-      list_for_each_entry_safe(struct wrapper_buffer_staging_resources, resource, &wbuf->staging_resources, link) {
-         if (resource->stagingBuffer != VK_NULL_HANDLE) {
-            CHECKV(DestroyBuffer(device, resource->stagingBuffer, pAllocator));
-         }
-         if (resource->stagingBufferMemory != VK_NULL_HANDLE) {
-            CHECKV(FreeMemory(device, resource->stagingBufferMemory, pAllocator));
-         }
-         if (resource->stagingImageView != VK_NULL_HANDLE) {
-            CHECKV(DestroyImageView(device, resource->stagingImageView, pAllocator));
-         }
-         list_del(&resource->link);
-         vk_free(&wbuf->device->vk.alloc, resource);
       }
    }
 }
@@ -827,8 +792,6 @@ wrapper_CreateBuffer(
       return vk_error(&base->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
    }
    list_inithead(&wbuf->temp_descriptor_pools);
-   list_inithead(&wbuf->staging_resources);
-   simple_mtx_init(&wbuf->resource_mutex, mtx_plain);
    return result;
 }
 
@@ -853,10 +816,7 @@ wrapper_DestroyBuffer(VkDevice device,
       return;
    }
    // Destroy all staging resources
-   free_staging_resources_from_buffer(device, wbuf, pAllocator);
    free_temp_pool_from_buffer(device, wbuf);
-   simple_mtx_destroy(&wbuf->resource_mutex);
-
    wrapper_buffer_destroy(_device, wbuf, pAllocator);
 }
 
@@ -1544,7 +1504,7 @@ static void CmdComputeShaderForDecompression(
       // The current pool is full or fragmented, create a new one for this command buffer
       result = add_new_temp_pool_to_buffer(wbuf);
       if (result != VK_SUCCESS) {
-         WLOGE("Failed to allocate temp descriptor pool for buffer %d: %d", wbuf->bcn_id, result);
+         WLOGE("Failed to allocate temp descriptor pool for buffer %d: %d", wbuf->obj_id, result);
          simple_mtx_unlock(&wbuf->resource_mutex);
          return;
       }
@@ -1561,10 +1521,10 @@ static void CmdComputeShaderForDecompression(
    result = wrapper_device_trampolines.AllocateDescriptorSets((VkDevice) _device, &allocInfo, &descriptorSet);
    if (result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL) {
       // The current pool is full or fragmented, create a new one for this command buffer
-      WLOG("Descriptor pool exhausted, creating a new one for buffer %d", wbuf->bcn_id);
+      WLOG("Descriptor pool exhausted, creating a new one for buffer %d", wbuf->obj_id);
       result = add_new_temp_pool_to_buffer(wbuf);
       if (result != VK_SUCCESS) {
-         WLOGE("Failed to allocate temp descriptor pool for buffer %d: %d", wbuf->bcn_id, result);
+         WLOGE("Failed to allocate temp descriptor pool for buffer %d: %d", wbuf->obj_id, result);
          simple_mtx_unlock(&wbuf->resource_mutex);
          return;
       }
@@ -1658,9 +1618,8 @@ static void CmdComputeShaderForDecompression(
       }
 
       // Track this image view so it can be cleaned up when the cmd buffer is cleaned up
-      // add_new_staging_image_view(_commandBuffer, dstImageView);
-      WLOG("Tracking stagingImageView (%p) for BCn buffer %d (%p)", dstImageView, wbuf->bcn_id, srcBuffer);
-      add_new_staging_resource_to_buffer(wbuf, VK_NULL_HANDLE, VK_NULL_HANDLE, dstImageView);
+      WLOGD("Tracking stagingImageView (%p) for image %d", dstImageView, wimg->obj_id);
+      TRACK_STAGING(_device, IMAGE_VIEW, dstImageView, wimg);
 
       dstImageInfo.imageView = dstImageView;
       dstImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -1773,8 +1732,8 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
    if (!wbuf) {
       WLOGE("ERROR: wrapper_CmdCopyBufferToImage: srcBuffer not tracked");
    }
-   if (!wbuf->bcn_id)
-      wbuf->bcn_id = count;
+   if (!wbuf->obj_id)
+      wbuf->obj_id = count;
 
    for (uint32_t i = 0; i < regionCount; ++i) {
       const VkBufferImageCopy* region = &pRegions[i];
@@ -1793,9 +1752,9 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
             return;
          }
 
-         // add_new_staging_buffer(wcb, stagingBuffer, stagingBufferMemory);
-         WLOGD("Tracking stagingBuffer (%p / %p) for BCn buffer %d (%p)", stagingBuffer, stagingBufferMemory, count, srcBuffer);
-         add_new_staging_resource_to_buffer(wbuf, stagingBuffer, stagingBufferMemory, VK_NULL_HANDLE);
+         WLOGD("Tracking new stagingBuffer for image %d", wimg->obj_id);
+         TRACK_STAGING(_device, BUFFER, stagingBuffer, wimg);
+         TRACK_STAGING(_device, DEVICE_MEMORY, stagingBufferMemory, wimg);
       }
 
       if (use_compute_shader) {
