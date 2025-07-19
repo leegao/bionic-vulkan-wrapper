@@ -133,7 +133,7 @@ s3tc = custom_target(
   input : [files('s3tc.comp')],
   output : 's3tc.spv.h',
   command : [
-      prog_glslang, '-V', '-S', 'comp', '-x', '-o', '@OUTPUT@', '@INPUT@',
+      prog_glslang, '-V', '-S', 'comp', '-x', '--nan-clamp', '-Os', '-o', '@OUTPUT@', '@INPUT@',
       glslang_quiet, glslang_depfile,
   ],
   depfile : 's3tc.spv.h.d',
@@ -143,7 +143,7 @@ bc6 = custom_target(
   input : [files('bc6.comp')],
   output : 'bc6.spv.h',
   command : [
-      prog_glslang, '-V', '-S', 'comp', '-x', '-o', '@OUTPUT@', '@INPUT@',
+      prog_glslang, '-V', '-S', 'comp', '-x', '--nan-clamp', '-Os', '-o', '@OUTPUT@', '@INPUT@',
       glslang_quiet, glslang_depfile,
   ],
   depfile : 'bc6.spv.h.d',
@@ -153,7 +153,7 @@ bc7 = custom_target(
   input : [files('bc7.comp')],
   output : 'bc7.spv.h',
   command : [
-      prog_glslang, '-V', '-S', 'comp', '-x', '-o', '@OUTPUT@', '@INPUT@',
+      prog_glslang, '-V', '-S', 'comp', '-x', '--nan-clamp', '-Os', '-o', '@OUTPUT@', '@INPUT@',
       glslang_quiet, glslang_depfile,
   ],
   depfile : 'bc7.spv.h.d',
@@ -165,7 +165,7 @@ s3tc_iv = custom_target(
   input : [files('s3tc.comp')],
   output : 's3tc_iv.spv.h',
   command : [
-      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '-o', '@OUTPUT@', '@INPUT@',
+      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '--nan-clamp', '-Os', '--spirv-dis', '-o', '@OUTPUT@', '@INPUT@',
       glslang_quiet, glslang_depfile,
   ],
   depfile : 's3tc_iv.spv.h.d',
@@ -175,7 +175,7 @@ bc6_iv = custom_target(
   input : [files('bc6.comp')],
   output : 'bc6_iv.spv.h',
   command : [
-      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '-o', '@OUTPUT@', '@INPUT@',
+      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '--nan-clamp', '-Os', '-o', '@OUTPUT@', '@INPUT@',
       glslang_quiet, glslang_depfile,
   ],
   depfile : 'bc6_iv.spv.h.d',
@@ -185,7 +185,7 @@ bc7_iv = custom_target(
   input : [files('bc7.comp')],
   output : 'bc7_iv.spv.h',
   command : [
-      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '-o', '@OUTPUT@', '@INPUT@',
+      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '--nan-clamp', '-Os', '-o', '@OUTPUT@', '@INPUT@',
       glslang_quiet, glslang_depfile,
   ],
   depfile : 'bc7_iv.spv.h.d',

@@ -53,11 +53,13 @@ typedef struct InterceptorState {
    VkPipeline pipeline;
    VkPipelineLayout pipelineLayout;
    VkDescriptorSetLayout descriptorSetLayout;
+   VkBuffer constantsBuffer;
+   VkDeviceMemory constantsBufferMemory;
 } InterceptorState;
 
 // Initializes the Vulkan objects needed for the compute dispatch.
 // Call this after intercepting vkCreateDevice.
-static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, size_t spv_size, const uint32_t* spv_code, bool use_image_view);
+static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, size_t spv_size, const uint32_t* spv_code, bool use_image_view, int bc_mode);
 
 // Cleans up the Vulkan objects.
 // Call this before intercepting vkDestroyDevice.
@@ -194,6 +196,7 @@ wrapper_append_required_extensions(const struct vk_device *device,
    REQUIRED_EXTENSION(EXT_external_memory_dma_buf);
    REQUIRED_EXTENSION(EXT_image_drm_format_modifier);
    REQUIRED_EXTENSION(ANDROID_external_memory_android_hardware_buffer);
+   // REQUIRED_EXTENSION(KHR_uniform_buffer_standard_layout); // for std430 UBOs
 #undef REQUIRED_EXTENSION
 }
 
@@ -364,7 +367,7 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
       wrapper_device_to_handle(device), 
       use_image_view ? sizeof(s3tc_iv_spv) : sizeof(s3tc_spv), 
       use_image_view ? s3tc_iv_spv : s3tc_spv, 
-      use_image_view);
+      use_image_view, 1);
    if (result != VK_SUCCESS) {
       WLOGE("Failed to initialize InterceptorState for s3tc");
       return vk_error(physical_device, result);
@@ -373,7 +376,7 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
       wrapper_device_to_handle(device), 
       use_image_view ? sizeof(bc6_iv_spv) : sizeof(bc6_spv), 
       use_image_view ? bc6_iv_spv : bc6_spv, 
-      use_image_view);
+      use_image_view, 6);
    if (result != VK_SUCCESS) {
       WLOGE("Failed to initialize InterceptorState for bc6");
       return vk_error(physical_device, result);
@@ -382,7 +385,7 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
       wrapper_device_to_handle(device), 
       use_image_view ? sizeof(bc7_iv_spv) : sizeof(bc7_spv), 
       use_image_view ? bc7_iv_spv : bc7_spv, 
-      use_image_view);
+      use_image_view, 7);
    if (result != VK_SUCCESS) {
       WLOGE("Failed to initialize InterceptorState for bc7");
       return vk_error(physical_device, result);
@@ -725,7 +728,7 @@ wrapper_GetPrivateData(VkDevice _device, VkObjectType objectType,
 static VkResult add_new_temp_pool_to_buffer(struct wrapper_buffer *wbuf) {
    struct wrapper_device *device = wbuf->device;
    VkDescriptorPool new_pool_handle;
-   VkDescriptorPoolSize pool_sizes[2] = {
+   VkDescriptorPoolSize pool_sizes[3] = {
       {
          .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
          .descriptorCount = 32 // Sufficient for 32 sets, each needing one
@@ -734,13 +737,17 @@ static VkResult add_new_temp_pool_to_buffer(struct wrapper_buffer *wbuf) {
          .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
          .descriptorCount = 32 // Sufficient for 32 sets, each needing one
       },
+      {
+         .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+         .descriptorCount = 32 // Sufficient for 32 sets, each needing one
+      },
    };
 
    const VkDescriptorPoolCreateInfo create_info = {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
       .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
       .maxSets = 32, // A reasonable number for one command buffer's temp usage
-      .poolSizeCount = 2,
+      .poolSizeCount = 3,
       .pPoolSizes = pool_sizes,
    };
 
@@ -899,21 +906,63 @@ wrapper_BindBufferMemory2(
 // device->dispatch_table.CmdCopyBufferToImage
 #define vk_ _device->dispatch_table.
 
-typedef struct {
-    uint32_t srcFormat;
-    uint32_t srcRowLength;
-    uint32_t srcImageHeight;
-    int32_t imageOffsetX;
-    int32_t imageOffsetY;
-    uint32_t imageExtentX;
-    uint32_t imageExtentY;
-} PushConstantData;
+// Helper function to find a suitable memory type
+static uint32_t findMemoryType(struct wrapper_physical_device* _physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+   VkPhysicalDeviceMemoryProperties memProperties;
+   _physicalDevice->dispatch_table.GetPhysicalDeviceMemoryProperties(_physicalDevice->dispatch_handle, &memProperties);
 
-static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, size_t spv_size, const uint32_t* spv_code, bool use_image_view) {
+   for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+      if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+         return i;
+      }
+   }
+
+   // This is a fatal error, the application should handle it appropriately
+   WLOG("Failed to find suitable memory type!\n");
+   return 0;
+}
+
+static VkResult CreateConstantsUniformBuffer(
+   struct wrapper_device* _device,
+   VkDeviceSize size,
+   VkBuffer* buffer,
+   VkDeviceMemory* bufferMemory) {
+   VkDevice device = _device->dispatch_handle;
+   struct wrapper_physical_device* _physicalDevice = _device->physical;
+   VkPhysicalDevice physicalDevice = _physicalDevice->dispatch_handle;
+
+   VkResult result;
+   VkBufferCreateInfo bufferInfo = {0};
+   bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+   bufferInfo.size = size;
+   bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+   result = CHECK(CreateBuffer((VkDevice) _device, &bufferInfo, NULL, buffer));
+   if (result != VK_SUCCESS)
+      return result;
+
+   VkMemoryRequirements memRequirements;
+   vk_ GetBufferMemoryRequirements(device, *buffer, &memRequirements);
+
+   VkMemoryAllocateInfo allocInfo = {0};
+   allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+   allocInfo.allocationSize = memRequirements.size;
+   allocInfo.memoryTypeIndex = findMemoryType(_physicalDevice, memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+   result = CHECK_W(AllocateMemory((VkDevice) _device, &allocInfo, NULL, bufferMemory));
+   if (result != VK_SUCCESS) {
+      return result;
+   }
+
+   return CHECK(BindBufferMemory((VkDevice) _device, *buffer, *bufferMemory, 0));
+}
+
+static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, size_t spv_size, const uint32_t* spv_code, bool use_image_view, int bc_mode) {
    VkResult result;
    VK_FROM_HANDLE(wrapper_device, _device, device);
    // 1. Create Descriptor Set Layout
-   VkDescriptorSetLayoutBinding setLayoutBinding[2] = {
+   VkDescriptorSetLayoutBinding setLayoutBinding[3] = {
       {
          .binding = 0,
          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -925,8 +974,44 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
          .descriptorCount = 1,
          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      },
+      {
+         .binding = 2,
+         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+         .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
       }
    };
+
+   int bindingCount = 2;
+
+   if (bc_mode == 7) {
+      bindingCount = 3;
+
+      CreateConstantsUniformBuffer(
+         _device,
+         sizeof(Bc7Constants),
+         &state->constantsBuffer,      // Pass pointers to be filled
+         &state->constantsBufferMemory // Pass pointers to be filled
+      );
+
+      void* data;
+      // vkMapMemory(device, state->constantsBufferMemory, 0, sizeof(Bc7Constants), 0, &data);
+      VkMemoryMapInfoKHR mapInfoSrc = {
+         .sType = VK_STRUCTURE_TYPE_MEMORY_MAP_INFO_KHR,
+         .memory = state->constantsBufferMemory,
+         .offset = 0,
+         .size = sizeof(Bc7Constants),
+      };
+      VkResult result = CHECK_W(MapMemory2KHR(device, &mapInfoSrc, &data));
+      if (result != VK_SUCCESS) {
+         return result;
+      }
+      Bc7Constants bc7_uniform_constants;
+      populate_bc_decoding_constants(&bc7_uniform_constants);
+      memcpy(data, &bc7_uniform_constants, sizeof(Bc7Constants));
+      wrapper_UnmapMemory(device, state->constantsBufferMemory);
+   }
 
    if (use_image_view) {
       setLayoutBinding[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -934,7 +1019,7 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
 
    VkDescriptorSetLayoutCreateInfo setLayoutCreateInfo = {
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-      .bindingCount = 2,
+      .bindingCount = bindingCount,
       .pBindings = setLayoutBinding,
    };
    result = CHECK(CreateDescriptorSetLayout(device, &setLayoutCreateInfo, NULL, &state->descriptorSetLayout));
@@ -981,22 +1066,6 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
    CHECKV(DestroyShaderModule(device, computeShaderModule, NULL));
    if (result != VK_SUCCESS) return result;
    return result;
-}
-
-// Helper function to find a suitable memory type
-static uint32_t findMemoryType(struct wrapper_physical_device* _physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-   VkPhysicalDeviceMemoryProperties memProperties;
-   _physicalDevice->dispatch_table.GetPhysicalDeviceMemoryProperties(_physicalDevice->dispatch_handle, &memProperties);
-
-   for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-      if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-         return i;
-      }
-   }
-
-   // This is a fatal error, the application should handle it appropriately
-   WLOG("Failed to find suitable memory type!\n");
-   return 0;
 }
 
 // C implementation of the createBuffer helper function
@@ -1476,7 +1545,14 @@ static void CmdComputeShaderForDecompression(
       .range = VK_WHOLE_SIZE
    };
 
-   VkWriteDescriptorSet writeSet[2] = {
+   VkDescriptorBufferInfo uniformConstantBufferInfo = {
+      .buffer = state->constantsBuffer,
+      .offset = 0,
+      .range = sizeof(Bc7Constants)
+   };
+
+
+   VkWriteDescriptorSet writeSet[3] = {
       {
          .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
          .dstSet = descriptorSet,
@@ -1490,6 +1566,14 @@ static void CmdComputeShaderForDecompression(
          .dstSet = descriptorSet,
          .dstBinding = 1,
          .descriptorCount = 1,
+      },
+      {
+         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+         .dstSet = descriptorSet,
+         .dstBinding = 2,
+         .descriptorCount = 1,
+         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+         .pBufferInfo = &uniformConstantBufferInfo,
       }
    };
 
@@ -1536,7 +1620,8 @@ static void CmdComputeShaderForDecompression(
       writeSet[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
    }
 
-   vk_ UpdateDescriptorSets(state->device, 2, writeSet, 0, NULL);
+   int writeSetCount = wimg->original_format == VK_FORMAT_BC7_UNORM_BLOCK || wimg->original_format == VK_FORMAT_BC7_SRGB_BLOCK ? 3 : 2;
+   vk_ UpdateDescriptorSets(state->device, writeSetCount, writeSet, 0, NULL);
 
    vk_ CmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, state->pipeline);
 
