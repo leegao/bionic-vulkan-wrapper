@@ -14,6 +14,7 @@
 #include "vk_meta.h" // For vk_meta_create_image_view
 #include "vk_buffer.h"
 #include "wrapper_trampolines.h"
+#include "debug.h"
 
 #include "bcdec.h"
 
@@ -1651,6 +1652,8 @@ static void CmdComputeShaderForDecompression(
          .imageExtentX = region->imageExtent.width,
          .imageExtentY = region->imageExtent.height,
          .srcBufferSize = srcBufferSize,
+         .unsupportedBitsBc = get_unsupported_bcn_masks(),
+         .watercoloredBitsBc = get_watermarked_bcn_masks(),
    };
 
    vk_ CmdPushConstants(commandBuffer, state->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -1724,8 +1727,9 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
    count++;
    WLOG("Emulating support for format=%d, count=%d", wimg->original_format, count);
    
-   bool use_compute_shader = use_compute_shader_mode();
-   bool use_image_view = use_image_view_mode();
+   bool use_cpu_bcn = (get_host_decoding_bcn_masks() & (1 << (wimg->original_format - 131))) != 0;
+   bool use_compute_shader = use_compute_shader_mode() && !use_cpu_bcn;
+   bool use_image_view = use_image_view_mode() && !use_cpu_bcn;
    WLOGD("  + use_compute_shader=%d, use_image_view=%d", use_compute_shader, use_image_view);
 
    struct wrapper_buffer* wbuf = get_wrapper_buffer(_device, srcBuffer);

@@ -67,6 +67,9 @@ layout(push_constant) uniform PushConstants {
     uint dst_height;
 
     uint srcBufferSize;
+
+    uint unsupportedBitsBc; // bitmask
+    uint watercoloredBitsBc;
 } push_constants;
 
 // --- Buffers ---
@@ -178,6 +181,47 @@ void main() {
     if (final_dst_coord.x >= push_constants.dst_width || final_dst_coord.y >= push_constants.dst_height) {
         return;
     }
+
+    // Check the bitmask
+    bool is_masked = (push_constants.unsupportedBitsBc & (1 << (push_constants.srcFormat - 131))) != 0;
+    bool is_watermarked = ((push_constants.watercoloredBitsBc & (1 << (push_constants.srcFormat - 131))) != 0)
+        && pixel_coord.x < 32 && pixel_coord.y < 32;
+    if (is_masked || is_watermarked) {
+#define RETURN(r,g,b) imageStore(dstImage, final_dst_coord, vec4(r/256.0, g/256.0, b/256.0, 1.0)); break
+#ifdef USE_IMAGE_VIEW_OUTPUT
+        switch (push_constants.srcFormat) {
+        // See https://sashamaps.net/docs/resources/20-colors/
+        case 131:
+            RETURN(0x80, 0, 0); // Maroon
+        case 132:
+            RETURN(0x9a, 0x63, 0x24); // Brown
+        case 133:
+            RETURN(0x80, 0x80, 0); // Olive
+        case 134:
+            RETURN(0x46, 0x99, 0x90); // Dark Teal
+        case 135:
+            RETURN(0x00, 0x00, 0x75); // Navy
+        case 136:
+            RETURN(0xff, 0xfa, 0xc8); // Beige
+        case 137:
+            RETURN(0xf5, 0x82, 0x31); // Orange
+        case 138:
+            RETURN(0xff, 0xe1, 0x19); // Yellow
+        case 139:
+            RETURN(0xbf, 0xef, 0x45); // Lime green
+        case 140:
+            RETURN(0x3c, 0xb4, 0x4b); // Green
+        case 141:
+            RETURN(0x42, 0xd4, 0xf4); // Cyan
+        case 142:
+            RETURN(0x91, 0x1e, 0xb4); // Purple
+        default:
+            RETURN(0xff, 0xff, 0xff); // White
+        }
+#endif
+        return;
+    }
+
     ivec2 local_coords = ivec2(gl_LocalInvocationID.xy); // on 8x8 warp grid
     // The first worker in the 4x4 squad is the leader who's responsible for fetching data
     bool is_leader = (local_coords.x % 4 == 0) && (local_coords.y % 4 == 0);

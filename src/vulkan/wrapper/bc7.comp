@@ -50,6 +50,9 @@ layout(push_constant) uniform PushConstants {
     uint dst_height; // region->imageExtent.height
 
     uint srcBufferSize;
+
+    uint unsupportedBitsBc; // bitmask
+    uint watercoloredBitsBc;
 } push_constants;
 
 // --- Buffers ---
@@ -400,6 +403,26 @@ void main() {
 
     // Check if this invocation is out of bounds for the destination image
     if (final_dst_coord.x >= push_constants.dst_width || final_dst_coord.y >= push_constants.dst_height) {
+        return;
+    }
+
+    // Check the bitmask    
+    bool is_masked = (push_constants.unsupportedBitsBc & (1 << (push_constants.srcFormat - 131))) != 0;
+    bool is_watermarked = ((push_constants.watercoloredBitsBc & (1 << (push_constants.srcFormat - 131))) != 0)
+        && coord.x < 32 && coord.y < 32;
+    if (is_masked || is_watermarked) {
+#define RETURN(r,g,b) imageStore(dstImage, final_dst_coord, vec4(r/256.0, g/256.0, b/256.0, 1.0)); break
+#ifdef USE_IMAGE_VIEW_OUTPUT
+        switch (push_constants.srcFormat) {
+        // See https://sashamaps.net/docs/resources/20-colors/
+        case 145:
+            RETURN(0xaa, 0xff, 0xc3); // Mint
+        case 146:
+            RETURN(0xfa, 0xbe, 0xd4); // Pink
+        default:
+            RETURN(0xff, 0xff, 0xff); // White
+        }
+#endif
         return;
     }
 

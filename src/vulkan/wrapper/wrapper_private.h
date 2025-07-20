@@ -560,6 +560,8 @@ typedef struct {
     uint32_t imageExtentX;
     uint32_t imageExtentY;
     uint32_t srcBufferSize;
+    uint32_t unsupportedBitsBc;
+    uint32_t watercoloredBitsBc;
 } PushConstantData;
 
 typedef struct __attribute__((aligned(16))) ivec2_t_std140 {
