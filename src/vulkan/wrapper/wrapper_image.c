@@ -39,9 +39,6 @@ wrapper_CreateImage(VkDevice _device,
          switch ((int32_t)pnext->sType) {
          case VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO:
             VkImageFormatListCreateInfo *ext = (VkImageFormatListCreateInfo *) pnext;
-            // for (int i = 0; i < ext->viewFormatCount; i++) {
-            //    WLOGD("  Replacing %d from view formats", ext->pViewFormats[i]);
-            // }
             if (ext->pViewFormats) {
                ext->viewFormatCount = 1;
                ((VkFormat*)ext->pViewFormats)[0] = unwrap_vk_format(device, pCreateInfo->format);

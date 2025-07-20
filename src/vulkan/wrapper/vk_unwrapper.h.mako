@@ -13,15 +13,42 @@
 extern "C" {
 #endif
 
+struct temporary_objects {
+    struct list_head objects;
+};
+
+struct temp_object_node {
+    struct list_head link;
+    void *ptr;
+    struct wrapper_device *device;
+};
+
+static void free_temp_objects(struct temporary_objects* temp) {
+    // Clean up temporary descriptor pools associated with this command buffer
+    if (!list_is_empty(&temp->objects)) {
+        list_for_each_entry_safe(struct temp_object_node, node, &temp->objects, link) {
+            if (node->device) {
+                vk_free(&node->device->vk.alloc, node->ptr);
+                list_del(&node->link);
+                vk_free(&node->device->vk.alloc, node);
+            } else {
+                free(node->ptr);
+                list_del(&node->link);
+                free(node);
+            }
+        }
+    }
+}
+
 % for s in structs:
 
 void
-unwrap_${s.name}_members_only(struct wrapper_device *device,
+unwrap_${s.name}_members_only(struct temporary_objects*, struct wrapper_device *device,
                           ${s.name} *out_info,
                           const ${s.name} *in_info);
 
 void
-unwrap_${s.name}(struct wrapper_device *device,
+unwrap_${s.name}(struct temporary_objects*, struct wrapper_device *device,
                           ${s.name} *out_info,
                           const ${s.name} *in_info);
 
@@ -35,9 +62,9 @@ unwrap_${s.name}(struct wrapper_device *device,
 #define NEEDS_UNWRAPPING_${s}
 % endfor
 
-// TODO: Fix once unwrapping is completed
-#undef NEEDS_UNWRAPPING_VkSubmitInfo
-#undef NEEDS_UNWRAPPING_VkSubmitInfo2
+## // TODO: Fix once unwrapping is completed
+## #undef NEEDS_UNWRAPPING_VkSubmitInfo
+## #undef NEEDS_UNWRAPPING_VkSubmitInfo2
 
 #ifdef __cplusplus
 }

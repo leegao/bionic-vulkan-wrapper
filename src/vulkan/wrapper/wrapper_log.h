@@ -28,10 +28,10 @@ static FILE* __log_fd;
    if (can_log_level >= LOG_LEVEL_DEBUG) fflush(LOG_FD); \
 }
 
-#define WLOGA(...) { if (should_log() >= LOG_LEVEL_ALL) { __wlog(__VA_ARGS__); LOG(__VA_ARGS__); } }
+#define WLOGA(...) { if (should_log() >= LOG_LEVEL_ALL) { __wlog("! "__VA_ARGS__); LOG(__VA_ARGS__); } }
 #define WLOGD(...) { if (should_log() >= LOG_LEVEL_DEBUG) { __wlog(__VA_ARGS__); LOG(__VA_ARGS__); } }
 #define WLOG(...) { if (should_log() >= LOG_LEVEL_VERBOSE) { __wlog(__VA_ARGS__); LOG(__VA_ARGS__); } }
-#define WLOGE(...) { if (should_log() >= LOG_LEVEL_ERROR)  __wlog("[ERROR] " __VA_ARGS__); LOG(__VA_ARGS__); }
+#define WLOGE(...) { if (should_log() >= LOG_LEVEL_ERROR)  __wlog("[ERROR] " __VA_ARGS__); LOG("[ERROR] " __VA_ARGS__); }
 
 static void get_current_time_string(char* buffer, size_t bufferSize) {
     time_t now = time(NULL);

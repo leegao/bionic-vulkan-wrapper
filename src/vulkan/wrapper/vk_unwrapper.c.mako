@@ -8,9 +8,20 @@
 #include "vulkan/util/vk_util.h"
 
 #define VK_ALLOC(type) VK_ALLOC2(type, sizeof(type))
-#define VK_ALLOC2(type, size) (device ? \
-    ((type *) vk_zalloc(&device->vk.alloc, size, alignof(type), VK_SYSTEM_ALLOCATION_SCOPE_COMMAND)) : \
-    ((type *) malloc(size)) )
+#define VK_ALLOC2(type, size) ({ \
+    type* __output = device ? \
+    ((type *) vk_zalloc(&device->vk.alloc, size, alignof(type), VK_SYSTEM_ALLOCATION_SCOPE_OBJECT)) : \
+    ((type *) malloc(size)); \
+    if (__output) { \
+        struct temp_object_node *node = device ? \
+            vk_alloc(&device->vk.alloc, sizeof(struct temp_object_node), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT) \
+            : malloc(sizeof(struct temp_object_node)); \
+        node->ptr = __output; \
+        node->device = device; \
+        list_addtail(&node->link, &temp->objects); \
+    } \
+    __output; \
+})
 
 /*
     Inductive logic for unwrapping objects (if tainted):
@@ -96,6 +107,7 @@
         out_info->${member.name} = VK_ALLOC2(${member.type}, in_info->${member.array_count_member} * sizeof(${member.type}));
         for (uint32_t i = 0; i < in_info->${member.array_count_member}; i++) {
             unwrap_${member.type}(
+                temp,
                 device, 
                 &(((${member.typep})out_info->${member.name})[i]), 
                 &(((const ${member.typep})in_info->${member.name})[i]));
@@ -104,7 +116,7 @@
 % elif member.num_pointers == 1:
     if (in_info->${member.name}) {
         out_info->${member.name} = VK_ALLOC(${member.type});
-        unwrap_${member.type}(device, (${member.type}*) out_info->${member.name}, in_info->${member.name});
+        unwrap_${member.type}(temp, device, (${member.type}*) out_info->${member.name}, in_info->${member.name});
     }
 % elif member.num_pointers == 2:
     #error "Not implemented: ${member.typep} with 2 pointers"
@@ -137,7 +149,7 @@
 // ${s.name} - Not tainted, unwrapping is just a copy
 % endif
 void
-unwrap_${s.name}_members_only(struct wrapper_device *device,
+unwrap_${s.name}_members_only(struct temporary_objects* temp, struct wrapper_device *device,
                           ${s.name} *out_info,
                           const ${s.name} *in_info)
 {
@@ -174,14 +186,14 @@ ${_unwrap_special(device, member)}
 % endfor
 }
 
-void unwrap_${s.name}(struct wrapper_device *device,
+void unwrap_${s.name}(struct temporary_objects* temp, struct wrapper_device *device,
                           ${s.name} *out_info,
                           const ${s.name} *in_info)
 {
     if (!in_info)
         return;
 
-    unwrap_${s.name}_members_only(device, out_info, in_info);
+    unwrap_${s.name}_members_only(temp, device, out_info, in_info);
     ##// Invariant: out_pnext_ptr points to the current output pnext
     ##VkBaseOutStructure **out_pnext_ptr = (VkBaseOutStructure **)&out_info->pNext;
     ##vk_foreach_struct_const(pnext, in_info->pNext) {
@@ -209,7 +221,7 @@ void unwrap_${s.name}(struct wrapper_device *device,
         % endif
         // "${s.name}: pNext extension ${ext_name} contains a wrapped handle (${tainted[ext_name.name]}) and must be unwrapped"
         case ${ext_name.sType}:
-            unwrap_${ext_name}_members_only(device, (${ext_name} *)new_item, (const ${ext_name} *)item);
+            unwrap_${ext_name}_members_only(temp, device, (${ext_name} *)new_item, (const ${ext_name} *)item);
             break;
     % endfor
         default:

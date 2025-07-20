@@ -712,12 +712,12 @@ void main() {
     uint buffer_offset = block_index * 4;
 
     // This fetch might overflow, return a magenta for now
-    if ((buffer_offset + 3) * 4 >= push_constants.srcBufferSize) {
-#ifdef USE_IMAGE_VIEW_OUTPUT
-        imageStore(dstImage, final_dst_coord, ivec4(0x3c00, 0x3c00, 0, 0x3c00));
-#endif
-        return;
-    }
+//     if ((buffer_offset + 3) * 4 >= push_constants.srcBufferSize) {
+// #ifdef USE_IMAGE_VIEW_OUTPUT
+//         imageStore(dstImage, final_dst_coord, ivec4(0x3c00, 0x3c00, 0, 0x3c00));
+// #endif
+//         return;
+//     }
 
     // Load the 128-bit block data into shared memory if this invocation is a leader
     if (is_leader) {

@@ -54,9 +54,12 @@ static VKAPI_ATTR $return_type VKAPI_CALL
 wrapper_tramp_$name(
     $decl_params)
 {
+    struct temporary_objects temp;
+    list_inithead(&temp.objects);
 $handle_unwrap_logic
     $assign_block$dispatch_table.$name($call_params);
 $handle_wrap_logic
+    free_temp_objects(&temp);
     return $return_block;
 }""")
 
@@ -199,11 +202,11 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
                 # VkObject[10]
                 handle_unwrap_logic.append(f"    {param.name}__ = alloca({param.len} * sizeof({param.type}));")
                 handle_unwrap_logic.append(f"    for (int i = 0; i < {param.len}; i++)")
-                handle_unwrap_logic.append(f"        unwrap_{param.type}({device}, ({param.type} *) &{param.name}__[i], &{param.name}[i]);")
+                handle_unwrap_logic.append(f"        unwrap_{param.type}(&temp, {device}, ({param.type} *) &{param.name}__[i], &{param.name}[i]);")
             elif is_ptr1:
                 handle_unwrap_logic.append(f"    {param.type} _w_{param.name} = {{ 0 }};")
                 handle_unwrap_logic.append(f"    {param.name}__ = &_w_{param.name};")
-                handle_unwrap_logic.append(f"    unwrap_{param.type}({device}, ({param.type} *) {param.name}__, {param.name});")
+                handle_unwrap_logic.append(f"    unwrap_{param.type}(&temp, {device}, ({param.type} *) {param.name}__, {param.name});")
             else:
                 handle_unwrap_logic.append(f"#error: Unhandled struct+ptr2 {command.name} {param}")
                 pass

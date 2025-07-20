@@ -7,6 +7,7 @@
 #include "vulkan/runtime/vk_device.h"
 #include "vulkan/runtime/vk_queue.h"
 #include "vulkan/runtime/vk_command_buffer.h"
+#include "vulkan/runtime/vk_command_pool.h"
 #include "vulkan/runtime/vk_buffer.h"
 #include "vulkan/runtime/vk_image.h"
 #include "vulkan/runtime/vk_log.h"
@@ -109,7 +110,7 @@ void adrenotools_set_turbo(bool turbo);
 // #define NEEDS_PRINTING_GetImageMemoryRequirements2 1;
 // #define NEEDS_PRINTING_GetImageMemoryRequirements 1
 // #define NEEDS_PRINTING_BindImageMemory 1;
-// #define NEEDS_PRINTING_QueueSubmit2 1;
+#define NEEDS_PRINTING_QueueSubmit2 1;
 // #define NEEDS_PRINTING_AllocateMemory 1;
 // #define NEEDS_PRINTING_GetPhysicalDeviceImageFormatProperties2 1
 // #define NEEDS_PRINTING_AllocateDescriptorSets 1;
@@ -147,10 +148,16 @@ struct wrapper_physical_device {
 VK_DEFINE_HANDLE_CASTS(wrapper_physical_device, vk.base, VkPhysicalDevice,
                        VK_OBJECT_TYPE_PHYSICAL_DEVICE)
 
+#define COMMON_FIELDS(T) \
+   struct wrapper_device *device; \
+   T dispatch_handle; \
+   simple_mtx_t resource_mutex; \
+   struct list_head staging_resources; \
+   uint32_t obj_id
+
 struct wrapper_queue {
    struct vk_queue vk;
-   struct wrapper_device *device;
-   VkQueue dispatch_handle;
+   COMMON_FIELDS(VkQueue);
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_queue, vk.base, VkQueue,
@@ -166,36 +173,34 @@ struct wrapper_device {
 
    struct hash_table_u64* image_map;
    struct hash_table_u64* buffer_map;
+   struct hash_table_u64* command_pool_map;
 
    struct wrapper_physical_device *physical;
    struct vk_device_dispatch_table dispatch_table;
 
    uint32_t queueCount;
    struct wrapper_queue **queues;
+   struct wrapper_queue *graphics_queue;
+   uint32_t graphics_queue_idx;
+
+   VkCommandPool computePool;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_device, vk.base, VkDevice,
                        VK_OBJECT_TYPE_DEVICE)
 
-
-typedef struct wrapper_cmd_buffer_staging_buffer {
-   struct list_head link;
-   VkBuffer buffer;
-   VkDeviceMemory memory;
-} wrapper_cmd_buffer_staging_buffer;
-
-typedef struct wrapper_cmd_buffer_staging_image_view {
-   struct list_head link;
-   VkImageView imageView;
-} wrapper_cmd_buffer_staging_image_view;
-
 struct wrapper_command_buffer {
    struct vk_command_buffer vk;
 
-   struct wrapper_device *device;
    struct list_head link;
+   COMMON_FIELDS(VkCommandBuffer);
+
    VkCommandPool pool;
-   VkCommandBuffer dispatch_handle;
+
+   VkCommandBuffer bcnBuffer;
+   VkFence bcnBufferFinished;
+   VkSemaphore bcnBufferFinishedSemaphore;
+   uint32_t bcnCommands;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_command_buffer, vk.base, VkCommandBuffer,
@@ -231,13 +236,23 @@ wrapper_device_memory_create(struct wrapper_device *device,
 void
 wrapper_device_memory_destroy(struct wrapper_device_memory *mem);
 
+
+static int FindGraphicsComputeQueueFamilies(struct wrapper_physical_device* physical_device) {
+   uint32_t queueFamilyCount = 0;
+   wrapper_physical_device_trampolines.GetPhysicalDeviceQueueFamilyProperties((VkPhysicalDevice) physical_device, &queueFamilyCount, NULL);
+   VkQueueFamilyProperties queueFamilies[32];
+   wrapper_physical_device_trampolines.GetPhysicalDeviceQueueFamilyProperties((VkPhysicalDevice) physical_device, &queueFamilyCount, queueFamilies);
+
+   for (int i = 0; i < queueFamilyCount; i++) {
+      if ((queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0 && (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0) {
+         return i;
+      }
+   }
+   return -1; // No compute queue family found
+}
+
+
 // hash_map based lookup types
-#define COMMON_FIELDS(T) \
-   struct wrapper_device *device; \
-   T dispatch_handle; \
-   simple_mtx_t resource_mutex; \
-   struct list_head staging_resources; \
-   uint32_t obj_id
 
 #define CREATE_FROM_HANDLE_FUNCTION(wtype, vtype, map) \
 static struct wtype * get_##wtype(struct wrapper_device *device, vtype handle) { \
@@ -271,6 +286,7 @@ typedef struct wrapper_staging_resources {
    void* handle;
    void* parent; // the parent object tracking this resource
    // In the future, add a fence for when this object is no longer needed
+   VkFence ready;
 } wrapper_staging_resources;
 
 #define TRACK_STAGING(device, type, handle, parent) add_staging_resource_to(device, &parent->staging_resources, VK_OBJECT_TYPE_##type, handle, parent)
@@ -289,39 +305,67 @@ static void add_staging_resource_to(
    list_addtail(&obj->link, staging_resources);
 }
 
-static void free_staging_resources_from(struct wrapper_device *device, void* handle, struct list_head* list) {
-   // // Clean up temporary objects associated with this object
+static void free_staging_resources_if_ready(
+   struct wrapper_device *device, 
+   void* handle, 
+   struct list_head* list,
+   bool cleanup_everything) {
+   // // Clean up temporary objects associated with this object, does not destroy the list nor objects that are not ready to be cleaned up
+   int cleaned_up = 0;
    if (!list_is_empty(list)) {
-      WLOGD("Releasing %d staging resources for BCn handle %p", list_length(list), handle);
       list_for_each_entry_safe(struct wrapper_staging_resources, resource, list, link) {
          if (!resource->handle) {
             continue;
          }
-         switch (resource->type) {
+
+         if (!cleanup_everything) {
+            if (resource->ready == VK_NULL_HANDLE) {
+               continue;
+            }
+            if (wrapper_device_trampolines.GetFenceStatus((VkDevice) device, resource->ready) != VK_SUCCESS) {
+               continue;
+            }
+         }
+
 #define FREE_STAGING_RESOURCE_(t1, t2, free) \
          case VK_OBJECT_TYPE_##t1: \
             CHECKV(free((VkDevice) device, (Vk##t2) resource->handle, NULL)); \
+            cleaned_up++; \
             break;
 #define FREE_STAGING_RESOURCE(t1, t2) FREE_STAGING_RESOURCE_(t1, t2, Destroy##t2)
+
+         switch (resource->type) {
          FREE_STAGING_RESOURCE(IMAGE_VIEW, ImageView)
          FREE_STAGING_RESOURCE(BUFFER, Buffer)
          FREE_STAGING_RESOURCE_(DEVICE_MEMORY, DeviceMemory, FreeMemory)
-#undef FREE_STAGING_RESOURCE
-#undef FREE_STAGING_RESOURCE_
          default:
             WLOGE("Staging resource of type %d is not handled");
             break;
          }
-         resource->handle = NULL;
+
+#undef FREE_STAGING_RESOURCE
+#undef FREE_STAGING_RESOURCE_
+
+         resource->handle = VK_NULL_HANDLE;
+         resource->parent = NULL;
          list_del(&resource->link);
          vk_free(&device->vk.alloc, resource);
       }
    }
+
+   if (cleaned_up)
+      WLOGD("Released %d staging resources for handle %p", cleaned_up, handle);
+}
+
+static void free_staging_resources_final(struct wrapper_device *device, 
+   void* handle, 
+   struct list_head* list) {
+   return free_staging_resources_if_ready(device, handle, list, true);
 }
 
 #define CREATE_DESTROY_FUNCTION(wtype, map, destroy) \
 static void wtype##_destroy(struct wrapper_device *device, struct wtype *obj, const VkAllocationCallbacks* pAllocator) { \
-   free_staging_resources_from(device, obj, &obj->staging_resources); \
+   free_staging_resources_final(device, obj, &obj->staging_resources); \
    simple_mtx_destroy(&obj->resource_mutex); \
    simple_mtx_lock(&device->resource_mutex); \
    _mesa_hash_table_u64_remove(device->map, (uint64_t) obj->dispatch_handle); \
@@ -393,6 +437,31 @@ static struct wrapper_buffer *wrapper_buffer_create(struct wrapper_device *devic
 CREATE_DESTROY_FUNCTION(wrapper_buffer, buffer_map, {
    // vk_buffer_finish(&obj->vk);
    vk_buffer_destroy(&device->vk, pAllocator, &obj->vk);
+});
+
+
+struct wrapper_command_pool {
+   // struct vk_command_pool vk;
+
+   COMMON_FIELDS(VkCommandPool);
+
+   uint32_t queue_idx;
+};
+
+CREATE_FROM_HANDLE_FUNCTION(wrapper_command_pool, VkCommandPool, command_pool_map)
+
+static struct wrapper_command_pool *wrapper_command_pool_create(struct wrapper_device *device,
+                     const VkCommandPoolCreateInfo *pCreateInfo,
+                     const VkAllocationCallbacks *pAllocator,
+                     VkCommandPool dispatch_handle)
+{
+   CREATE_FUNCTION_BODY(wrapper_command_pool, VkCommandPool, command_pool_map,
+                        VK_OBJECT_TYPE_COMMAND_POOL,
+                        {});
+}
+
+CREATE_DESTROY_FUNCTION(wrapper_command_pool, command_pool_map, {
+   // vk_command_pool_destroy(&device->vk, pAllocator, &obj->vk);
 });
 
 // For BCn emulation
