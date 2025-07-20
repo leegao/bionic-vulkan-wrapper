@@ -169,6 +169,10 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       supported_features->customBorderColors = true;
       supported_features->customBorderColorWithoutFormat = true;
       supported_features->dualSrcBlend = true; // Missing on G715 r38p1
+      supported_features->logicOp = true; // Missing on G57 r32p1
+      supported_features->multiDrawIndirect = true; // Missing on G57 r32p1
+      supported_features->vertexPipelineStoresAndAtomics = true; // Missing on G57 r32p1
+      supported_features->variableMultisampleRate = true; // Missing on G57 r32p1
 
       // DEBUG:
       // pdevice->base_supported_features.geometryStreams = false;

@@ -352,6 +352,10 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    DISABLE_FEATURE(shaderClipDistance);
    DISABLE_FEATURE(shaderCullDistance);
    DISABLE_FEATURE(dualSrcBlend);
+   DISABLE_FEATURE(multiDrawIndirect); // Missing on G57 r32p1
+   DISABLE_FEATURE(logicOp); // Missing on G57 r32p1
+   DISABLE_FEATURE(vertexPipelineStoresAndAtomics); // Missing on G57 r32p1
+   DISABLE_FEATURE(variableMultisampleRate); // Missing on G57 r32p1
    
    result = physical_device->dispatch_table.CreateDevice(
       physical_device->dispatch_handle, &wrapper_create_info,
@@ -812,6 +816,7 @@ wrapper_GetPrivateData(VkDevice _device, VkObjectType objectType,
 
 // Helper function to create and add a pool
 static VkResult add_new_temp_pool_to_buffer(struct wrapper_buffer *wbuf) {
+   // TODO: move this into our gc system
    struct wrapper_device *device = wbuf->device;
    VkDescriptorPool new_pool_handle;
    VkDescriptorPoolSize pool_sizes[3] = {
