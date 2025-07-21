@@ -77,6 +77,13 @@ COMMAND_BLACKLIST = [
 ]
 
 def print_param(command, param, mode='input'):
+    if param == 'result':
+        return [
+            f"#ifdef NEEDS_PRINTING_{command.name}",
+            f"    VK_CMD_LOGA(\"  out: result: VkResult = %d\", (int64_t) result);",
+            f"    VK_CMD_FLUSH();",
+            f"#endif",
+        ]
     is_input = param.num_pointers == 0 or param.is_const
     if mode == 'input' and not is_input:
         return
@@ -114,7 +121,7 @@ def print_param(command, param, mode='input'):
         elif param.num_pointers:
             output.append(f"    VK_CMD_LOGA(\"  {token}: {param.name}: {param.type}{'*' * param.num_pointers} = %x\", (int64_t){param.name});")
         else:
-            output.append(f"    VK_CMD_LOGA(\"  {token}: {param.name}: {param.type} = %x\", (int64_t){param.name})");
+            output.append(f"    VK_CMD_LOGA(\"  {token}: {param.name}: {param.type} = %x\", (int64_t){param.name});");
             pass
     output.append("    VK_CMD_FLUSH();")
     output.append("#endif")
@@ -232,6 +239,8 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
 
     # Output + freeing (WIP)
     handle_wrap_logic = []
+    if command.return_type == 'VkResult':
+        handle_wrap_logic += print_param(command, 'result', mode='output')
     for param in params[1:]:
         if command.name in COMMAND_BLACKLIST:
             continue
@@ -279,12 +288,14 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
             else:
                 handle_wrap_logic.append(f"#error: Unhandled special+ptr2 {command.name} {param}")
         handle_wrap_logic.append(f"#endif")
-        # Print if result failed
-        if command.return_type == 'VkResult' and command.name != "AllocateDescriptorSets":
-            logger = "WLOGE" if command.name not in ("AllocateDescriptorSets", "GetPhysicalDeviceImageFormatProperties") else "WLOG"
-            handle_wrap_logic.append(f"if (result != VK_SUCCESS) {{")
-            handle_wrap_logic.append(f"    {logger}(\"Call to {command.name} with ({",".join(types)}) failed with result: %d\", {",".join(call)}, result);")
-            handle_wrap_logic.append(f"}}")
+    
+    # Print if result failed
+    SPAMMY_COMMANDS = set(['AllocateDescriptorSets', 'GetPhysicalDeviceImageFormatProperties', 'GetEventStatus', 'GetQueryPoolResults'])
+    if command.return_type == 'VkResult' and command.name not in SPAMMY_COMMANDS:
+        logger = "WLOGE" if command.name not in ("AllocateDescriptorSets", "GetPhysicalDeviceImageFormatProperties") else "WLOG"
+        handle_wrap_logic.append(f"    if (result != VK_SUCCESS) {{")
+        handle_wrap_logic.append(f"        {logger}(\"Call to {command.name} with ({",".join(types)}) failed with result: %d\", {",".join(call)}, result);")
+        handle_wrap_logic.append(f"    }}")
 
     return_block = "" if command.return_type == 'void' else "result"
     assign_block = "" if command.return_type == 'void' else f"{command.return_type} result = "

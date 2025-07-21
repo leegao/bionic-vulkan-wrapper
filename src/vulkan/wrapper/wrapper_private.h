@@ -75,7 +75,8 @@ void adrenotools_set_turbo(bool turbo);
 
 // #define NEEDS_PRINTING_CmdCopyBuffer 1;
 // #define NEEDS_PRINTING_AllocateDescriptorSets 1;
-// #define NEEDS_PRINTING_BindBufferMemory 1;
+#define NEEDS_PRINTING_BindBufferMemory 1
+#define NEEDS_PRINTING_BindBufferMemory2 1
 // #define NEEDS_PRINTING_CmdBeginRenderPass 1;
 // #define NEEDS_PRINTING_CmdBindDescriptorSets 1;
 // #define NEEDS_PRINTING_CmdBindIndexBuffer 1;
@@ -100,20 +101,23 @@ void adrenotools_set_turbo(bool turbo);
 // #define NEEDS_PRINTING_MapMemory 1;
 // #define NEEDS_PRINTING_UpdateDescriptorSetWithTemplate 1;
 // #define NEEDS_PRINTING_CmdCopyBufferToImage 1;
-// #define NEEDS_PRINTING_CreateImage 1
+#define NEEDS_PRINTING_CreateImage 1
 // #define NEEDS_PRINTING_DestroyImage 1
 // #define NEEDS_PRINTING_CreateImageView 1;
 // #define NEEDS_PRINTING_GetAndroidHardwareBufferPropertiesANDROID 1;
-// #define NEEDS_PRINTING_CreateBuffer 1;
+#define NEEDS_PRINTING_CreateBuffer 1
 // #define NEEDS_PRINTING_WaitForFences 1;
-// #define NEEDS_PRINTING_GetBufferMemoryRequirements2 1;
-// #define NEEDS_PRINTING_GetImageMemoryRequirements2 1;
-// #define NEEDS_PRINTING_GetImageMemoryRequirements 1
-// #define NEEDS_PRINTING_BindImageMemory 1;
-#define NEEDS_PRINTING_QueueSubmit2 1;
-// #define NEEDS_PRINTING_AllocateMemory 1;
+#define NEEDS_PRINTING_GetBufferMemoryRequirements2 1
+#define NEEDS_PRINTING_GetImageMemoryRequirements2 1
+#define NEEDS_PRINTING_GetImageMemoryRequirements 1
+#define NEEDS_PRINTING_BindImageMemory 1
+// #define NEEDS_PRINTING_QueueSubmit2 1;
+#define NEEDS_PRINTING_AllocateMemory 1
 // #define NEEDS_PRINTING_GetPhysicalDeviceImageFormatProperties2 1
-// #define NEEDS_PRINTING_AllocateDescriptorSets 1;
+#define NEEDS_PRINTING_GetMemoryFdKHR 1
+#define NEEDS_PRINTING_GetMemoryFd 1
+#define NEEDS_PRINTING_GetPhysicalDeviceMemoryProperties 1
+#define NEEDS_PRINTING_GetPhysicalDeviceMemoryProperties2 1
 
 extern const struct vk_instance_extension_table wrapper_instance_extensions;
 extern const struct vk_device_extension_table wrapper_device_extensions;

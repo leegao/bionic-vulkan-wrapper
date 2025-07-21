@@ -29,7 +29,7 @@ wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
    
    static bool has_already_logged_properties = false;
    if (!has_already_logged_properties) {
-      has_already_logged_properties = true;
+      // has_already_logged_properties = true;
       WLOGD("EnumerateDeviceExtensionProperties:");
       for (int i = 0; i < pdevice_extension_count; i++) {
          LOG_STRUCT(VkExtensionProperties, &pdevice_extensions[i]);
@@ -68,6 +68,8 @@ wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
    exts->EXT_transform_feedback = true;
    exts->EXT_host_query_reset = true;
    exts->EXT_custom_border_color = true;
+   // DEBUG: Disable VK_KHR_external_memory_fd to avoid dxvk assuming it has VK_KHR_external_memory_win32
+   // exts->KHR_external_memory_fd = false;
 
    return VK_SUCCESS;
 }
@@ -169,10 +171,10 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       supported_features->customBorderColors = true;
       supported_features->customBorderColorWithoutFormat = true;
       supported_features->dualSrcBlend = true; // Missing on G715 r38p1
-      supported_features->logicOp = true; // Missing on G57 r32p1
+      // supported_features->logicOp = true; // Missing on G57 r32p1
       supported_features->multiDrawIndirect = true; // Missing on G57 r32p1
       supported_features->vertexPipelineStoresAndAtomics = true; // Missing on G57 r32p1
-      supported_features->variableMultisampleRate = true; // Missing on G57 r32p1
+      // supported_features->variableMultisampleRate = true; // Missing on G57 r32p1
 
       // DEBUG:
       // pdevice->base_supported_features.geometryStreams = false;
@@ -259,10 +261,17 @@ wrapper_EnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
                                            uint32_t* pPropertyCount,
                                            VkExtensionProperties* pProperties)
 {
-   return vk_common_EnumerateDeviceExtensionProperties(physicalDevice,
+   VkResult result = vk_common_EnumerateDeviceExtensionProperties(physicalDevice,
                                                        pLayerName,
                                                        pPropertyCount,
                                                        pProperties);
+
+   // WLOGE("wrapper_EnumerateDeviceExtensionProperties called for %s:", pLayerName);
+   // for (int i = 0; i < *pPropertyCount; i++) {
+   //    LOG_STRUCT(VkExtensionProperties, &pProperties[i]);
+   // }
+   
+   return result;
 }
 
 VKAPI_ATTR void VKAPI_CALL

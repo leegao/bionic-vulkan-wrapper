@@ -353,9 +353,9 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    DISABLE_FEATURE(shaderCullDistance);
    DISABLE_FEATURE(dualSrcBlend);
    DISABLE_FEATURE(multiDrawIndirect); // Missing on G57 r32p1
-   DISABLE_FEATURE(logicOp); // Missing on G57 r32p1
+   // DISABLE_FEATURE(logicOp); // Missing on G57 r32p1
    DISABLE_FEATURE(vertexPipelineStoresAndAtomics); // Missing on G57 r32p1
-   DISABLE_FEATURE(variableMultisampleRate); // Missing on G57 r32p1
+   // DISABLE_FEATURE(variableMultisampleRate); // Missing on G57 r32p1
    
    result = physical_device->dispatch_table.CreateDevice(
       physical_device->dispatch_handle, &wrapper_create_info,
@@ -465,37 +465,43 @@ static VkResult SubmitSecondaryBcnCommandBuffer(VkQueue queue, struct wrapper_co
    // Introduced minor pipeline bubbles with each command submission
    VkResult result;
    
-   result = CHECK(EndCommandBuffer(wcb->bcnBuffer));
+   simple_mtx_lock(&wcb->resource_mutex);
+   VkCommandBuffer commandBuffer = wcb->bcnBuffer;
+   wcb->bcnBuffer = VK_NULL_HANDLE;
+   VkFence fence = wcb->bcnBufferFinished;
+   wcb->bcnBufferFinished = VK_NULL_HANDLE;
+   VkSemaphore semaphore = wcb->bcnBufferFinishedSemaphore;
+   wcb->bcnBufferFinishedSemaphore = VK_NULL_HANDLE;
+   wcb->bcnCommands = 0;
+   simple_mtx_unlock(&wcb->resource_mutex);
+
+   result = CHECK(EndCommandBuffer(commandBuffer));
    if (result != VK_SUCCESS) {
-      return result;
+      goto failure;
    }
 
    VkSubmitInfo submitInfo = { 0 };
    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
    submitInfo.commandBufferCount = 1;
-   submitInfo.pCommandBuffers = &wcb->bcnBuffer;
+   submitInfo.pCommandBuffers = &commandBuffer;
 
    WLOGD("Submitting secondary command buffer");
-   result = wrapper_QueueSubmit((VkQueue) queue, 1, &submitInfo, wcb->bcnBufferFinished);
+   result = CHECK(QueueSubmit((VkQueue) queue, 1, &submitInfo, fence));
    if (result != VK_SUCCESS) {
-      return result;
+      goto failure;
    }
 
-   CHECK(WaitForFences((VkDevice) wcb->device, 1, &wcb->bcnBufferFinished, VK_TRUE, UINT64_MAX));
+   result = CHECK(WaitForFences((VkDevice) wcb->device, 1, &fence, VK_TRUE, UINT64_MAX));
    if (result != VK_SUCCESS) {
-      return result;
+      goto failure;
    }
    WLOGD("+ secondary BCn commands flushed");
 
-   CHECKV(DestroyFence((VkDevice) wcb->device, wcb->bcnBufferFinished, NULL));
-   CHECKV(DestroySemaphore((VkDevice) wcb->device, wcb->bcnBufferFinishedSemaphore, NULL));
-   wrapper_FreeCommandBuffers((VkDevice) wcb->device, wcb->device->computePool, 1, &wcb->bcnBuffer);
-
-   wcb->bcnBuffer = VK_NULL_HANDLE;
-   wcb->bcnBufferFinished = VK_NULL_HANDLE;
-   wcb->bcnBufferFinishedSemaphore = VK_NULL_HANDLE;
-   wcb->bcnCommands = 0;
-   return VK_SUCCESS;
+   CHECKV(DestroyFence((VkDevice) wcb->device, fence, NULL));
+   CHECKV(DestroySemaphore((VkDevice) wcb->device, semaphore, NULL));
+   wrapper_FreeCommandBuffers((VkDevice) wcb->device, wcb->device->computePool, 1, &commandBuffer);
+failure:
+   return result;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
@@ -1784,6 +1790,7 @@ static void CmdComputeShaderForDecompression(
 }
 
 static VkResult CreateBcnCommandBuffer(struct wrapper_device* device, struct wrapper_command_buffer* wcb) {
+
    VkResult result;
    VkCommandBufferAllocateInfo allocInfo = { 0 };
    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1791,10 +1798,14 @@ static VkResult CreateBcnCommandBuffer(struct wrapper_device* device, struct wra
    allocInfo.commandPool = device->computePool;
    allocInfo.commandBufferCount = 1;
 
-   result = wrapper_AllocateCommandBuffers((VkDevice) device, &allocInfo, &wcb->bcnBuffer);
+   VkCommandBuffer bcnBuffer;
+   VkFence bcnBufferFinished;
+   VkSemaphore bcnBufferFinishedSemaphore;
+
+   result = wrapper_AllocateCommandBuffers((VkDevice) device, &allocInfo, &bcnBuffer);
    if (result != VK_SUCCESS) {
       WLOGE("Failed to allocate bcnBuffer command buffers");
-      return result;
+      goto failure;
    }
 
    VkCommandBufferBeginInfo beginInfo = { 0 };
@@ -1803,20 +1814,28 @@ static VkResult CreateBcnCommandBuffer(struct wrapper_device* device, struct wra
 
    VkFenceCreateInfo fenceInfo = { 0 };
    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-   result = CHECK(CreateFence((VkDevice) device, &fenceInfo, NULL, &wcb->bcnBufferFinished));
+   result = CHECK(CreateFence((VkDevice) device, &fenceInfo, NULL, &bcnBufferFinished));
    if (result != VK_SUCCESS) {
-      return result;
+      goto failure;
    }
 
    VkSemaphoreCreateInfo semaphoreInfo = {
       .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
    };
-   result = CHECK(CreateSemaphore((VkDevice) device, &semaphoreInfo, NULL, &wcb->bcnBufferFinishedSemaphore));
+   result = CHECK(CreateSemaphore((VkDevice) device, &semaphoreInfo, NULL, &bcnBufferFinishedSemaphore));
    if (result != VK_SUCCESS) {
-      return result;
+      goto failure;
    }
 
+   simple_mtx_lock(&wcb->resource_mutex);
+   wcb->bcnBuffer = bcnBuffer;
+   wcb->bcnBufferFinished = bcnBufferFinished;
+   wcb->bcnBufferFinishedSemaphore = bcnBufferFinishedSemaphore;
+   wcb->bcnCommands = 0;
+   simple_mtx_unlock(&wcb->resource_mutex);
+
    result = CHECK(BeginCommandBuffer(wcb->bcnBuffer, &beginInfo));
+failure:
    return result;
 }
 
@@ -1861,6 +1880,7 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
    bool use_image_view = use_image_view_mode() && !use_cpu_bcn;
    
    bool inline_command_buffer = false;
+   struct wrapper_command_buffer* wcb2 = NULL;
    
    // Check if the queues are the same
    struct wrapper_command_pool *pool = get_wrapper_command_pool(_device, wcb->pool);
@@ -1877,6 +1897,7 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
       // Initialize the bcnCommandBuffer if it's not already
       if (wcb->bcnBuffer == VK_NULL_HANDLE) {
          result = CreateBcnCommandBuffer(_device, wcb);
+         wcb2 = (struct wrapper_command_buffer*) wcb->bcnBuffer;
          if (result != VK_SUCCESS) {
             WLOGE("Failed to create bcnCommandBuffer");
             return;
@@ -1910,7 +1931,6 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
          }
 
          if (!inline_command_buffer) {
-            VK_FROM_HANDLE(wrapper_command_buffer, wcb2, wcb->bcnBuffer);
             WLOGD("Tracking new stagingBuffer for secondary cmdBuffer %d", wcb2->obj_id);
             TRACK_STAGING(_device, BUFFER, stagingBuffer, wcb2);
             TRACK_STAGING(_device, DEVICE_MEMORY, stagingBufferMemory, wcb2);
@@ -1951,7 +1971,7 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
       }
 
       if (!use_image_view) {
-         VkCommandBuffer targetCommandBuffer = !inline_command_buffer ? wcb->bcnBuffer : _commandBuffer;
+         VkCommandBuffer targetCommandBuffer = !inline_command_buffer ? wcb2 : _commandBuffer;
          VkBufferMemoryBarrier bufferBarrier = {
             .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
             .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // Source access mask for shader write
@@ -1979,13 +1999,13 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer _commandBuffer,
       }
 
       // Speculatively flush the Bcn emulation commands if the buffer is full by calling 
-      if (wcb->bcnCommands >= 64) {
-         WLOGD("Preemptively flushing BCn emulation command buffer for %d images", wcb->bcnCommands);
-         result = SubmitSecondaryBcnCommandBuffer((VkQueue) _device->graphics_queue, wcb);
-         if (result != VK_SUCCESS) {
-            WLOGE("Failed to pre-emptively submit secondary BCn command buffer.");
-            return;
-         }
-      }
+      // TODO: fix the synchronization scheme here to have n-way buffering needed to properly support this
+      // if (wcb->bcnCommands >= 64) {
+      //    WLOGD("Preemptively flushing BCn emulation command buffer for %d images", wcb->bcnCommands);
+      //    result = SubmitSecondaryBcnCommandBuffer((VkQueue) _device->graphics_queue, wcb);
+      //    if (result != VK_SUCCESS) {
+      //       WLOGE("Failed to pre-emptively submit secondary BCn command buffer.");
+      //    }
+      // }
    }
 }
