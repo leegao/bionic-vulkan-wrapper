@@ -1,0 +1,187 @@
+#include "wrapper_private.h"
+#include "wrapper_log.h"
+#include "wrapper_trampolines.h"
+#include "wrapper_debug.h"
+
+uint32_t make_bcn_masks(const char* flag) {
+    uint32_t mask = 0;
+    const char* mask_bcn = getenv(flag);
+    if (!mask_bcn) return mask;
+
+    if (strstr(mask_bcn, "all")) return 0xffff;
+
+#define MASK_BIT(format) WLOG("Turning on BCn format " #format " for %s", flag); mask |= 1 << (format - 131)
+    if (strstr(mask_bcn, "uncommon")) {
+        // 132, 134, 135, 136, 138, 139, 140, 142, 144, 146
+        MASK_BIT(132);
+        MASK_BIT(134);
+        MASK_BIT(135);
+        MASK_BIT(136);
+        MASK_BIT(138);
+        MASK_BIT(139);
+        MASK_BIT(140);
+        MASK_BIT(142);
+        MASK_BIT(144);
+        MASK_BIT(146);
+    }
+    
+    if (strstr(mask_bcn, "srgb")) {
+        // 132, 134, 135, 136, 138, 146
+        MASK_BIT(132);
+        MASK_BIT(134);
+        MASK_BIT(135);
+        MASK_BIT(136);
+        MASK_BIT(138);
+        MASK_BIT(146);
+    }
+    if (strstr(mask_bcn, "snorm")) {
+        MASK_BIT(140);
+        MASK_BIT(142);
+    }
+
+    if (strstr(mask_bcn, "bc1")) {
+        MASK_BIT(131);
+        MASK_BIT(132);
+        MASK_BIT(133);
+        MASK_BIT(134);
+    }
+
+    if (strstr(mask_bcn, "bc2")) {
+        MASK_BIT(135);
+        MASK_BIT(136);
+    }
+    
+    if (strstr(mask_bcn, "bc3")) {
+        MASK_BIT(137);
+        MASK_BIT(138);
+    }
+    if (strstr(mask_bcn, "bc4")) {
+        MASK_BIT(139);
+        MASK_BIT(140);
+    }
+    if (strstr(mask_bcn, "bc5")) {
+        MASK_BIT(141);
+        MASK_BIT(142);
+    }
+    if (strstr(mask_bcn, "bc6")) {
+        MASK_BIT(143);
+        MASK_BIT(144);
+    }
+    if (strstr(mask_bcn, "bc7")) {
+        MASK_BIT(135);
+        MASK_BIT(136);
+    }
+#undef MASK_BIT
+
+#define MASK_BIT(format) \
+    bool mask_##format = strstr(mask_bcn, #format); \
+    if (mask_##format) { \
+        WLOG("Turning on BCn format " #format " for %s", flag); \
+        mask |= 1 << (format - 131); \
+    }
+
+    MASK_BIT(131);
+    MASK_BIT(132);
+    MASK_BIT(133);
+    MASK_BIT(134);
+    MASK_BIT(135);
+    MASK_BIT(136);
+    MASK_BIT(137);
+    MASK_BIT(138);
+    MASK_BIT(139);
+    MASK_BIT(140);
+    MASK_BIT(141);
+    MASK_BIT(142);
+    MASK_BIT(143);
+    MASK_BIT(144);
+    MASK_BIT(145);
+    MASK_BIT(146);
+    return mask;
+#undef MASK_BIT
+}
+
+#define STATIC_INIT_MASKS(mask) \
+    static bool initialized = false; \
+    static uint32_t mask = 0; \
+    if (initialized)  return mask; \
+    initialized = true
+
+uint32_t get_unsupported_bcn_masks() {
+    STATIC_INIT_MASKS(mask);
+    return mask = make_bcn_masks("MASK_BCN");
+}
+
+uint32_t get_watermarked_bcn_masks() {
+    STATIC_INIT_MASKS(mask);
+    return mask = make_bcn_masks("WATERMARK_BCN");
+}
+
+uint32_t get_host_decoding_bcn_masks() {
+    STATIC_INIT_MASKS(mask);
+    return mask = make_bcn_masks("USE_CPU_BCN");
+}
+
+static void parse_hex_to_struct(struct wrapper_entry_masks *masks, const char *hex_string) {
+    uint64_t *fields[16] = {
+        &masks->f0, &masks->f1, &masks->f2, &masks->f3, &masks->f4,
+        &masks->f5, &masks->f6, &masks->f7, &masks->f8, &masks->f9, 
+        &masks->f10, &masks->f11, &masks->f12, &masks->f13, &masks->f14, &masks->f15
+    };
+    int len = strlen(hex_string);
+    const char *ptr = hex_string + len;
+
+    for (int i = 0; i < 16; ++i) {
+        if (ptr <= hex_string) {
+            break;
+        }
+
+        const char *start = ptr - 16;
+        if (start < hex_string) {
+            start = hex_string;
+        }
+
+        char chunk[17]; // 16 chars + null terminator
+        int chunk_len = ptr - start;
+        strncpy(chunk, start, chunk_len);
+        chunk[chunk_len] = '\0';
+        *fields[i] = strtoull(chunk, NULL, 16);
+        ptr = start;
+    }
+}
+
+void initialize_cmd_print_masks() {
+    // set the various bits in wrapper_printer_masks
+    const char* mask_bcn = getenv("WRAPPER_CMD_LOG_LEVEL");
+    if (!mask_bcn) 
+        return;
+
+    if (strcmp(mask_bcn, "all") == 0) {
+        wrapper_printer_masks.f0 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f1 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f2 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f3 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f4 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f5 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f6 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f7 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f8 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f9 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f10 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f11 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f12 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f13 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f14 = 0xFFFFFFFFFFFFFFFFULL,
+        wrapper_printer_masks.f15 = 0xFFFFFFFFFFFFFFFFULL;
+        return;
+    }
+
+    if (strcmp(mask_bcn, "0x") == 0) {
+        // This is a 704-bit hex-encoded integer
+        parse_hex_to_struct(&wrapper_printer_masks, mask_bcn + 2);
+    }
+
+// #define CHECK_CMD_MASK(cmd) \
+//     if (strstr(mask_bcn, #cmd)) SET_VK_ID_##cmd##_ON(wrapper_printer_masks);
+//     UNROLL_ENTRY_POINTS(CHECK_CMD_MASK)
+// #undef CHECK_CMD_MASK
+}

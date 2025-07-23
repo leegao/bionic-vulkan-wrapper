@@ -5,6 +5,7 @@
 #include "vk_dispatch_table.h"
 #include "vk_extensions.h"
 #include "vk_debug_utils.h"
+#include "wrapper_debug.h"
 
 const struct vk_instance_extension_table wrapper_instance_extensions = {
    .KHR_get_surface_capabilities2 = true,
@@ -106,8 +107,10 @@ static bool vulkan_library_init()
          dlsym(icd_handle, "vkEnumerateInstanceLayerProperties");
    }
    else {
-      fprintf(stderr, "%s", dlerror());
+      WLOGE("Failed to load vulkan handle: %s", dlerror());
    }
+
+   initialize_cmd_print_masks();
 
    return vulkan_library_handle ? true : false;
 }

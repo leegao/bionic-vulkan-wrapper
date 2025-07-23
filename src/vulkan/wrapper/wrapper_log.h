@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-int __android_log_print(
+extern int __android_log_print(
   int prio,
   const char *tag,
   const char *fmt,
@@ -12,10 +12,8 @@ int __android_log_print(
 
 #define LOG(...) __android_log_print(6, "VkWrapper", __VA_ARGS__)
 
-static int __log_level;
-static FILE* __log_fd;
-
-#define LOG_FD __log_fd
+// For wrapper log
+#define LOG_FD get_wrapper_log_fd()
 #define LOG_LEVEL_ALL 4
 #define LOG_LEVEL_DEBUG 3
 #define LOG_LEVEL_VERBOSE 2
@@ -28,75 +26,59 @@ static FILE* __log_fd;
    if (can_log_level >= LOG_LEVEL_DEBUG) fflush(LOG_FD); \
 }
 
-#define WLOGA(...) { if (should_log() >= LOG_LEVEL_ALL) { __wlog("! "__VA_ARGS__); LOG(__VA_ARGS__); } }
-#define WLOGD(...) { if (should_log() >= LOG_LEVEL_DEBUG) { __wlog(__VA_ARGS__); LOG(__VA_ARGS__); } }
-#define WLOG(...) { if (should_log() >= LOG_LEVEL_VERBOSE) { __wlog(__VA_ARGS__); LOG(__VA_ARGS__); } }
-#define WLOGE(...) { if (should_log() >= LOG_LEVEL_ERROR)  __wlog("[ERROR] " __VA_ARGS__); LOG("[ERROR] " __VA_ARGS__); }
+#define WFORMAT(fmt, ...) fmt " \t (%s:%d)", ## __VA_ARGS__, __FUNCTION__, __LINE__
 
-static void get_current_time_string(char* buffer, size_t bufferSize) {
-    time_t now = time(NULL);
-    struct tm *tm_info = localtime(&now);
-    if (tm_info == NULL) {
-        buffer[0] = '\0';
-        return;
+#define __WLOG__(LEVEL, fmt, ...) \
+    if (should_log() >= LEVEL) { \
+        wlog(WFORMAT(fmt, ## __VA_ARGS__)); \
+        LOG(WFORMAT(fmt, ## __VA_ARGS__)); \
     }
-    strftime(buffer, bufferSize, "%Y_%m_%d_%H", tm_info);
+
+#define WLOGA(fmt, ...) __WLOG__(LOG_LEVEL_ALL, "! " fmt, ## __VA_ARGS__)
+#define WLOGD(fmt, ...) __WLOG__(LOG_LEVEL_DEBUG, fmt, ## __VA_ARGS__)
+#define WLOG(fmt, ...)  __WLOG__(LOG_LEVEL_VERBOSE, fmt, ## __VA_ARGS__)
+#define WLOGE(fmt, ...) __WLOG__(LOG_LEVEL_ERROR, "[ERROR] " fmt, ## __VA_ARGS__)
+
+// For wrapper cmd-log
+#define VK_CMD_FD get_wrapper_cmd_log_fd()
+#define VK_CMD_CAN_LOG_LEVEL should_log_cmd()
+#define VK_CMD_ALL 2
+#define VK_CMD_NAME 1
+#define VK_CMD_NONE 0
+
+#define VK_CMD_LOG_FD(fd, fmt, ...) { \
+    FILE* __fd = (fd); \
+    if (__fd) { \
+        fprintf(__fd, fmt "\n", ## __VA_ARGS__); \
+    } \
+}
+#define VK_CMD_LOG_UNCONDITIONAL(fmt, ...) VK_CMD_LOG_FD(VK_CMD_FD, fmt, ## __VA_ARGS__)
+
+#define __VK_CMD_LOG(can_log_level, level, fd, fmt, ...) { \
+    if (can_log_level >= level) { \
+        VK_CMD_LOG_FD(fd, fmt, ## __VA_ARGS__); \
+    } \
 }
 
-static void cleanup_log_file(void) {
-    if (__log_fd) {
-        fclose(__log_fd);
-        __log_fd = NULL;
-    }
-}
+#define VK_CMD_LOG(...) __VK_CMD_LOG(VK_CMD_CAN_LOG_LEVEL, VK_CMD_NAME, VK_CMD_FD, __VA_ARGS__)
+#define VK_CMD_LOGA(...) __VK_CMD_LOG(VK_CMD_CAN_LOG_LEVEL, VK_CMD_ALL, VK_CMD_FD, __VA_ARGS__)
 
-static int should_log() {
-    static bool __log_initialized;
-    if (__log_initialized) {
-        return __log_level;
-    }
+#define VK_CMD_CAN_LOGA ((VK_CMD_CAN_LOG_LEVEL >= VK_CMD_ALL) && (VK_CMD_FD))
 
-    const char *log_level = getenv("WRAPPER_LOG_LEVEL");
-    if (!log_level) {
-        __log_level = LOG_LEVEL_ERROR;
-    } else if (strcmp(log_level, "all") == 0) {
-        __log_level = LOG_LEVEL_ALL;
-    } else if (strcmp(log_level, "debug") == 0) {
-        __log_level = LOG_LEVEL_DEBUG;
-    } else if (strcmp(log_level, "verbose") == 0) {
-        __log_level = LOG_LEVEL_VERBOSE;
-    } else if (strcmp(log_level, "error") == 0) {
-        __log_level = LOG_LEVEL_ERROR;
-    } else {
-        __log_level = LOG_LEVEL_NONE;
-    }
+#define VK_CMD_PRINTF(fmt, ...) { if ((VK_CMD_CAN_LOG_LEVEL >= VK_CMD_ALL) && (VK_CMD_FD)) fprintf(VK_CMD_FD, fmt, ## __VA_ARGS__); }
+#define VK_CMD_FLUSH() { if ((VK_CMD_CAN_LOG_LEVEL >= VK_CMD_ALL) && (VK_CMD_FD)) fflush(VK_CMD_FD); }
 
-    if (__log_level != LOG_LEVEL_NONE) {
-        char time_str[20];
-        get_current_time_string(time_str, sizeof(time_str));
-        char path[256];
-        sprintf(path, "/sdcard/Documents/Wrapper/wrapper_log_%s.%s.%d.txt", time_str, getprogname(), getpid());
-        LOG("Logging at level %d to %s", __log_level, path);
-        __log_fd = fopen(path, "a");
-        if (!__log_fd) {
-            __log_level = 0;
-        } else {
-            atexit(cleanup_log_file);
-        }
-    }
+void get_current_time_string(char* buffer, size_t bufferSize);
 
-    __log_initialized = true;
-    return __log_level;
-}
+FILE* get_wrapper_log_fd(void);
 
-static void __wlog(const char* fmt, ...) {
-   va_list args;
-   va_start(args, fmt);
-   vfprintf(__log_fd, fmt, args);
-   va_end(args);
-   fprintf(__log_fd, "\n");
-   fflush(__log_fd);
-}
+FILE* get_wrapper_cmd_log_fd(void);
+
+int should_log(void);
+
+int should_log_cmd(void);
+
+void wlog(const char* fmt, ...);
 
 VKAPI_ATTR VkBool32 VKAPI_CALL
 wrapper_debug_callback(

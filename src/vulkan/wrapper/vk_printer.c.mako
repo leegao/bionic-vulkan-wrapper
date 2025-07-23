@@ -11,6 +11,35 @@
 ${all_vk_types}
 */
 
+#define PRINTER_EXTRAS_VkShaderModuleCreateInfo VK_CMD_FLUSH(); print_spirv_code(next_prefix, in_info);
+
+static void print_spirv_code(const char* prefix, const VkShaderModuleCreateInfo *in_info) {
+    int size = in_info->codeSize;
+    const uint32_t* pCode = in_info->pCode;
+    if (size == 0 || !pCode) {
+        return;
+    }
+    // Print the SPIR-V code in int32 hex with 32 bytes (8 uint32_t) per line
+    int i = 0;
+    while (i < size / 4) {
+        if (i + 7 < size / 4) {
+            VK_CMD_PRINTF("%s.spirv(%p)[%04x]: %08x %08x %08x %08x %08x %08x %08x %08x\n", prefix, pCode, 4 * i, 
+                          pCode[i], pCode[i + 1], pCode[i + 2], pCode[i + 3], 
+                          pCode[i + 4], pCode[i + 5], pCode[i + 6], pCode[i + 7]);
+            i += 8;
+            continue;
+        }
+
+        if (i % 8 == 0) {
+            VK_CMD_PRINTF("%s.spirv(%p)[%04x]: ", prefix, pCode, 4 * i);
+        }
+        VK_CMD_PRINTF("%08x ", pCode[i]);
+        i++;
+    }
+    VK_CMD_PRINTF("\n");
+    VK_CMD_FLUSH();
+}
+
 % for s in sorted(all_vk_types, key=lambda s: s.name):
 % if s.name not in blacklisted_vk_types or s.name == 'VkShaderModuleCreateInfo':
 
@@ -39,7 +68,7 @@ vk_print_${s.name}(int can_log_level, int log_level, FILE* fd, const char* prefi
     // Skipping blacklisted type
     % elif '[' in member.text and ']' in member.text and member.type == "char":
     VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = '%s'", prefix, in_info->${member.name});
-    % elif '[' in member.text and ']' in member.text and not member.array_count_member:
+    % elif '[' in member.text and ']' in member.text and not member.array_count_member and not member.name == "memoryTypeBits":
     // Skipping array type
     VK_CMD_LOG_FD(fd, "%s.${member.name}[...]: ${member.type} = '%p'", prefix, in_info->${member.name});
     % elif member.num_pointers > 0 or member.array_count_member:
@@ -58,9 +87,9 @@ vk_print_${s.name}(int can_log_level, int log_level, FILE* fd, const char* prefi
     int count_${member.name} = in_info->${member.array_count_member};
     if (in_info->${member.name}) {
             % if member.type == 'void':
-        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = 0x%x", prefix, (int64_t)(in_info->${member.name}));
+        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = 0x%lx", prefix, (int64_t)(in_info->${member.name}));
             % elif member.num_pointers > 1:
-        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = 0x%x", prefix, (int64_t)(in_info->${member.name}));
+        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = 0x%lx", prefix, (int64_t)(in_info->${member.name}));
             % else:
         for (uint32_t i = 0; i < count_${member.name}; i++) {
                 % if member.is_handle and get_wrapper_type_for_vk_type(member.type):
@@ -74,7 +103,7 @@ vk_print_${s.name}(int can_log_level, int log_level, FILE* fd, const char* prefi
             vk_print_${member.type}(can_log_level, log_level, fd, next_prefix, &in_info->${member.name}[i]);
                     % endif
                 % else:
-            VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep} = 0x%x", prefix, i, (int64_t)(in_info->${member.name}[i]));
+            VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep} = 0x%lx", prefix, i, (int64_t)(in_info->${member.name}[i]));
                 % endif
         }
             % endif
@@ -87,13 +116,14 @@ vk_print_${s.name}(int can_log_level, int log_level, FILE* fd, const char* prefi
         vk_print_${member.type}(can_log_level, log_level, fd, next_prefix, in_info->${member.name});
     }
         % else:
-        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = %p", prefix, in_info->${member.name});
+    // Other types
+    VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = %p", prefix, in_info->${member.name});
         % endif
     % elif member.resolved_type in all_vk_types: ## Struct types
     VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep}", prefix);
     vk_print_${member.type}(can_log_level, log_level, fd, next_prefix, &in_info->${member.name}); // Structs ${member}
     % elif member.num_pointers == 0 and member.type not in blacklisted_vk_types: ## Non-ptr types
-    VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = 0x%x", prefix, (int64_t)(in_info->${member.name})); // Non-ptr types
+    VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = 0x%lx", prefix, (int64_t)(in_info->${member.name})); // Non-ptr types
     % endif
 % endfor
 % if s.name in pnext_map:
@@ -115,6 +145,10 @@ vk_print_${s.name}(int can_log_level, int log_level, FILE* fd, const char* prefi
         }
     }
 % endif
+
+#ifdef PRINTER_EXTRAS_${s.name}
+    PRINTER_EXTRAS_${s.name}
+#endif
 }
 
 

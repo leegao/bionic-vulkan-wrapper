@@ -206,7 +206,7 @@ void unwrap_${s.name}(struct temporary_objects* temp, struct wrapper_device *dev
         size_t item_size = vk_structure_type_size(item);
         if (item_size == 0) {
             // Invalid structure, skip it.
-            __loge("Invalid structure in pNext (%d) chain: %p", item->sType, item);
+            WLOGE("Invalid structure in pNext (%d) chain: %p", item->sType, item);
             continue;
         }
 

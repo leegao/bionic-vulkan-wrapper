@@ -118,6 +118,8 @@ wrapper_files = files(
   'wrapper_physical_device.c',
   'wrapper_image.c',
   'wrapper_log.c',
+  'wrapper_debug.c',
+  'wrapper_objects.c',
 )
 
 wrapper_deps = [

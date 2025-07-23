@@ -50,6 +50,64 @@ extern "C" {
 extern struct vk_physical_device_entrypoint_table wrapper_physical_device_trampolines;
 extern struct vk_device_entrypoint_table wrapper_device_trampolines;
 
+#define WDEVICE wrapper_device_trampolines
+#define WPDEVICE wrapper_physical_device_trampolines
+
+#define __CHECK__(call) ({ \
+      VkResult __result = call; \
+      if (__result) { WLOGE(#call " failed, result=%d", __result); } \
+      __result; \
+   })
+
+#define __CHECKV__(call) (call)
+
+
+#define CHECK(call) __CHECK__(wrapper_device_trampolines. call)
+#define PCHECK(call) __CHECK__(wrapper_physical_device_trampolines. call)
+#define WCHECK(call) __CHECK__(wrapper_##call)
+
+#define CHECKV(call) __CHECKV__(wrapper_device_trampolines. call)
+#define PCHECKV(call) __CHECKV__(wrapper_physical_device_trampolines. call)
+#define WCHECKV(call) __CHECKV__(wrapper_##call)
+
+struct wrapper_entry_masks {
+    uint64_t f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15;
+};
+
+static struct wrapper_entry_masks wrapper_printer_masks = { 0 };
+
+% for e in entrypoints:
+% if e.alias:
+<% continue %>
+% endif
+% if e.guard is not None:
+#ifdef ${e.guard}
+% endif
+#define VK_ID_${e.name} ${e.id}
+#define IS_VK_ID_${e.name}_ON(masks) (((masks).f${e.id // 64} & (1ULL << (${e.id % 64}))) != 0)
+#define SET_VK_ID_${e.name}_ON(masks) (masks).f${e.id // 64} |= (1ULL << (${e.id % 64}))
+#define VK_ID_${e.name}_BIT (1ULL << (${e.id % 64}))
+#define VK_ID_${e.name}_IDX (${e.id // 64})
+
+#define PRINT_${e.name} IS_VK_ID_${e.name}_ON(wrapper_printer_masks)
+#define TRY_${e.name}(TRUE, FALSE) TRUE
+% if e.guard is not None:
+#else
+#define TRY_${e.name}(TRUE, FALSE) FALSE
+#endif
+% endif
+% endfor
+
+#define NOOP
+
+#define UNROLL_ENTRY_POINTS(FUNC) \\
+% for e in entrypoints:
+% if e.alias:
+<% continue %>
+% endif
+TRY_${e.name}(FUNC(${e.name}), NOOP); \\
+% endfor
+
 #ifdef __cplusplus
 }
 #endif
@@ -73,6 +131,12 @@ void __loge(const char* fmt, ...);
 
 #define VK_ALLOC(device, type) VK_ALLOC2(device, type, sizeof(type))
 
+#define VK_PRINT_VkAccelerationStructureVersionInfoKHR(...)
+#define VK_PRINT_VkAccelerationStructureBuildGeometryInfoKHR(...)
+#define VK_PRINT_VkCuLaunchInfoNVX(...)
+#define VK_PRINT_VkMicromapBuildInfoEXT(...)
+#define VK_PRINT_VkMicromapVersionInfoEXT(...)
+                      
 % for e in entrypoints:
   % if not e.is_physical_device_entrypoint() or e.alias:
     <% continue %>

@@ -2,6 +2,7 @@
 
 #include <sys/stat.h>
 
+#include "util/simple_mtx.h"
 #include "vulkan/runtime/vk_instance.h"
 #include "vulkan/runtime/vk_physical_device.h"
 #include "vulkan/runtime/vk_device.h"
@@ -13,10 +14,10 @@
 #include "vulkan/runtime/vk_log.h"
 #include "vulkan/runtime/vk_render_pass.h"
 #include "vulkan/runtime/vk_framebuffer.h"
-
 #include "vulkan/util/vk_dispatch_table.h"
 #include "vulkan/wsi/wsi_common.h"
-#include "util/simple_mtx.h"
+
+#include "wrapper_objects.h"
 #include "wrapper_log.h"
 #include "wrapper_trampolines.h"
 
@@ -62,16 +63,6 @@ void adrenotools_set_turbo(bool turbo);
 #ifdef __cplusplus
 }
 #endif
-
-#define CHECK(call) ({ \
-      VkResult __result = wrapper_device_trampolines.call; \
-      if (__result) { WLOGE("%s failed with %d", #call, __result); } \
-      __result; \
-   })
-
-#define CHECKV(call) ({ \
-   wrapper_device_trampolines.call; \
-})
 
 // #define NEEDS_PRINTING_CmdCopyBuffer 1;
 // #define NEEDS_PRINTING_AllocateDescriptorSets 1;
@@ -119,127 +110,28 @@ void adrenotools_set_turbo(bool turbo);
 #define NEEDS_PRINTING_GetPhysicalDeviceMemoryProperties 1
 #define NEEDS_PRINTING_GetPhysicalDeviceMemoryProperties2 1
 
+#define NEEDS_PRINTING_CreateGraphicsPipelines 1
+#define NEEDS_PRINTING_CreatePipelineCache 1
+#define NEEDS_PRINTING_DestroyPipeline 1
+#define NEEDS_PRINTING_CreateShaderModule 1
+#define NEEDS_PRINTING_DestroyShaderModule 1
+#define NEEDS_PRINTING_CreatePipelineLayout 1
+#define NEEDS_PRINTING_DestroyPipelineLayout 1
+#define NEEDS_PRINTING_CreateDescriptorSetLayout 1
+#define NEEDS_PRINTING_DestroyDescriptorSetLayout 1
+#define NEEDS_PRINTING_CreateRenderPass 1
+#define NEEDS_PRINTING_DestroyRenderPass 1
+#define NEEDS_PRINTING_CreateFramebuffer 1
+#define NEEDS_PRINTING_DestroyFramebuffer 1
+#define NEEDS_PRINTING_CmdSetViewport 1
+#define NEEDS_PRINTING_CmdSetScissor 1
+#define NEEDS_PRINTING_CmdSetLineWidth 1
+#define NEEDS_PRINTING_CmdSetDepthBias 1
+#define NEEDS_PRINTING_CmdSetBlendConstants 1
+
 extern const struct vk_instance_extension_table wrapper_instance_extensions;
 extern const struct vk_device_extension_table wrapper_device_extensions;
 extern const struct vk_device_extension_table wrapper_filter_extensions;
-
-struct wrapper_instance {
-   struct vk_instance vk;
-
-   VkInstance dispatch_handle;
-   struct vk_instance_dispatch_table dispatch_table;
-   struct vk_debug_utils_messenger* internal_debug_messenger;
-};
-
-VK_DEFINE_HANDLE_CASTS(wrapper_instance, vk.base, VkInstance,
-                       VK_OBJECT_TYPE_INSTANCE)
-
-struct wrapper_physical_device {
-   struct vk_physical_device vk;
-
-   int dma_heap_fd;
-   VkPhysicalDevice dispatch_handle;
-   VkPhysicalDeviceProperties2 properties2;
-   VkPhysicalDeviceDriverProperties driver_properties;
-   VkPhysicalDeviceMemoryProperties memory_properties;
-   struct wsi_device wsi_device;
-   struct wrapper_instance *instance;
-   struct vk_features base_supported_features;
-   struct vk_device_extension_table base_supported_extensions;
-   struct vk_physical_device_dispatch_table dispatch_table;
-};
-
-VK_DEFINE_HANDLE_CASTS(wrapper_physical_device, vk.base, VkPhysicalDevice,
-                       VK_OBJECT_TYPE_PHYSICAL_DEVICE)
-
-#define COMMON_FIELDS(T) \
-   struct wrapper_device *device; \
-   T dispatch_handle; \
-   simple_mtx_t resource_mutex; \
-   struct list_head staging_resources; \
-   uint32_t obj_id
-
-struct wrapper_queue {
-   struct vk_queue vk;
-   COMMON_FIELDS(VkQueue);
-};
-
-VK_DEFINE_HANDLE_CASTS(wrapper_queue, vk.base, VkQueue,
-                       VK_OBJECT_TYPE_QUEUE)
-
-struct wrapper_device {
-   struct vk_device vk;
-
-   VkDevice dispatch_handle;
-   simple_mtx_t resource_mutex;
-   struct list_head command_buffer_list;
-   struct list_head device_memory_list;
-
-   struct hash_table_u64* image_map;
-   struct hash_table_u64* buffer_map;
-   struct hash_table_u64* command_pool_map;
-
-   struct wrapper_physical_device *physical;
-   struct vk_device_dispatch_table dispatch_table;
-
-   uint32_t queueCount;
-   struct wrapper_queue **queues;
-   struct wrapper_queue *graphics_queue;
-   uint32_t graphics_queue_idx;
-
-   VkCommandPool computePool;
-};
-
-VK_DEFINE_HANDLE_CASTS(wrapper_device, vk.base, VkDevice,
-                       VK_OBJECT_TYPE_DEVICE)
-
-struct wrapper_command_buffer {
-   struct vk_command_buffer vk;
-
-   struct list_head link;
-   COMMON_FIELDS(VkCommandBuffer);
-
-   VkCommandPool pool;
-
-   VkCommandBuffer bcnBuffer;
-   VkFence bcnBufferFinished;
-   VkSemaphore bcnBufferFinishedSemaphore;
-   uint32_t bcnCommands;
-};
-
-VK_DEFINE_HANDLE_CASTS(wrapper_command_buffer, vk.base, VkCommandBuffer,
-                       VK_OBJECT_TYPE_COMMAND_BUFFER)
-
-struct wrapper_device_memory {
-   struct AHardwareBuffer *ahardware_buffer;
-   struct wrapper_device *device;
-   struct list_head link;
-   int dmabuf_fd;
-   void *map_address;
-   size_t map_size;
-   size_t alloc_size;
-   VkDeviceMemory dispatch_handle;
-   const VkAllocationCallbacks *alloc;
-};
-
-VkResult enumerate_physical_device(struct vk_instance *_instance);
-void destroy_physical_device(struct vk_physical_device *pdevice);
-
-void
-wrapper_setup_device_features(struct wrapper_physical_device *physical_device);
-
-uint32_t
-wrapper_select_device_memory_type(struct wrapper_device *device,
-                                  VkMemoryPropertyFlags flags);
-
-VkResult
-wrapper_device_memory_create(struct wrapper_device *device,
-                             const VkAllocationCallbacks *alloc,
-                             struct wrapper_device_memory **out_mem);
-
-void
-wrapper_device_memory_destroy(struct wrapper_device_memory *mem);
-
 
 static int FindGraphicsComputeQueueFamilies(struct wrapper_physical_device* physical_device) {
    uint32_t queueFamilyCount = 0;
@@ -255,220 +147,14 @@ static int FindGraphicsComputeQueueFamilies(struct wrapper_physical_device* phys
    return -1; // No compute queue family found
 }
 
-
-// hash_map based lookup types
-
-#define CREATE_FROM_HANDLE_FUNCTION(wtype, vtype, map) \
-static struct wtype * get_##wtype(struct wrapper_device *device, vtype handle) { \
-   struct wtype *obj = NULL; \
-   simple_mtx_lock(&device->resource_mutex); \
-   obj = _mesa_hash_table_u64_search(device->map, (uint64_t) handle); \
-   simple_mtx_unlock(&device->resource_mutex); \
-   return obj; \
+static bool has_bc1_support(struct wrapper_physical_device* pdevice) {
+   return pdevice->bc1_format_properties.optimalTilingFeatures != 0;
 }
 
-#define CREATE_FUNCTION_BODY(wtype, vtype, map, vk_type, init) \
-   struct wtype *obj = vk_zalloc2(&device->vk.alloc, pAllocator, sizeof(struct wtype), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT); \
-   if (!obj) \
-      return NULL; \
-   init; \
-   obj->device = device; \
-   obj->dispatch_handle = dispatch_handle; \
-   list_inithead(&obj->staging_resources); \
-   simple_mtx_init(&obj->resource_mutex, mtx_plain); \
-   simple_mtx_lock(&device->resource_mutex); \
-   static uint32_t obj_id = 0; \
-   obj->obj_id = obj_id++; \
-   _mesa_hash_table_u64_insert(device->map, (uint64_t) dispatch_handle, obj); \
-   simple_mtx_unlock(&device->resource_mutex); \
-   return obj;
-
-typedef struct wrapper_staging_resources {
-   struct list_head link;
-   VkObjectType type;
-   bool use_vk_object;
-   void* handle;
-   void* parent; // the parent object tracking this resource
-   // In the future, add a fence for when this object is no longer needed
-   VkFence ready;
-} wrapper_staging_resources;
-
-#define TRACK_STAGING(device, type, handle, parent) add_staging_resource_to(device, &parent->staging_resources, VK_OBJECT_TYPE_##type, handle, parent)
-
-static void add_staging_resource_to(
-   struct wrapper_device *device,
-   struct list_head *staging_resources,
-   VkObjectType type,
-   void* handle,
-   void* parent) {
-   struct wrapper_staging_resources *obj =
-         vk_alloc(&device->vk.alloc, sizeof(struct wrapper_staging_resources), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
-   obj->type = type;
-   obj->handle = handle;
-   obj->parent = parent;
-   list_addtail(&obj->link, staging_resources);
+static bool has_bc4_support(struct wrapper_physical_device* pdevice) {
+   return pdevice->bc4_format_properties.optimalTilingFeatures != 0;
 }
 
-static void free_staging_resources_if_ready(
-   struct wrapper_device *device, 
-   void* handle, 
-   struct list_head* list,
-   bool cleanup_everything) {
-   // // Clean up temporary objects associated with this object, does not destroy the list nor objects that are not ready to be cleaned up
-   int cleaned_up = 0;
-   if (!list_is_empty(list)) {
-      list_for_each_entry_safe(struct wrapper_staging_resources, resource, list, link) {
-         if (!resource->handle) {
-            continue;
-         }
-
-         if (!cleanup_everything) {
-            if (resource->ready == VK_NULL_HANDLE) {
-               continue;
-            }
-            if (wrapper_device_trampolines.GetFenceStatus((VkDevice) device, resource->ready) != VK_SUCCESS) {
-               continue;
-            }
-         }
-
-#define FREE_STAGING_RESOURCE_(t1, t2, free) \
-         case VK_OBJECT_TYPE_##t1: \
-            CHECKV(free((VkDevice) device, (Vk##t2) resource->handle, NULL)); \
-            cleaned_up++; \
-            break;
-#define FREE_STAGING_RESOURCE(t1, t2) FREE_STAGING_RESOURCE_(t1, t2, Destroy##t2)
-
-         switch (resource->type) {
-         FREE_STAGING_RESOURCE(IMAGE_VIEW, ImageView)
-         FREE_STAGING_RESOURCE(BUFFER, Buffer)
-         FREE_STAGING_RESOURCE_(DEVICE_MEMORY, DeviceMemory, FreeMemory)
-         default:
-            WLOGE("Staging resource of type %d is not handled");
-            break;
-         }
-
-#undef FREE_STAGING_RESOURCE
-#undef FREE_STAGING_RESOURCE_
-
-         resource->handle = VK_NULL_HANDLE;
-         resource->parent = NULL;
-         list_del(&resource->link);
-         vk_free(&device->vk.alloc, resource);
-      }
-   }
-
-   if (cleaned_up)
-      WLOGD("Released %d staging resources for handle %p", cleaned_up, handle);
-}
-
-static void free_staging_resources_final(struct wrapper_device *device, 
-   void* handle, 
-   struct list_head* list) {
-   return free_staging_resources_if_ready(device, handle, list, true);
-}
-
-#define CREATE_DESTROY_FUNCTION(wtype, map, destroy) \
-static void wtype##_destroy(struct wrapper_device *device, struct wtype *obj, const VkAllocationCallbacks* pAllocator) { \
-   free_staging_resources_final(device, obj, &obj->staging_resources); \
-   simple_mtx_destroy(&obj->resource_mutex); \
-   simple_mtx_lock(&device->resource_mutex); \
-   _mesa_hash_table_u64_remove(device->map, (uint64_t) obj->dispatch_handle); \
-   simple_mtx_unlock(&device->resource_mutex); \
-   destroy; \
-}
-
-struct wrapper_image {
-   struct vk_image vk;
-
-   COMMON_FIELDS(VkImage);
-
-   bool is_bcn_emulated;
-   VkFormat original_format;
-};
-
-CREATE_FROM_HANDLE_FUNCTION(wrapper_image, VkImage, image_map)
-
-static struct wrapper_image *wrapper_image_create(struct wrapper_device *device,
-                     const VkImageCreateInfo *pCreateInfo,
-                     const VkAllocationCallbacks *pAllocator,
-                     VkImage dispatch_handle)
-{
-   CREATE_FUNCTION_BODY(wrapper_image, VkImage, image_map,
-                        VK_OBJECT_TYPE_IMAGE,
-                        vk_image_init(&device->vk, &obj->vk, pCreateInfo));
-}
-
-CREATE_DESTROY_FUNCTION(wrapper_image, image_map, {
-   // vk_image_finish(&obj->vk);
-   // vk_free2(&device->vk.alloc, pAllocator, obj);
-   vk_image_destroy(&device->vk, pAllocator, &obj->vk);
-});
-
-struct wrapper_buffer_descriptor_pool {
-    struct list_head link;
-    VkDescriptorPool pool;
-};
-
-typedef struct wrapper_buffer_staging_resources {
-   struct list_head link;
-   VkBuffer stagingBuffer;
-   VkDeviceMemory stagingBufferMemory;
-   VkImageView stagingImageView;
-} wrapper_buffer_staging_resources;
-
-typedef struct wrapper_buffer {
-   struct vk_buffer vk;
-
-   COMMON_FIELDS(VkBuffer);
-
-   struct list_head temp_descriptor_pools;
-   VkDeviceMemory memory; // Pointer to the memory allocated by vkAllocateMemory
-   VkDeviceSize memoryOffset; // Size of the memory allocated by vkAllocateMemory
-} wrapper_buffer;
-
-CREATE_FROM_HANDLE_FUNCTION(wrapper_buffer, VkBuffer, buffer_map)
-
-static struct wrapper_buffer *wrapper_buffer_create(struct wrapper_device *device,
-                     const VkBufferCreateInfo *pCreateInfo,
-                     const VkAllocationCallbacks *pAllocator,
-                     VkBuffer dispatch_handle)
-{
-   CREATE_FUNCTION_BODY(wrapper_buffer, VkBuffer, buffer_map,
-                        VK_OBJECT_TYPE_BUFFER,
-                        vk_buffer_init(&device->vk, &obj->vk, pCreateInfo));
-}
-
-CREATE_DESTROY_FUNCTION(wrapper_buffer, buffer_map, {
-   // vk_buffer_finish(&obj->vk);
-   vk_buffer_destroy(&device->vk, pAllocator, &obj->vk);
-});
-
-
-struct wrapper_command_pool {
-   // struct vk_command_pool vk;
-
-   COMMON_FIELDS(VkCommandPool);
-
-   uint32_t queue_idx;
-};
-
-CREATE_FROM_HANDLE_FUNCTION(wrapper_command_pool, VkCommandPool, command_pool_map)
-
-static struct wrapper_command_pool *wrapper_command_pool_create(struct wrapper_device *device,
-                     const VkCommandPoolCreateInfo *pCreateInfo,
-                     const VkAllocationCallbacks *pAllocator,
-                     VkCommandPool dispatch_handle)
-{
-   CREATE_FUNCTION_BODY(wrapper_command_pool, VkCommandPool, command_pool_map,
-                        VK_OBJECT_TYPE_COMMAND_POOL,
-                        {});
-}
-
-CREATE_DESTROY_FUNCTION(wrapper_command_pool, command_pool_map, {
-   // vk_command_pool_destroy(&device->vk, pAllocator, &obj->vk);
-});
-
-// For BCn emulation
 static bool is_bc_image_format(VkFormat format) {
    switch (format) {
    case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
@@ -492,6 +178,39 @@ static bool is_bc_image_format(VkFormat format) {
       return false;
    }
 }
+
+static bool is_bc123_image_format(VkFormat format) {
+   switch (format) {
+   case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
+   case VK_FORMAT_BC1_RGB_SRGB_BLOCK:
+   case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
+   case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
+   case VK_FORMAT_BC2_UNORM_BLOCK:
+   case VK_FORMAT_BC2_SRGB_BLOCK:
+   case VK_FORMAT_BC3_UNORM_BLOCK:
+   case VK_FORMAT_BC3_SRGB_BLOCK:
+      return true;
+   default:
+      return false;
+   }
+}
+
+static bool is_bc4567_image_format(VkFormat format) {
+   switch (format) {
+   case VK_FORMAT_BC4_UNORM_BLOCK:
+   case VK_FORMAT_BC4_SNORM_BLOCK:
+   case VK_FORMAT_BC5_UNORM_BLOCK:
+   case VK_FORMAT_BC5_SNORM_BLOCK:
+   case VK_FORMAT_BC6H_UFLOAT_BLOCK:
+   case VK_FORMAT_BC6H_SFLOAT_BLOCK:
+   case VK_FORMAT_BC7_UNORM_BLOCK:
+   case VK_FORMAT_BC7_SRGB_BLOCK:
+      return true;
+   default:
+      return false;
+   }
+}
+
 
 static inline uint32_t get_bc_block_size(VkFormat format) {
    if (!is_bc_image_format(format)) return 4;
@@ -570,9 +289,7 @@ static VkFormat unwrap_vk_format_physical_device(struct wrapper_physical_device*
       return in_format;
    }
    // Replace BCn formats with R8G8B8A8_UNORM if they are emulated
-   if (is_bc_image_format(in_format) 
-      && !pdevice->base_supported_features.textureCompressionBC
-   ) {
+   if (is_bc123_image_format(in_format) && pdevice->needs_bc1_emulation) {
       // VK_FORMAT_BC1_RGB_UNORM_BLOCK = 131, -> VK_FORMAT_R8G8B8A8_UNORM
       // VK_FORMAT_BC1_RGB_SRGB_BLOCK = 132, -> VK_FORMAT_R8G8B8A8_UNORM
       // VK_FORMAT_BC1_RGBA_UNORM_BLOCK = 133, -> VK_FORMAT_R8G8B8A8_UNORM
@@ -581,6 +298,10 @@ static VkFormat unwrap_vk_format_physical_device(struct wrapper_physical_device*
       // VK_FORMAT_BC2_SRGB_BLOCK = 136, -> VK_FORMAT_R8G8B8A8_UNORM
       // VK_FORMAT_BC3_UNORM_BLOCK = 137, -> VK_FORMAT_R8G8B8A8_UNORM
       // VK_FORMAT_BC3_SRGB_BLOCK = 138, -> VK_FORMAT_R8G8B8A8_UNORM
+
+      return VK_FORMAT_R8G8B8A8_UNORM;
+   }
+   if (is_bc4567_image_format(in_format) && pdevice->needs_bc4_emulation) {
       // VK_FORMAT_BC4_UNORM_BLOCK = 139, -> VK_FORMAT_R8G8B8A8_UNORM
       // VK_FORMAT_BC4_SNORM_BLOCK = 140, -> VK_FORMAT_R8G8B8A8_SNORM *
       // VK_FORMAT_BC5_UNORM_BLOCK = 141, -> VK_FORMAT_R8G8B8A8_UNORM

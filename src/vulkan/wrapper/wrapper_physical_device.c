@@ -15,7 +15,6 @@
 
 static VkResult
 wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
-   __android_log_print(6, "Wrapper", "inside wrapper_setup_device_extensions");
    struct vk_device_extension_table *exts = &pdevice->vk.supported_extensions;
    VkExtensionProperties pdevice_extensions[VK_DEVICE_EXTENSION_COUNT];
    uint32_t pdevice_extension_count = VK_DEVICE_EXTENSION_COUNT;
@@ -57,7 +56,7 @@ wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
    }
 
    exts->KHR_present_wait = exts->KHR_timeline_semaphore;
-   if (check_flag("NO_PRESENT_WAIT", true)) {
+   if (check_flag("NO_PRESENT_WAIT", false)) {
       if (exts->KHR_present_wait) {
          WLOG("Disabling KHR_present_wait, some drivers misreport KHR_timeline_semaphore support (e.g. Adreno 6XX, disable by setting NO_PRESENT_WAIT=0)");
          exts->KHR_present_wait = false;
@@ -175,16 +174,6 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       supported_features->multiDrawIndirect = true; // Missing on G57 r32p1
       supported_features->vertexPipelineStoresAndAtomics = true; // Missing on G57 r32p1
       // supported_features->variableMultisampleRate = true; // Missing on G57 r32p1
-
-      // DEBUG:
-      // pdevice->base_supported_features.geometryStreams = false;
-
-      if (check_flag("FORCE_BCN_EMULATION", false)) {
-         if (pdevice->base_supported_features.textureCompressionBC) {
-            WLOG("Forcing BCn emulation (disable by setting FORCE_BCN_EMULATION=0)");
-            pdevice->base_supported_features.textureCompressionBC = false;
-         }
-      }
       
       result = wsi_device_init(&pdevice->wsi_device,
                                wrapper_physical_device_to_handle(pdevice),
@@ -209,22 +198,17 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
          .pNext = &pdevice->driver_properties,
       };
 
-      LOG("Calling GetPhysicalDeviceProperties2");
-      pdevice->dispatch_table.GetPhysicalDeviceProperties2(
-         pdevice->dispatch_handle, &pdevice->properties2);
+      WPDEVICE.GetPhysicalDeviceProperties2(
+         (VkPhysicalDevice) pdevice, &pdevice->properties2);
       
-      LOG("Calling GetPhysicalDeviceMemoryProperties");
-      pdevice->dispatch_table.GetPhysicalDeviceMemoryProperties(
-         pdevice->dispatch_handle, &pdevice->memory_properties);
+      WPDEVICE.GetPhysicalDeviceMemoryProperties(
+         (VkPhysicalDevice) pdevice, &pdevice->memory_properties);
       
-      static bool has_already_logged_properties = false;
-      if (!has_already_logged_properties) {
-         has_already_logged_properties = true;
-         WLOGD("GetPhysicalDeviceProperties2:");
-         LOG_STRUCT(VkPhysicalDeviceProperties2, &pdevice->properties2);
-         WLOGD("GetPhysicalDeviceMemoryProperties");
-         LOG_STRUCT(VkPhysicalDeviceMemoryProperties, &pdevice->memory_properties);
-      }
+      WLOGD("GetPhysicalDeviceProperties2:");
+      LOG_STRUCT(VkPhysicalDeviceProperties2, &pdevice->properties2);
+      WLOGD("GetPhysicalDeviceMemoryProperties:");
+      LOG_STRUCT(VkPhysicalDeviceMemoryProperties, &pdevice->memory_properties);
+      
       const char *app_name = instance->vk.app_info.app_name
          ? instance->vk.app_info.app_name : "wrapper";
 
@@ -238,6 +222,37 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       pdevice->dma_heap_fd = open("/dev/dma_heap/system", O_RDONLY);
       if (pdevice->dma_heap_fd < 0)
          pdevice->dma_heap_fd = open("/dev/ion", O_RDONLY);
+
+      // Check for BC1 and BC4 support on Xclipse devices
+      WPDEVICE.GetPhysicalDeviceFormatProperties((VkPhysicalDevice) pdevice, VK_FORMAT_BC1_RGB_UNORM_BLOCK, &pdevice->bc1_format_properties);
+      WLOGD("bc1 support:");
+      LOG_STRUCT(VkFormatProperties, &pdevice->bc1_format_properties);
+      WPDEVICE.GetPhysicalDeviceFormatProperties((VkPhysicalDevice) pdevice, VK_FORMAT_BC4_UNORM_BLOCK, &pdevice->bc4_format_properties);
+      WLOGD("bc4 support:");
+      LOG_STRUCT(VkFormatProperties, &pdevice->bc4_format_properties);
+
+      pdevice->needs_bc1_emulation = !pdevice->base_supported_features.textureCompressionBC && !has_bc1_support(pdevice);
+      pdevice->needs_bc4_emulation = !pdevice->base_supported_features.textureCompressionBC && !has_bc4_support(pdevice);
+
+      if (check_flag("FORCE_BCN_EMULATION", false)) {
+         if (pdevice->base_supported_features.textureCompressionBC) {
+            WLOG("Forcing BCn emulation (disable by setting FORCE_BCN_EMULATION=0)");
+            pdevice->base_supported_features.textureCompressionBC = false;
+         }
+         pdevice->needs_bc1_emulation = true;
+         pdevice->needs_bc4_emulation = true;
+      }
+
+      if (check_flag("NO_BCN_EMULATION", false)) {
+         WLOG("Disabling BCn emulation (disable by setting NO_BCN_EMULATION=0)");
+         pdevice->needs_bc1_emulation = false;
+         pdevice->needs_bc4_emulation = false;
+      }
+
+      if (check_flag("NO_BC123_EMULATION", false)) {
+         WLOG("Disabling BC123 emulation (disable by setting NO_BC123_EMULATION=0)");
+         pdevice->needs_bc1_emulation = false;
+      }
 
       list_addtail(&pdevice->vk.link, &_instance->physical_devices.list);
    }
@@ -540,13 +555,8 @@ wrapper_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
    VkFormat targetFormat = format;
    bool modified = false;
    if (is_bc_image_format(format) && !supported_features->textureCompressionBC) {
-      // targetFormat = VK_FORMAT_R8G8B8A8_UNORM;
-      // // If the format is BC6H, use VK_FORMAT_R16G16B16A16_SFLOAT
-      // if (format == VK_FORMAT_BC6H_UFLOAT_BLOCK || format == VK_FORMAT_BC6H_SFLOAT_BLOCK) {
-      //    targetFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
-      // }
       targetFormat = unwrap_vk_format_physical_device(pdevice, format);
-      pdevice->dispatch_table.GetPhysicalDeviceFormatProperties(pdevice->dispatch_handle, targetFormat, pFormatProperties);
+      WPDEVICE.GetPhysicalDeviceFormatProperties(physicalDevice, targetFormat, pFormatProperties);
       pFormatProperties->optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
       pFormatProperties->linearTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
       pFormatProperties->bufferFeatures |= VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT | VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT;
@@ -554,7 +564,7 @@ wrapper_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
    } else {
       // If the underlying device support BCn or if this is not a BCn texture,
       // just pass through
-      pdevice->dispatch_table.GetPhysicalDeviceFormatProperties(pdevice->dispatch_handle, format, pFormatProperties);
+      WPDEVICE.GetPhysicalDeviceFormatProperties(physicalDevice, format, pFormatProperties);
       return;
    }
 }

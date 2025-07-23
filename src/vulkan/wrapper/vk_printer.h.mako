@@ -7,88 +7,21 @@
 #define VK_PRINTER_H
 
 #include <sys/time.h>
-#include "wrapper_private.h"
 #include "vulkan/util/vk_alloc.h"
+#include "wrapper_private.h"
+#include "wrapper_log.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-
-static FILE* __vk_print_fd;
-static int64_t __vk_start_ms;
-
-
-static bool __cmd_log_initialized;
-static int __cmd_log_level;
-static FILE* __cmd_log_fd;
-
-#define VK_CMD_ALL 2
-#define VK_CMD_NAME 1
-#define VK_CMD_NONE 0
-#define VK_CMD_FD __cmd_log_fd
-
-static int __should_log_cmd() {
-   if (__cmd_log_initialized) {
-      return __cmd_log_level;
-   }
-
-   const char *log_level = getenv("WRAPPER_CMD_LOG_LEVEL");
-   if (!log_level) {
-      __cmd_log_level = VK_CMD_NONE;
-   } else if (strcmp(log_level, "all") == 0) {
-      __cmd_log_level = VK_CMD_ALL;
-   } else if (strcmp(log_level, "name") == 0) {
-      __cmd_log_level = VK_CMD_NAME;
-   } else {
-      __cmd_log_level = VK_CMD_NONE;
-   }
-
-   char time_str[20];
-   get_current_time_string(time_str, sizeof(time_str));
-   char path[256];
-   sprintf(path, "/sdcard/Documents/Wrapper/wrapper_cmds_%s.%d.txt", time_str, getpid());
-   __cmd_log_fd = fopen(path, "w");
-   if (!__cmd_log_fd) {
-      __log_level = 0;
-   }
-   __cmd_log_initialized = true;
-   return __cmd_log_level;
-}
-
-
-#define VK_CMD_CAN_LOG_LEVEL __should_log_cmd()
-
-#define __VK_CMD_LOG(can_log_level, level, fd, ...) { if (can_log_level >= level) __vk_println(fd, __VA_ARGS__); }
-#define VK_CMD_LOG(...) __VK_CMD_LOG(VK_CMD_CAN_LOG_LEVEL, VK_CMD_NAME, __cmd_log_fd, __VA_ARGS__)
-#define VK_CMD_LOGA(...) __VK_CMD_LOG(VK_CMD_CAN_LOG_LEVEL, VK_CMD_ALL, __cmd_log_fd, __VA_ARGS__)
-#define VK_CMD_FLUSH() { if (VK_CMD_CAN_LOG_LEVEL >= VK_CMD_NAME) __vk_flush(__cmd_log_fd); }
-
-#define VK_CMD_LOG_FD(fd, ...) __vk_println(fd, __VA_ARGS__)
-
-static void __vk_println(FILE* fd, const char* fmt, ...) {
-   if (!fd) {
-      return;
-   }
-   va_list args;
-   va_start(args, fmt);
-   vfprintf(fd, fmt, args);
-   va_end(args);
-   fprintf(fd, "\n");
-   // fflush(fd);
-}
-
-static void __vk_flush(FILE* fd) {
-   if (!fd) {
-      return;
-   }
-   fflush(fd);
-}
+## static FILE* __vk_print_fd;
+## static int64_t __vk_start_ms;
 
 % for s in all_vk_types:
 % if s.name not in blacklisted_vk_types or s.name == 'VkShaderModuleCreateInfo':
 void vk_print_${s.name}(int can_log_level, int log_level, FILE*, const char* prefix, const ${s.name} *in_info);
-#define VK_PRINT_${s.name}(prefix, in_info) vk_print_${s.name}(VK_CMD_CAN_LOG_LEVEL, VK_CMD_ALL, __cmd_log_fd, prefix, in_info)
+#define VK_PRINT_${s.name}(prefix, in_info) vk_print_${s.name}(VK_CMD_CAN_LOG_LEVEL, VK_CMD_ALL, VK_CMD_FD, prefix, in_info)
 % endif
 % endfor
 
