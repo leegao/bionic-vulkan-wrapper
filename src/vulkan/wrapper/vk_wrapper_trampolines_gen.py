@@ -42,6 +42,7 @@ TEMPLATE_H = Template(COPYRIGHT + """\
 #define WRAPPER_TRAMPOLINES_H
 
 #include "vk_dispatch_table.h"
+#include "wrapper_checks.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,26 +50,6 @@ extern "C" {
 
 extern struct vk_physical_device_entrypoint_table wrapper_physical_device_trampolines;
 extern struct vk_device_entrypoint_table wrapper_device_trampolines;
-
-#define WDEVICE wrapper_device_trampolines
-#define WPDEVICE wrapper_physical_device_trampolines
-
-#define __CHECK__(call) ({ \
-      VkResult __result = call; \
-      if (__result) { WLOGE(#call " failed, result=%d", __result); } \
-      __result; \
-   })
-
-#define __CHECKV__(call) (call)
-
-
-#define CHECK(call) __CHECK__(wrapper_device_trampolines. call)
-#define PCHECK(call) __CHECK__(wrapper_physical_device_trampolines. call)
-#define WCHECK(call) __CHECK__(wrapper_##call)
-
-#define CHECKV(call) __CHECKV__(wrapper_device_trampolines. call)
-#define PCHECKV(call) __CHECKV__(wrapper_physical_device_trampolines. call)
-#define WCHECKV(call) __CHECKV__(wrapper_##call)
 
 struct wrapper_entry_masks {
     uint64_t f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15;
@@ -91,6 +72,9 @@ static struct wrapper_entry_masks wrapper_printer_masks = { 0 };
 
 #define PRINT_${e.name} IS_VK_ID_${e.name}_ON(wrapper_printer_masks)
 #define TRY_${e.name}(TRUE, FALSE) TRUE
+#define has_device_wrapper_${e.name}(...) (wrapper_device_entrypoints.${e.name})
+#define has_physical_device_wrapper_${e.name}(...) (wrapper_physical_device_entrypoints.${e.name})
+#define name_of_wrapper_${e.name}(...) "wrapper_${e.name}"
 % if e.guard is not None:
 #else
 #define TRY_${e.name}(TRUE, FALSE) FALSE
@@ -192,6 +176,10 @@ struct vk_device_entrypoint_table wrapper_device_trampolines = {
   % endif
 % endfor
 };
+
+struct vk_physical_device_dispatch_table wrapper_physical_device_functions = { 0 };
+struct vk_device_dispatch_table wrapper_device_functions = { 0 };
+
 """)
 
 def main():

@@ -556,7 +556,7 @@ wrapper_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
    bool modified = false;
    if (is_bc_image_format(format) && !supported_features->textureCompressionBC) {
       targetFormat = unwrap_vk_format_physical_device(pdevice, format);
-      WPDEVICE.GetPhysicalDeviceFormatProperties(physicalDevice, targetFormat, pFormatProperties);
+      PCHECKV(GetPhysicalDeviceFormatProperties(physicalDevice, targetFormat, pFormatProperties));
       pFormatProperties->optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
       pFormatProperties->linearTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
       pFormatProperties->bufferFeatures |= VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT | VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT;
@@ -564,7 +564,7 @@ wrapper_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
    } else {
       // If the underlying device support BCn or if this is not a BCn texture,
       // just pass through
-      WPDEVICE.GetPhysicalDeviceFormatProperties(physicalDevice, format, pFormatProperties);
+      PCHECKV(GetPhysicalDeviceFormatProperties(physicalDevice, format, pFormatProperties));
       return;
    }
 }

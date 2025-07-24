@@ -66,8 +66,6 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
 // Call this before intercepting vkDestroyDevice.
 static void InterceptorState_Cleanup(InterceptorState* state);
 
-static bool g_use_image_view = true;
-static bool g_use_compute_shader_mode;
 static InterceptorState g_interceptorState_s3tc = {0};
 static InterceptorState g_interceptorState_bc6 = {0};
 static InterceptorState g_interceptorState_bc7 = {0};
@@ -120,58 +118,6 @@ wrapper_filter_enabled_extensions(const struct wrapper_device *device,
          vk_device_extensions[idx].extensionName;
    }
 }
-
-static bool use_image_view_mode() {
-   static bool initialized = false;
-   if (initialized) {
-      return g_use_image_view;
-   }
-   initialized = true;
-
-   char* use_image_view_env = getenv("USE_IMAGE_VIEW");
-   if (use_image_view_env) {
-      if (strcmp(use_image_view_env, "1") == 0) {
-         WLOG("Enabling experimental direct imageView mode");
-         g_use_image_view = true;
-      } else if (strcmp(use_image_view_env, "0") == 0) {
-         WLOG("Disabling experimental direct imageView mode");
-         g_use_image_view = false;
-      }
-   }
-
-   return g_use_image_view;
-}
-
-static bool use_compute_shader_mode() {
-   static bool initialized = false;
-   if (initialized) {
-      return g_use_compute_shader_mode;
-   }
-   initialized = true;
-
-   bool use_image_view = use_image_view_mode();
-
-   char* env = getenv("USE_COMPUTE_SHADER");
-   if (env) {
-      if (strcmp(env, "1") == 0) {
-         WLOG("Enabling experimental compute shader mode");
-         g_use_compute_shader_mode = true;
-      } else if (strcmp(env, "0") == 0) {
-         WLOG("Disabling experimental compute shader mode");
-         g_use_compute_shader_mode = false;
-         use_image_view = false;
-         g_use_image_view = false;
-      }
-   }
-
-   if (use_image_view) {
-      g_use_compute_shader_mode = true;
-      return true;
-   }
-
-   return g_use_compute_shader_mode;
-}
-
 
 static inline void
 wrapper_append_required_extensions(const struct vk_device *device,
@@ -420,7 +366,7 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
          .queueFamilyIndex = graphics_queue_idx,
       };
 
-      CHECK(CreateCommandPool((VkDevice) device, &commandPoolInfo, NULL, &device->computePool));
+      WCHECK(CreateCommandPool((VkDevice) device, &commandPoolInfo, NULL, &device->computePool));
    } else {
       WLOGE("Could not find a graphics & compute queue");
    }
@@ -464,56 +410,13 @@ VKAPI_ATTR VkResult VKAPI_CALL
 wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
                     const VkSubmitInfo* pSubmits, VkFence fence)
 {
-   VK_FROM_HANDLE(wrapper_queue, queue, _queue);
-   VkSubmitInfo wrapper_submits[submitCount];
-   VkCommandBuffer *command_buffers;
-   VkResult result;
-
-   // for (int i = 0; i < submitCount; i++) {
-   //    for (int j = 0; j < pSubmits[i].commandBufferCount; j++) {
-   //       VK_FROM_HANDLE(wrapper_command_buffer, wcb, pSubmits[i].pCommandBuffers[j]);
-   //       if (wcb->bcnBuffer != VK_NULL_HANDLE) {
-   //          result = SubmitSecondaryBcnCommandBuffer(_queue, wcb);
-   //          if (result != VK_SUCCESS) {
-   //             WLOGE("Failed to submit secondary BCn command buffer.");
-   //             return result;
-   //          }
-   //       }
-   //    }
-   // }
-
-   result = CHECK(QueueSubmit(_queue, submitCount, pSubmits, fence));
-
-   // LOG_STRUCT(VkSubmitInfo, &pSubmits[0]);
-   // result = vk_common_QueueSubmit(_queue, submitCount, pSubmits, fence); // does not work if the extension is off
-   return result;
+   return CHECK(QueueSubmit(_queue, submitCount, pSubmits, fence));
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
 wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
                      const VkSubmitInfo2* pSubmits, VkFence fence)
 {
-   // WLOGE("In wrapper_QueueSubmit2");
-   VK_FROM_HANDLE(wrapper_queue, queue, _queue);
-   VkSubmitInfo2 wrapper_submits[submitCount];
-   VkCommandBufferSubmitInfo *command_buffers;
-   VkResult result;
-
-   // for (int i = 0; i < submitCount; i++) {
-   //    for (int j = 0; j < pSubmits[i].commandBufferInfoCount; j++) {
-   //       VK_FROM_HANDLE(wrapper_command_buffer, wcb, pSubmits[i].pCommandBufferInfos[j].commandBuffer);
-   //       if (wcb->bcnBuffer != VK_NULL_HANDLE) {
-   //          result = SubmitSecondaryBcnCommandBuffer(_queue, wcb);
-   //          if (result != VK_SUCCESS) {
-   //             WLOGE("Failed to submit secondary BCn command buffer.");
-   //             return result;
-   //          }
-   //       }
-   //    }
-   // }
-
-   // WLOGD("calling QueueSubmit2 = %p", wrapper_submits);
-   // LOG_STRUCT(VkSubmitInfo2, pSubmits);
    return CHECK(QueueSubmit2(
       _queue, submitCount, pSubmits, fence));
 }
@@ -531,6 +434,7 @@ wrapper_CmdExecuteCommands(VkCommandBuffer commandBuffer,
       command_buffers[i] =
          wrapper_command_buffer_from_handle(pCommandBuffers[i])->dispatch_handle;
    }
+   // TODO: unwrap wcbs
    wcb->device->dispatch_table.CmdExecuteCommands(
       wcb->dispatch_handle, commandBufferCount, command_buffers);
 }
@@ -601,10 +505,10 @@ wrapper_AllocateCommandBuffers(VkDevice _device,
 
    if (result != VK_SUCCESS) {
       WLOGE("Failed to allocate command buffers: %d", result);
-      device->dispatch_table.FreeCommandBuffers(device->dispatch_handle,
-                                                pAllocateInfo->commandPool,
-                                                pAllocateInfo->commandBufferCount,
-                                                dispatch_handles);
+      CHECKV(FreeCommandBuffers(device->dispatch_handle,
+                                 pAllocateInfo->commandPool,
+                                 pAllocateInfo->commandBufferCount,
+                                 dispatch_handles));
       for (int q = 0; q < i; q++) {
          VK_FROM_HANDLE(wrapper_command_buffer, wcb, pCommandBuffers[q]);
          wrapper_command_buffer_destroy(device, wcb);
@@ -645,9 +549,7 @@ wrapper_FreeCommandBuffers(VkDevice _device,
 
    simple_mtx_unlock(&device->resource_mutex);
 
-   device->dispatch_table.FreeCommandBuffers(device->dispatch_handle,
-                                             commandPool, commandBufferCount,
-                                             dispatch_handles);
+   CHECKV(FreeCommandBuffers(_device, commandPool, commandBufferCount, dispatch_handles));
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
@@ -684,8 +586,7 @@ wrapper_DestroyCommandPool(VkDevice _device, VkCommandPool commandPool,
       wrapper_command_pool_destroy(device, pool);
    }
 
-   device->dispatch_table.DestroyCommandPool(device->dispatch_handle,
-                                             commandPool, pAllocator);
+   CHECKV(DestroyCommandPool(_device, commandPool, pAllocator));
 }
 
 VKAPI_ATTR void VKAPI_CALL
@@ -758,11 +659,9 @@ wrapper_SetPrivateData(VkDevice _device, VkObjectType objectType,
                        uint64_t objectHandle,
                        VkPrivateDataSlot privateDataSlot,
                        uint64_t data) {
-   VK_FROM_HANDLE(wrapper_device, device, _device);
-
    uint64_t object_handle = unwrap_device_object(objectType, objectHandle);
-   return device->dispatch_table.SetPrivateData(device->dispatch_handle,
-      objectType, object_handle, privateDataSlot, data);
+   return CHECK(SetPrivateData(_device,
+      objectType, object_handle, privateDataSlot, data));
 }
 
 VKAPI_ATTR void VKAPI_CALL
@@ -770,11 +669,8 @@ wrapper_GetPrivateData(VkDevice _device, VkObjectType objectType,
                        uint64_t objectHandle,
                        VkPrivateDataSlot privateDataSlot,
                        uint64_t* pData) {
-   VK_FROM_HANDLE(wrapper_device, device, _device);
-
    uint64_t object_handle = unwrap_device_object(objectType, objectHandle);
-   return device->dispatch_table.GetPrivateData(device->dispatch_handle,
-      objectType, object_handle, privateDataSlot, pData);
+   CHECKV(GetPrivateData(_device, objectType, object_handle, privateDataSlot, pData));
 }
 
 // Helper function to create and add a pool
@@ -805,7 +701,7 @@ static VkResult add_new_temp_pool_to_buffer(struct wrapper_buffer *wbuf) {
       .pPoolSizes = pool_sizes,
    };
 
-   VkResult result = CHECK(CreateDescriptorPool((VkDevice) device, &create_info, NULL, &new_pool_handle));
+   VkResult result = WCHECK(CreateDescriptorPool((VkDevice) device, &create_info, NULL, &new_pool_handle));
    if (result == VK_SUCCESS) {
       struct wrapper_buffer_descriptor_pool *new_pool_node =
          vk_alloc(&wbuf->device->vk.alloc, sizeof(struct wrapper_buffer_descriptor_pool), 8,
@@ -821,7 +717,7 @@ static void free_temp_pool_from_buffer(VkDevice device, struct wrapper_buffer* w
    // // Clean up temporary descriptor pools associated with this command buffer
    if (!list_is_empty(&wbuf->temp_descriptor_pools)) {
       list_for_each_entry_safe(struct wrapper_buffer_descriptor_pool, pool_node, &wbuf->temp_descriptor_pools, link) {
-         CHECKV(DestroyDescriptorPool(device, pool_node->pool, NULL));
+         WCHECKV(DestroyDescriptorPool(device, pool_node->pool, NULL));
          list_del(&pool_node->link);
          vk_free(&wbuf->device->vk.alloc, pool_node);
       }
@@ -887,7 +783,7 @@ wrapper_BindBufferMemory(VkDevice device,
       .memoryOffset  = memoryOffset,
    };
 
-   return wrapper_BindBufferMemory2(device, 1, &bind);
+   return CHECK(BindBufferMemory2(device, 1, &bind));
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
@@ -922,7 +818,7 @@ wrapper_BindBufferMemory2(
 // Helper function to find a suitable memory type
 static uint32_t FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
    VkPhysicalDeviceMemoryProperties memProperties;
-   WPDEVICE.GetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+   WPCHECKV(GetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties));
 
    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
       if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
@@ -949,24 +845,24 @@ static VkResult CreateConstantsUniformBuffer(
    bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-   result = CHECK(CreateBuffer(device, &bufferInfo, NULL, buffer));
+   result = WCHECK(CreateBuffer(device, &bufferInfo, NULL, buffer));
    if (result != VK_SUCCESS)
       return result;
 
    VkMemoryRequirements memRequirements;
-   CHECKV(GetBufferMemoryRequirements(device, *buffer, &memRequirements));
+   WCHECKV(GetBufferMemoryRequirements(device, *buffer, &memRequirements));
 
    VkMemoryAllocateInfo allocInfo = {0};
    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
    allocInfo.allocationSize = memRequirements.size;
    allocInfo.memoryTypeIndex = FindMemoryType((VkPhysicalDevice) physicalDevice, memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-   result = CHECK_W(AllocateMemory(device, &allocInfo, NULL, bufferMemory));
+   result = WCHECK(AllocateMemory(device, &allocInfo, NULL, bufferMemory));
    if (result != VK_SUCCESS) {
       return result;
    }
 
-   return CHECK(BindBufferMemory(device, *buffer, *bufferMemory, 0));
+   return WCHECK(BindBufferMemory(device, *buffer, *bufferMemory, 0));
 }
 
 static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, size_t spv_size, const uint32_t* spv_code, bool use_image_view, int bc_mode) {
@@ -1013,14 +909,14 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
          .offset = 0,
          .size = sizeof(Bc7Constants),
       };
-      VkResult result = CHECK_W(MapMemory2KHR(device, &mapInfoSrc, &data));
+      VkResult result = WCHECK(MapMemory2KHR(device, &mapInfoSrc, &data));
       if (result != VK_SUCCESS) {
          return result;
       }
       Bc7Constants bc7_uniform_constants;
       populate_bc7_decoding_constants(&bc7_uniform_constants);
       memcpy(data, &bc7_uniform_constants, sizeof(Bc7Constants));
-      wrapper_UnmapMemory(device, state->constantsBufferMemory);
+      WCHECKV(UnmapMemory(device, state->constantsBufferMemory));
    } else if (bc_mode == 6) {
       bindingCount = 3;
 
@@ -1038,14 +934,14 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
          .offset = 0,
          .size = sizeof(Bc6Constants),
       };
-      VkResult result = CHECK_W(MapMemory2KHR(device, &mapInfoSrc, &data));
+      VkResult result = WCHECK(MapMemory2KHR(device, &mapInfoSrc, &data));
       if (result != VK_SUCCESS) {
          return result;
       }
       Bc6Constants bc6_uniform_constants;
       populate_bc6_decoding_constants(&bc6_uniform_constants);
       memcpy(data, &bc6_uniform_constants, sizeof(Bc6Constants));
-      wrapper_UnmapMemory(device, state->constantsBufferMemory);
+      WCHECKV(UnmapMemory(device, state->constantsBufferMemory));
    }
 
    if (use_image_view) {
@@ -1057,17 +953,15 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
       .bindingCount = bindingCount,
       .pBindings = setLayoutBinding,
    };
-   result = CHECK(CreateDescriptorSetLayout(device, &setLayoutCreateInfo, NULL, &state->descriptorSetLayout));
+   result = WCHECK(CreateDescriptorSetLayout(device, &setLayoutCreateInfo, NULL, &state->descriptorSetLayout));
    if (result != VK_SUCCESS) return result;
 
-   // 2. Create Push Constant Range
    VkPushConstantRange pushConstantRange = {
       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
       .offset = 0,
       .size = sizeof(PushConstantData),
    };
 
-   // 3. Create Pipeline Layout
    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
       .setLayoutCount = 1,
@@ -1075,18 +969,18 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
       .pushConstantRangeCount = 1,
       .pPushConstantRanges = &pushConstantRange,
    };
-   result = CHECK(CreatePipelineLayout(device, &pipelineLayoutCreateInfo, NULL, &state->pipelineLayout));
+   result = WCHECK(CreatePipelineLayout(device, &pipelineLayoutCreateInfo, NULL, &state->pipelineLayout));
    if (result != VK_SUCCESS) return result;
 
-    // 4. Create Compute Pipeline
    VkShaderModule computeShaderModule;
    VkShaderModuleCreateInfo shaderModuleCreateInfo = {
       .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
       .codeSize = spv_size,
       .pCode = (const uint32_t*)spv_code,
    };
-   result = CHECK(CreateShaderModule(device, &shaderModuleCreateInfo, NULL, &computeShaderModule));
+   result = WCHECK(CreateShaderModule(device, &shaderModuleCreateInfo, NULL, &computeShaderModule));
    if (result != VK_SUCCESS) return result;
+
    VkComputePipelineCreateInfo pipelineCreateInfo = {
       .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
       .layout = state->pipelineLayout,
@@ -1097,8 +991,8 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
          .pName = "main",
       }
    };
-   result = CHECK(CreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &state->pipeline));
-   CHECKV(DestroyShaderModule(device, computeShaderModule, NULL));
+   result = WCHECK(CreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &state->pipeline));
+   WCHECKV(DestroyShaderModule(device, computeShaderModule, NULL));
    if (result != VK_SUCCESS) return result;
    return result;
 }
@@ -1121,35 +1015,35 @@ static VkResult CreateStagingBuffer(
    bufferInfo.usage = usage;
    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-   result = CHECK(CreateBuffer(device, &bufferInfo, NULL, buffer));
+   result = WCHECK(CreateBuffer(device, &bufferInfo, NULL, buffer));
    if (result != VK_SUCCESS)
       return result;
 
    VkMemoryRequirements memRequirements;
-   CHECKV(GetBufferMemoryRequirements(device, *buffer, &memRequirements));
+   WCHECKV(GetBufferMemoryRequirements(device, *buffer, &memRequirements));
 
    VkMemoryAllocateInfo allocInfo = {0};
    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
    allocInfo.allocationSize = memRequirements.size;
    allocInfo.memoryTypeIndex = FindMemoryType((VkPhysicalDevice) physicalDevice, memRequirements.memoryTypeBits, properties);
 
-   result = CHECK_W(AllocateMemory(device, &allocInfo, NULL, bufferMemory));
+   result = WCHECK(AllocateMemory(device, &allocInfo, NULL, bufferMemory));
    if (result != VK_SUCCESS) {
       return result;
    }
 
-   return CHECK(BindBufferMemory(device, *buffer, *bufferMemory, 0));
+   return WCHECK(BindBufferMemory(device, *buffer, *bufferMemory, 0));
 }
 
 static int FindComputeQueueFamilies(struct wrapper_physical_device* physical_device) {
    // First, query the number of queue families available.
    uint32_t queueFamilyCount = 0;
-   physical_device->dispatch_table.GetPhysicalDeviceQueueFamilyProperties(
-   physical_device->dispatch_handle, &queueFamilyCount, NULL);
+   WPCHECKV(GetPhysicalDeviceQueueFamilyProperties(
+   (VkPhysicalDevice) physical_device, &queueFamilyCount, NULL));
 
    VkQueueFamilyProperties queueFamilies[32];
-   physical_device->dispatch_table.GetPhysicalDeviceQueueFamilyProperties(
-   physical_device->dispatch_handle, &queueFamilyCount, queueFamilies);
+   WPCHECKV(GetPhysicalDeviceQueueFamilyProperties(
+   (VkPhysicalDevice) physical_device, &queueFamilyCount, queueFamilies));
 
    int i = 0;
    for (int i = 0; i < queueFamilyCount; i++) {
@@ -1203,7 +1097,7 @@ static VkResult SubmitOneTimeCommands(
    allocInfo.commandBufferCount = 1;
 
    VkCommandBuffer commandBuffer;
-   result = wrapper_AllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+   result = WCHECK(AllocateCommandBuffers(device, &allocInfo, &commandBuffer));
    if (result != VK_SUCCESS) {
       WLOGE("Failed to allocate command buffers");
       return result;
@@ -1213,14 +1107,14 @@ static VkResult SubmitOneTimeCommands(
    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-   result = CHECK(BeginCommandBuffer(commandBuffer, &beginInfo));
+   result = WCHECK(BeginCommandBuffer(commandBuffer, &beginInfo));
    if (result != VK_SUCCESS) {
       return result;
    };
 
    recordCommands((struct wrapper_command_buffer*) commandBuffer, pUserData);
 
-   result = CHECK(EndCommandBuffer(commandBuffer));
+   result = WCHECK(EndCommandBuffer(commandBuffer));
    if (result != VK_SUCCESS) {
       return result;
    }
@@ -1233,26 +1127,26 @@ static VkResult SubmitOneTimeCommands(
    VkFence fence;
    VkFenceCreateInfo fenceInfo = { 0 };
    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-   result = CHECK(CreateFence(device, &fenceInfo, NULL, &fence));
+   result = WCHECK(CreateFence(device, &fenceInfo, NULL, &fence));
    if (result != VK_SUCCESS) {
       return result;
    }
 
    WLOG("Submitting command buffer to queue %p", queue);
-   result = wrapper_QueueSubmit((VkQueue) queue, 1, &submitInfo, fence);
+   result = WCHECK(QueueSubmit((VkQueue) queue, 1, &submitInfo, fence));
    if (result != VK_SUCCESS) {
       return result;
    }
 
    WLOG("Waiting for fence %p", fence);
-   CHECK(WaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
+   WCHECK(WaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
    if (result != VK_SUCCESS) {
       return result;
    }
    WLOG("Command buffer execution completed");
 
-   CHECKV(DestroyFence(device, fence, NULL));
-   wrapper_FreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+   WCHECKV(DestroyFence(device, fence, NULL));
+   WCHECKV(FreeCommandBuffers(device, commandPool, 1, &commandBuffer));
    return VK_SUCCESS;
 }
 
@@ -1435,7 +1329,7 @@ static void HostSideDecompression(
       .offset = srcBuffer->memoryOffset,
       .size = VK_WHOLE_SIZE,
    };
-   VkResult result = wrapper_MapMemory2KHR((VkDevice) _device, &mapInfoSrc, &srcData);
+   VkResult result = WCHECK(MapMemory2KHR((VkDevice) _device, &mapInfoSrc, &srcData));
    if (result != VK_SUCCESS) {
       WLOGE("ERROR: Failed to map source buffer memory: %d", result);
       return;
@@ -1449,9 +1343,8 @@ static void HostSideDecompression(
       .offset = 0, // Assuming dstMemory is large enough to hold the decompressed
       .size = region->imageExtent.width * region->imageExtent.height * 4, // 4 bytes per pixel for RGBA
    };
-   result = wrapper_MapMemory2KHR((VkDevice) _device, &mapInfoDst, &dstData);
+   result = WCHECK(MapMemory2KHR((VkDevice) _device, &mapInfoDst, &dstData));
    if (result != VK_SUCCESS) {
-      WLOGE("ERROR: Failed to map destination memory: %d", result);  
       goto final;
    }
 
@@ -1470,9 +1363,9 @@ static void HostSideDecompression(
    //    dstPixels[i] = 0xFFFF00FF; // Magenta color in RGBA format
    // }
 
-   wrapper_UnmapMemory((VkDevice) _device, dstMemory);
+   WCHECKV(UnmapMemory((VkDevice) _device, dstMemory));
 final:
-   wrapper_UnmapMemory((VkDevice) _device, srcBuffer->memory);
+   WCHECKV(UnmapMemory((VkDevice) _device, srcBuffer->memory));
 }
 
 static VkDeviceSize calculate_bc_copy_size(const VkBufferImageCopy* region, uint32_t block_size_in_bytes) {
@@ -1536,7 +1429,7 @@ static void CmdComputeShaderForDecompression(
          }
       };
 
-      CHECKV(CmdPipelineBarrier((VkCommandBuffer) _commandBuffer,
+      WCHECKV(CmdPipelineBarrier((VkCommandBuffer) _commandBuffer,
                            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                            0, 0, NULL, 0, NULL, 1, &imageBarrier));
@@ -1643,7 +1536,6 @@ static void CmdComputeShaderForDecompression(
       VkImageViewCreateInfo viewCreateInfo = {
          .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
          .image = dstImage,
-         // .viewType = wimg->vk.view_type, // Assuming the image is 2D, you can set this to VK_IMAGE_VIEW_TYPE_2D
          .viewType = VK_IMAGE_VIEW_TYPE_2D,
          .format = unwrap_vk_format(_device, wimg->original_format),
          .subresourceRange = {
@@ -1656,7 +1548,7 @@ static void CmdComputeShaderForDecompression(
       };
       
       VkImageView dstImageView;
-      result = CHECK(CreateImageView((VkDevice) _device, &viewCreateInfo, NULL, &dstImageView));
+      result = WCHECK(CreateImageView((VkDevice) _device, &viewCreateInfo, NULL, &dstImageView));
       if (result != VK_SUCCESS) {
          return;
       }
@@ -1678,11 +1570,11 @@ static void CmdComputeShaderForDecompression(
    }
 
    int writeSetCount = is_bc6 || is_bc7 ? 3 : 2;
-   CHECKV(UpdateDescriptorSets((VkDevice) _device, writeSetCount, writeSet, 0, NULL));
+   WCHECKV(UpdateDescriptorSets((VkDevice) _device, writeSetCount, writeSet, 0, NULL));
 
-   CHECKV(CmdBindPipeline((VkCommandBuffer) _commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, state->pipeline));
+   WCHECKV(CmdBindPipeline((VkCommandBuffer) _commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, state->pipeline));
 
-   CHECKV(CmdBindDescriptorSets((VkCommandBuffer) _commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+   WCHECKV(CmdBindDescriptorSets((VkCommandBuffer) _commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                            state->pipelineLayout, 0, 1, &descriptorSet, 0, NULL));
 
    PushConstantData pushConstants = {
@@ -1698,12 +1590,12 @@ static void CmdComputeShaderForDecompression(
          .watercoloredBitsBc = get_watermarked_bcn_masks(),
    };
 
-   CHECKV(CmdPushConstants((VkCommandBuffer) _commandBuffer, state->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
+   WCHECKV(CmdPushConstants((VkCommandBuffer) _commandBuffer, state->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
                      0, sizeof(PushConstantData), &pushConstants));
 
    uint32_t groupCountX = (region->imageExtent.width + 7) / 8;
    uint32_t groupCountY = (region->imageExtent.height + 7) / 8;
-   CHECKV(CmdDispatch((VkCommandBuffer) _commandBuffer, groupCountX, groupCountY, 1));
+   WCHECKV(CmdDispatch((VkCommandBuffer) _commandBuffer, groupCountX, groupCountY, 1));
 
 
    // If using image view output, we need to transition the image back to the destination layout
@@ -1726,7 +1618,7 @@ static void CmdComputeShaderForDecompression(
          }
       };
 
-      CHECKV(CmdPipelineBarrier((VkCommandBuffer) _commandBuffer,
+      WCHECKV(CmdPipelineBarrier((VkCommandBuffer) _commandBuffer,
                            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                            0, 0, NULL, 0, NULL, 1, &imageBarrier));
@@ -1734,7 +1626,6 @@ static void CmdComputeShaderForDecompression(
 }
 
 static VkResult CreateBcnCommandBuffer(struct wrapper_device* device, struct wrapper_command_buffer* wcb) {
-
    VkResult result;
    VkCommandBufferAllocateInfo allocInfo = { 0 };
    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1746,7 +1637,7 @@ static VkResult CreateBcnCommandBuffer(struct wrapper_device* device, struct wra
    VkFence bcnBufferFinished;
    VkSemaphore bcnBufferFinishedSemaphore;
 
-   result = wrapper_AllocateCommandBuffers((VkDevice) device, &allocInfo, &bcnBuffer);
+   result = WCHECK(AllocateCommandBuffers((VkDevice) device, &allocInfo, &bcnBuffer));
    if (result != VK_SUCCESS) {
       WLOGE("Failed to allocate bcnBuffer command buffers");
       goto failure;
@@ -1758,7 +1649,7 @@ static VkResult CreateBcnCommandBuffer(struct wrapper_device* device, struct wra
 
    VkFenceCreateInfo fenceInfo = { 0 };
    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-   result = CHECK(CreateFence((VkDevice) device, &fenceInfo, NULL, &bcnBufferFinished));
+   result = WCHECK(CreateFence((VkDevice) device, &fenceInfo, NULL, &bcnBufferFinished));
    if (result != VK_SUCCESS) {
       goto failure;
    }
@@ -1766,7 +1657,7 @@ static VkResult CreateBcnCommandBuffer(struct wrapper_device* device, struct wra
    VkSemaphoreCreateInfo semaphoreInfo = {
       .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
    };
-   result = CHECK(CreateSemaphore((VkDevice) device, &semaphoreInfo, NULL, &bcnBufferFinishedSemaphore));
+   result = WCHECK(CreateSemaphore((VkDevice) device, &semaphoreInfo, NULL, &bcnBufferFinishedSemaphore));
    if (result != VK_SUCCESS) {
       goto failure;
    }
@@ -1778,7 +1669,7 @@ static VkResult CreateBcnCommandBuffer(struct wrapper_device* device, struct wra
    wcb->bcnCommands = 0;
    simple_mtx_unlock(&wcb->resource_mutex);
 
-   result = CHECK(BeginCommandBuffer(bcnBuffer, &beginInfo));
+   result = WCHECK(BeginCommandBuffer(bcnBuffer, &beginInfo));
 failure:
    return result;
 }
@@ -1808,8 +1699,8 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
 
    if (!wimg->is_bcn_emulated) {
       // If no BCn emulation needed, just fall-through
-      wrapper_device_trampolines.CmdCopyBufferToImage(commandBuffer, srcBuffer, dstImage,
-                                                      dstImageLayout, 1, pRegions);
+      CHECKV(CmdCopyBufferToImage(commandBuffer, srcBuffer, dstImage,
+                                                      dstImageLayout, 1, pRegions));
       return;
    }
 
@@ -1906,7 +1797,7 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             .size = VK_WHOLE_SIZE
          };
 
-         CHECKV(CmdPipelineBarrier(
+         WCHECKV(CmdPipelineBarrier(
             commandBuffer,
             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
             0,

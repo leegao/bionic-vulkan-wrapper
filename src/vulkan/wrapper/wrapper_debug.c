@@ -185,3 +185,57 @@ void initialize_cmd_print_masks() {
 //     UNROLL_ENTRY_POINTS(CHECK_CMD_MASK)
 // #undef CHECK_CMD_MASK
 }
+
+static bool g_use_image_view = true;
+static bool g_use_compute_shader_mode = true;
+
+bool use_image_view_mode() {
+   static bool initialized = false;
+   if (initialized) {
+      return g_use_image_view;
+   }
+   initialized = true;
+
+   char* use_image_view_env = getenv("USE_IMAGE_VIEW");
+   if (use_image_view_env) {
+      if (strcmp(use_image_view_env, "1") == 0) {
+         WLOG("Enabling experimental direct imageView mode");
+         g_use_image_view = true;
+      } else if (strcmp(use_image_view_env, "0") == 0) {
+         WLOG("Disabling experimental direct imageView mode");
+         g_use_image_view = false;
+      }
+   }
+
+   return g_use_image_view;
+}
+
+bool use_compute_shader_mode() {
+   static bool initialized = false;
+   if (initialized) {
+      return g_use_compute_shader_mode;
+   }
+   initialized = true;
+
+   bool use_image_view = use_image_view_mode();
+
+   char* env = getenv("USE_COMPUTE_SHADER");
+   if (env) {
+      if (strcmp(env, "1") == 0) {
+         WLOG("Enabling experimental compute shader mode");
+         g_use_compute_shader_mode = true;
+      } else if (strcmp(env, "0") == 0) {
+         WLOG("Disabling experimental compute shader mode");
+         g_use_compute_shader_mode = false;
+         use_image_view = false;
+         g_use_image_view = false;
+      }
+   }
+
+   if (use_image_view) {
+      g_use_compute_shader_mode = true;
+      return true;
+   }
+
+   return g_use_compute_shader_mode;
+}

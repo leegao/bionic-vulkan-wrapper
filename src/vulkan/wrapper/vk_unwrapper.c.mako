@@ -198,6 +198,7 @@ void unwrap_${s.name}(struct temporary_objects* temp, struct wrapper_device *dev
     ##VkBaseOutStructure **out_pnext_ptr = (VkBaseOutStructure **)&out_info->pNext;
     ##vk_foreach_struct_const(pnext, in_info->pNext) {
         ##switch ((int32_t)pnext->sType) {
+    // TODO: Fix potentially unknown pNext structs (don't lose anything here)
     /*
 % if s.name in pnext_map:
     // Has pNexts: ${pnext_map[s.name]}
