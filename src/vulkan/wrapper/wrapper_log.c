@@ -145,6 +145,38 @@ wrapper_debug_callback(
     return VK_FALSE;
 }
 
+
+static void print_vendor_fault_binary(uint32_t size, const void* dump) {
+    const uint32_t* pQuads = (const uint32_t*) dump;
+    const uint8_t* pChars = (const uint8_t*) dump;
+    if (size == 0 || !dump) {
+        return;
+    }
+    int i = 0;
+    while (i < size) {
+#define QUAD(n) pQuads[(i / 4) + n]
+#define UNROLL(bytes, fmt, ...) \
+        if (i + bytes - 1 < size) { \
+            WLOGE("  .dump(%p)[%04x]:" fmt, dump, i, __VA_ARGS__); \
+            i += bytes; \
+            continue; \
+        }
+
+        UNROLL(32, "%08x %08x %08x %08x", QUAD(0), QUAD(1), QUAD(2), QUAD(3));
+        UNROLL(24, "%08x %08x %08x", QUAD(0), QUAD(1), QUAD(2));
+        UNROLL(16, "%08x %08x", QUAD(0), QUAD(1));
+        UNROLL(8, "%08x", QUAD(0));
+
+        if (i % 8 == 0) {
+            WLOGE("  .dump(%p)[%04x]: ", dump, i);
+        }
+        WLOGE("      %02x", pChars[i]);
+        i++;
+#undef QUAD
+#undef UNROLL
+    }
+}
+
 void wrapper_log_device_fault(struct wrapper_device *device, const char* call)
 {
     WLOGE("FATAL: %s failed with a GPU fault, the game will now crash", call);
@@ -159,13 +191,20 @@ void wrapper_log_device_fault(struct wrapper_device *device, const char* call)
         return;
     }
 
-    VkDeviceFaultCountsEXT fault_counts = {
-        .sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT,
-    };
+    VkDeviceFaultCountsEXT fault_counts = { 0 };
+    fault_counts.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT;
     VkResult result = WCHECK(GetDeviceFaultInfoEXT((VkDevice)device, &fault_counts, NULL));
-    if (result != VK_SUCCESS) {
+    if (result == VK_INCOMPLETE) {
+        WLOGE("WARN: Got an incomplete from GetDeviceFaultInfoEXT");
+    }
+
+    if (result != VK_SUCCESS && result != VK_INCOMPLETE) {
+        WLOGE("Failed to get the fault_counts from GetDeviceFaultInfoEXT");
         return;
     }
+
+    WLOGE("Fault counts: addressInfoCount=%d, vendorInfoCount=%d, vendorBinarySize=%d",
+        fault_counts.addressInfoCount, fault_counts.vendorInfoCount, fault_counts.vendorBinarySize);
 
     if (fault_counts.addressInfoCount == 0 &&
         fault_counts.vendorInfoCount == 0 &&
@@ -205,9 +244,7 @@ void wrapper_log_device_fault(struct wrapper_device *device, const char* call)
     result = WCHECK(GetDeviceFaultInfoEXT((VkDevice)device, &fault_counts, &fault_info));
     if (result == VK_SUCCESS) {
         WLOGE("--- VULKAN DEVICE FAULT DETECTED ---");
-        if (fault_info.description) {
-            WLOGE("Description: %s", fault_info.description);
-        }
+        WLOGE("Description: %s", fault_info.description);
         for (uint32_t i = 0; i < fault_counts.addressInfoCount; i++) {
             WLOGE(".pAddressInfos[%d]", i);
             LOG_STRUCT_AT(ERROR, VkDeviceFaultAddressInfoEXT, &fault_info.pAddressInfos[i]);
@@ -218,8 +255,11 @@ void wrapper_log_device_fault(struct wrapper_device *device, const char* call)
         }
         if (fault_info.pVendorBinaryData && fault_counts.vendorBinarySize > 0) {
             WLOGE("  Vendor binary crash dump retrieved (%llu bytes).", fault_counts.vendorBinarySize);
+            print_vendor_fault_binary(fault_counts.vendorBinarySize, fault_info.pVendorBinaryData);
         }
         WLOGE("--- END FAULT INFO ---");
+    } else {
+        WLOGE("Failed to get the fault_info from GetDeviceFaultInfoEXT");
     }
 
     if (fault_info.pAddressInfos)
