@@ -67,7 +67,9 @@ MAKE_GET_FUNCTION(wrapper_command_pool, VkCommandPool, command_pool_map)
 MAKE_CREATE_FUNCTION(wrapper_command_pool, VkCommandPool, command_pool_map,
                      VK_OBJECT_TYPE_COMMAND_POOL,
                      {
-                        vk_command_pool_init(&device->vk, &obj->vk, pCreateInfo, NULL);
+                        if (vk_command_pool_init(&device->vk, &obj->vk, pCreateInfo, NULL) != VK_SUCCESS) {
+                            WLOGE("vk_command_pool_init failed");
+                        }
                      });
 
 MAKE_DESTROY_FUNCTION(wrapper_command_pool, command_pool_map, {

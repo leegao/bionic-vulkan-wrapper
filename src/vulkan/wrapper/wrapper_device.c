@@ -15,6 +15,7 @@
 #include "vk_buffer.h"
 #include "wrapper_trampolines.h"
 #include "wrapper_debug.h"
+#include "vk_unwrappers.h"
 
 #include "bcdec.h"
 
@@ -417,10 +418,29 @@ VKAPI_ATTR VkResult VKAPI_CALL
 wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
                      const VkSubmitInfo2* pSubmits, VkFence fence)
 {
-   return CHECK(QueueSubmit2(
-      _queue, submitCount, pSubmits, fence));
-}
+   #ifdef WRAPPER_DEBUG
+   WLOGD("Inside of wrapper_QueueSubmit2");
+   for (int i = 0; i < submitCount; i++) {
+      WLOGD("+ pSubmits[%d]", i);
+      LOG_STRUCT(VkSubmitInfo2, &pSubmits[i]);
+   }
+   struct temporary_objects temp;
+   list_inithead(&temp.objects);
+   VK_FROM_HANDLE(wrapper_queue, base, _queue);
+   const VkSubmitInfo2* pSubmits__ = pSubmits;
+   pSubmits__ = alloca(submitCount * sizeof(VkSubmitInfo2));
+   for (int i = 0; i < submitCount; i++) {
+      unwrap_VkSubmitInfo2(&temp, base->device, (VkSubmitInfo2 *) &pSubmits__[i], &pSubmits[i]);
+      WLOGD("+ pSubmits__[%d]", i);
+      LOG_STRUCT(VkSubmitInfo2, &pSubmits__[i]);
+   }
+   #endif
 
+   VkResult result = CHECK(QueueSubmit2(_queue, submitCount, pSubmits, fence));
+   // VkResult result = base->device->dispatch_table.QueueSubmit2(base->dispatch_handle, submitCount, pSubmits__, fence);
+   WLOGD("Result = %d", result);
+   return result;
+}
 
 VKAPI_ATTR void VKAPI_CALL
 wrapper_CmdExecuteCommands(VkCommandBuffer commandBuffer,

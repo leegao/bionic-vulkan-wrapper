@@ -205,6 +205,7 @@ void unwrap_${s.name}(struct temporary_objects* temp, struct wrapper_device *dev
     struct VkBaseOutStructure *head = NULL, *tail = NULL;
     vk_foreach_struct_const(item, in_info->pNext) {
         size_t item_size = vk_structure_type_size(item);
+        WLOGE("${s.name} pnext: sType = %d, size = %d", item->sType, item_size);
         if (item_size == 0) {
             // Invalid structure, skip it.
             WLOGE("Invalid structure in pNext (%d) chain: %p", item->sType, item);

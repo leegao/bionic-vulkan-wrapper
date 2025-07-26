@@ -305,22 +305,27 @@ wrapper_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
       switch (pnext->sType) {
          case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_FEATURES_EXT:
          {
-            VkPhysicalDeviceTransformFeedbackFeaturesEXT *extTransformFeedback = (VkPhysicalDeviceTransformFeedbackFeaturesEXT*) pnext;
+            VkPhysicalDeviceTransformFeedbackFeaturesEXT *extTransformFeedback =
+                (VkPhysicalDeviceTransformFeedbackFeaturesEXT*) pnext;
             extTransformFeedback->transformFeedback = true;
             extTransformFeedback->geometryStreams = true;
             break;
          }
          case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT:
          {
-            VkPhysicalDeviceCustomBorderColorFeaturesEXT *extCustomBorderColor = (VkPhysicalDeviceCustomBorderColorFeaturesEXT*) pnext;
+            VkPhysicalDeviceCustomBorderColorFeaturesEXT *extCustomBorderColor =
+                (VkPhysicalDeviceCustomBorderColorFeaturesEXT*) pnext;
             extCustomBorderColor->customBorderColors = VK_TRUE;
             extCustomBorderColor->customBorderColorWithoutFormat = VK_TRUE;
             break;
          }
          case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES_EXT:
-            VkPhysicalDeviceHostQueryResetFeaturesEXT *extHostQueryReset = (VkPhysicalDeviceHostQueryResetFeaturesEXT*) pnext;
+         {
+            VkPhysicalDeviceHostQueryResetFeaturesEXT *extHostQueryReset =
+                (VkPhysicalDeviceHostQueryResetFeaturesEXT*) pnext;
             extHostQueryReset->hostQueryReset = VK_TRUE;
             break;
+         }
          default:
             break;
       }

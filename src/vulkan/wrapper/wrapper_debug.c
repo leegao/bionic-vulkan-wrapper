@@ -175,9 +175,82 @@ void initialize_cmd_print_masks() {
         return;
     }
 
-    if (strcmp(mask_bcn, "0x") == 0) {
+    if (strstr(mask_bcn, "0x")) {
         // This is a 704-bit hex-encoded integer
         parse_hex_to_struct(&wrapper_printer_masks, mask_bcn + 2);
+        return;
+    }
+
+    if (strstr(mask_bcn, "gfx")) {
+        // full mask = 0x1f000f03391c000000000000000
+        // f0 0x4000000000000000 = vkCreateShaderModule
+        // f0 0x8000000000000000 = vkDestroyShaderModule
+        wrapper_printer_masks.f0 |= 0xc000000000000000ULL;
+        // f1 0x0000000000000001 = vkCreatePipelineCache
+        // f1 0x0000000000000010 = vkCreateGraphicsPipelines
+        // f1 0x0000000000000080 = vkDestroyPipeline
+        // f1 0x0000000000000100 = vkCreatePipelineLayout
+        // f1 0x0000000000000200 = vkDestroyPipelineLayout
+        // f1 0x0000000000001000 = vkCreateDescriptorSetLayout
+        // f1 0x0000000000002000 = vkDestroyDescriptorSetLayout
+        // f1 0x0000000000100000 = vkCreateFramebuffer
+        // f1 0x0000000000200000 = vkDestroyFramebuffer
+        // f1 0x0000000000400000 = vkCreateRenderPass
+        // f1 0x0000000000800000 = vkDestroyRenderPass
+        // f1 0x0000001000000000 = vkCmdSetViewport
+        // f1 0x0000002000000000 = vkCmdSetScissor
+        // f1 0x0000004000000000 = vkCmdSetLineWidth
+        // f1 0x0000008000000000 = vkCmdSetDepthBias
+        // f1 0x0000010000000000 = vkCmdSetBlendConstants
+        wrapper_printer_masks.f1 |= 0x000001f000f03391ULL;
+    }
+
+    if (strstr(mask_bcn, "gfx")) {
+        // full mask = 0x1f000f03391c000000000000000
+        // f0 0x4000000000000000 = vkCreateShaderModule
+        // f0 0x8000000000000000 = vkDestroyShaderModule
+        wrapper_printer_masks.f0 |= 0xc000000000000000ULL;
+        // f1 0x0000000000000001 = vkCreatePipelineCache
+        // f1 0x0000000000000010 = vkCreateGraphicsPipelines
+        // f1 0x0000000000000080 = vkDestroyPipeline
+        // f1 0x0000000000000100 = vkCreatePipelineLayout
+        // f1 0x0000000000000200 = vkDestroyPipelineLayout
+        // f1 0x0000000000001000 = vkCreateDescriptorSetLayout
+        // f1 0x0000000000002000 = vkDestroyDescriptorSetLayout
+        // f1 0x0000000000100000 = vkCreateFramebuffer
+        // f1 0x0000000000200000 = vkDestroyFramebuffer
+        // f1 0x0000000000400000 = vkCreateRenderPass
+        // f1 0x0000000000800000 = vkDestroyRenderPass
+        // f1 0x0000001000000000 = vkCmdSetViewport
+        // f1 0x0000002000000000 = vkCmdSetScissor
+        // f1 0x0000004000000000 = vkCmdSetLineWidth
+        // f1 0x0000008000000000 = vkCmdSetDepthBias
+        // f1 0x0000010000000000 = vkCmdSetBlendConstants
+        wrapper_printer_masks.f1 |= 0x000001f000f03391ULL;
+    }
+
+    if (strstr(mask_bcn, "mem")) {
+        // full mask = 0x800000000000002800000000200000001002200000000000000000000000000000000000012200001c1400080
+        // f0 0x0000000000000080 = vkGetPhysicalDeviceMemoryProperties
+        // f0 0x0000000000400000 = vkAllocateMemory
+        // f0 0x0000000001000000 = vkMapMemory
+        // f0 0x0000000040000000 = vkBindBufferMemory
+        // f0 0x0000000080000000 = vkGetImageMemoryRequirements
+        // f0 0x0000000100000000 = vkBindImageMemory
+        // f0 0x0020000000000000 = vkCreateBuffer
+        // f0 0x0200000000000000 = vkCreateImage
+        // f0 0x1000000000000000 = vkCreateImageView
+        wrapper_printer_masks.f0 |= 0x12200001c1400080ULL;
+        // f3 0x0000000000020000 = vkGetPhysicalDeviceImageFormatProperties2
+        // f3 0x0000000000200000 = vkGetPhysicalDeviceMemoryProperties2
+        // f3 0x0000000100000000 = vkGetMemoryFdKHR
+        wrapper_printer_masks.f3 |= 0x0000000100220000ULL;
+        // f4 0x0000000000000002 = vkBindBufferMemory2
+        // f4 0x0000008000000000 = vkGetBufferMemoryRequirements2
+        // f4 0x0000020000000000 = vkGetImageMemoryRequirements2
+        wrapper_printer_masks.f4 |= 0x0000028000000002ULL;
+        // f5 0x0000000800000000 = vkGetAndroidHardwareBufferPropertiesANDROID
+        wrapper_printer_masks.f5 |= 0x0000000800000000ULL;
     }
 
 // #define CHECK_CMD_MASK(cmd) \
