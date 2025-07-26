@@ -334,7 +334,7 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
     if command.return_type == 'VkResult' and command.name not in SPAMMY_COMMANDS:
         logger = "WLOGE" if command.name not in ("AllocateDescriptorSets", "GetPhysicalDeviceImageFormatProperties") else "WLOG"
         handle_wrap_logic.append(f"    if (result != VK_SUCCESS) {{")
-        handle_wrap_logic.append(f"        {logger}(\"Call to {command.name} with ({",".join(types)}) failed with result: %ld\", {",".join(call)}, result);")
+        handle_wrap_logic.append(f"        {logger}(\"Call to {command.name} with ({",".join(types)}) failed with result: %d\", {",".join(call)}, result);")
         handle_wrap_logic.append(f"    }}")
 
     return_block = "" if command.return_type == 'void' else "result"
