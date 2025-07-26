@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "wrapper_objects.h"
+
 extern int __android_log_print(
   int prio,
   const char *tag,
@@ -20,11 +22,14 @@ extern int __android_log_print(
 #define LOG_LEVEL_ERROR 1
 #define LOG_LEVEL_NONE 0
 
-#define LOG_STRUCT(st, obj) { \
+#define LOG_STRUCT_AT(level, st, obj) { \
    int can_log_level = should_log(); \
-   vk_print_##st(can_log_level, LOG_LEVEL_DEBUG, LOG_FD, "  ", obj); \
-   if (can_log_level >= LOG_LEVEL_DEBUG) fflush(LOG_FD); \
+   FILE* log_fd = LOG_FD; \
+   vk_print_##st(can_log_level, LOG_LEVEL_##level, log_fd, "  ", obj); \
+   if (can_log_level >= LOG_LEVEL_##level) fflush(log_fd); \
 }
+
+#define LOG_STRUCT(st, obj) LOG_STRUCT_AT(DEBUG, st, obj)
 
 #define WFORMAT(fmt, ...) fmt " \t (%s:%d)", ## __VA_ARGS__, __FUNCTION__, __LINE__
 
@@ -86,3 +91,5 @@ wrapper_debug_callback(
     VkDebugUtilsMessageTypeFlagsEXT                  messageType,
     const VkDebugUtilsMessengerCallbackDataEXT*      pCallbackData,
     void*                                            pUserData);
+
+void wrapper_log_device_fault(struct wrapper_device *device, const char* call);

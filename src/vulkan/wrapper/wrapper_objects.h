@@ -15,7 +15,6 @@
 #include "vulkan/util/vk_dispatch_table.h"
 #include "vulkan/wsi/wsi_common.h"
 
-#include "wrapper_log.h"
 #include "wrapper_trampolines.h"
 
 struct wrapper_instance {
