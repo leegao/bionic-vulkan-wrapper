@@ -7,8 +7,8 @@
 #include "vulkan/runtime/vk_log.h"
 #include "vulkan/util/vk_util.h"
 
-#define VK_ALLOC(type) VK_ALLOC2(type, sizeof(type))
-#define VK_ALLOC2(type, size) ({ \
+#define __VK_ALLOC(type) __VK_ALLOC2(type, sizeof(type))
+#define __VK_ALLOC2(type, size) ({ \
     type* __output = device ? \
     ((type *) vk_zalloc(&device->vk.alloc, size, alignof(type), VK_SYSTEM_ALLOCATION_SCOPE_OBJECT)) : \
     ((type *) malloc(size)); \
@@ -79,7 +79,7 @@
     }
 % elif member.array_count_member:
     if (in_info->${member.name}) {
-        out_info->${member.name} = VK_ALLOC2(${member.type}, in_info->${member.array_count_member} * sizeof(${member.type}));
+        out_info->${member.name} = __VK_ALLOC2(${member.type}, in_info->${member.array_count_member} * sizeof(${member.type}));
         for (uint32_t i = 0; i < in_info->${member.array_count_member}; i++) {
             VK_FROM_HANDLE(${get_wrapper_type_for_vk_type(member.type)}, wrapper_obj, in_info->${member.name}[i]);
             ((${member.type} *) out_info->${member.name})[i] = wrapper_obj ? wrapper_obj->dispatch_handle : VK_NULL_HANDLE;
@@ -88,7 +88,7 @@
 % elif member.num_pointers == 1:
     if (in_info->${member.name}) {
         if (*in_info->${member.name} != VK_NULL_HANDLE) {
-            out_info->${member.name} = VK_ALLOC2(${member.type}, sizeof(${member.type}));
+            out_info->${member.name} = __VK_ALLOC2(${member.type}, sizeof(${member.type}));
             VK_FROM_HANDLE(${get_wrapper_type_for_vk_type(member.type)}, obj, *in_info->${member.name});
             *out_info->${member.name} = obj->dispatch_handle;
         }
@@ -104,7 +104,7 @@
     unwrap_${member.type}(device, &out_info->${member.name}, &in_info->${member.name});
 % elif member.array_count_member:
     if (in_info->${member.name}) {
-        out_info->${member.name} = VK_ALLOC2(${member.type}, in_info->${member.array_count_member} * sizeof(${member.type}));
+        out_info->${member.name} = __VK_ALLOC2(${member.type}, in_info->${member.array_count_member} * sizeof(${member.type}));
         for (uint32_t i = 0; i < in_info->${member.array_count_member}; i++) {
             unwrap_${member.type}(
                 temp,
@@ -115,7 +115,7 @@
     }
 % elif member.num_pointers == 1:
     if (in_info->${member.name}) {
-        out_info->${member.name} = VK_ALLOC(${member.type});
+        out_info->${member.name} = __VK_ALLOC(${member.type});
         unwrap_${member.type}(temp, device, (${member.type}*) out_info->${member.name}, in_info->${member.name});
     }
 % elif member.num_pointers == 2:
@@ -129,14 +129,14 @@
     out_info->${member.name} = ${special_types[member.type]}(device, in_info->${member.name});
 % elif member.array_count_member:
     if (in_info->${member.name}) {
-        out_info->${member.name} = VK_ALLOC2(${member.type}, in_info->${member.array_count_member} * sizeof(${member.type}));
+        out_info->${member.name} = __VK_ALLOC2(${member.type}, in_info->${member.array_count_member} * sizeof(${member.type}));
         for (uint32_t i = 0; i < in_info->${member.array_count_member}; i++) {
             ((${member.typep})out_info->${member.name})[i] = ${special_types[member.type]}(device, in_info->${member.name}[i]);
         }
     }
 % elif member.num_pointers == 1:
     if (in_info->${member.name}) {
-        out_info->${member.name} = VK_ALLOC(${member.type});
+        out_info->${member.name} = __VK_ALLOC(${member.type});
         *((${member.typep})out_info->${member.name}) = ${special_types[member.type]}(device, in_info->${member.name});
     }
 % elif member.num_pointers == 2:
@@ -213,7 +213,7 @@ void unwrap_${s.name}(struct temporary_objects* temp, struct wrapper_device *dev
         }
 
 
-        struct VkBaseOutStructure *new_item = VK_ALLOC2(VkBaseOutStructure, item_size);
+        struct VkBaseOutStructure *new_item = __VK_ALLOC2(VkBaseOutStructure, item_size);
         memcpy(new_item, item, item_size);
 
         switch ((int32_t)item->sType) {

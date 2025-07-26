@@ -92,6 +92,12 @@ static struct wrapper_entry_masks wrapper_printer_masks = { 0 };
 TRY_${e.name}(FUNC(${e.name}), NOOP); \\
 % endfor
 
+#define VK_ALLOC2(device, type, size) (device ? \
+    ((type *) vk_zalloc(&((struct wrapper_device*) device)->vk.alloc, size, alignof(type), VK_SYSTEM_ALLOCATION_SCOPE_COMMAND)) : \
+    ((type *) malloc(size)) )
+
+#define VK_ALLOC(device, type) VK_ALLOC2(device, type, sizeof(type))
+
 #ifdef __cplusplus
 }
 #endif
@@ -106,14 +112,6 @@ TEMPLATE_C = Template(COPYRIGHT + """\
 #include "wrapper_trampolines.h"
 #include "vk_unwrappers.h"
 #include "vk_printers.h"
-
-void __loge(const char* fmt, ...);
-
-#define VK_ALLOC2(device, type, size) (device ? \
-    ((type *) vk_zalloc(&((struct wrapper_device*) device)->vk.alloc, size, alignof(type), VK_SYSTEM_ALLOCATION_SCOPE_COMMAND)) : \
-    ((type *) malloc(size)) )
-
-#define VK_ALLOC(device, type) VK_ALLOC2(device, type, sizeof(type))
 
 #define VK_PRINT_VkAccelerationStructureVersionInfoKHR(...)
 #define VK_PRINT_VkAccelerationStructureBuildGeometryInfoKHR(...)

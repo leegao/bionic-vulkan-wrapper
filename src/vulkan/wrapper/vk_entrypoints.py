@@ -140,8 +140,16 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
     device = "base->device"
     if params[0].type in ('VkInstance', 'VkPhysicalDevice'):
         device = "NULL" 
-    elif params[0].type in ("VkDevice"):
+    elif params[0].type in ("VkDevice",):
         device = "base"
+
+    physical_device = "base->device->physical"
+    if params[0].type in ('VkPhysicalDevice',):
+        physical_device = 'base'
+    elif params[0].type in ('VkInstance',):
+        physical_device = "NULL"
+    elif params[0].type in ("VkDevice",):
+        physical_device = "base->physical"
 
     # handle_unwrap_logic.append(f"#ifdef NEEDS_PRINTING_{command.name}")
     handle_unwrap_logic.append(f"    VK_CMD_LOG(\"{command.name}\");")
@@ -336,6 +344,12 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
         handle_wrap_logic.append(f"    if (result != VK_SUCCESS) {{")
         handle_wrap_logic.append(f"        {logger}(\"Call to {command.name} with ({",".join(types)}) failed with result: %d\", {",".join(call)}, result);")
         handle_wrap_logic.append(f"    }}")
+
+    if command.return_type == 'VkResult':
+        if physical_device != 'NULL':
+            handle_wrap_logic.append(f"    if (result == VK_ERROR_DEVICE_LOST && ({physical_device})->base_supported_extensions.EXT_device_fault) {{")
+            handle_wrap_logic.append(f"        wrapper_log_device_fault({device}, \"vk{command.name}({", ".join(call)}) \");")
+            handle_wrap_logic.append(f"    }}")
 
     return_block = "" if command.return_type == 'void' else "result"
     assign_block = "" if command.return_type == 'void' else f"{command.return_type} result = "

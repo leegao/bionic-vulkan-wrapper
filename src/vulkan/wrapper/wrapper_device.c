@@ -144,6 +144,7 @@ wrapper_append_required_extensions(const struct vk_device *device,
    REQUIRED_EXTENSION(EXT_external_memory_dma_buf);
    REQUIRED_EXTENSION(EXT_image_drm_format_modifier);
    REQUIRED_EXTENSION(ANDROID_external_memory_android_hardware_buffer);
+   REQUIRED_EXTENSION(EXT_device_fault); // for fault reporting, if available
    // REQUIRED_EXTENSION(KHR_uniform_buffer_standard_layout); // for std430 UBOs
 #undef REQUIRED_EXTENSION
 }
@@ -244,6 +245,23 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    vk_device_dispatch_table_from_entrypoints(
       &dispatch_table, &wrapper_device_trampolines, false);
 
+   VkPhysicalDeviceFaultFeaturesEXT fault_features_ext = {
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT,
+      .pNext = (void*) wrapper_create_info.pNext,
+   };
+   if (physical_device->base_supported_extensions.EXT_device_fault) {
+      WLOGD("Turning on VK_EXT_device_fault for better GPU fault reporting.");
+      VkPhysicalDeviceFaultFeaturesEXT *ext =
+         (VkPhysicalDeviceFaultFeaturesEXT*) vk_find_struct_const(pCreateInfo, PHYSICAL_DEVICE_FAULT_FEATURES_EXT);
+
+      if (ext == NULL) {
+         wrapper_create_info.pNext = &fault_features_ext;
+         ext = &fault_features_ext;
+      }
+      ext->deviceFault = physical_device->base_supported_features.deviceFault;
+      ext->deviceFaultVendorBinary = physical_device->base_supported_features.deviceFaultVendorBinary;
+   }
+
 #define DISABLE_EXT(extension, type, feature) \
    if (!physical_device->base_supported_features.feature) { \
       VK_STRUCTURE_TYPE_##type##_cast *ext = (VK_STRUCTURE_TYPE_##type##_cast *) vk_find_struct_const(pCreateInfo, type); \
@@ -300,8 +318,8 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    DISABLE_FEATURE(shaderCullDistance);
    DISABLE_FEATURE(dualSrcBlend);
    DISABLE_FEATURE(multiDrawIndirect); // Missing on G57 r32p1
-   // DISABLE_FEATURE(logicOp); // Missing on G57 r32p1
    DISABLE_FEATURE(vertexPipelineStoresAndAtomics); // Missing on G57 r32p1
+   // DISABLE_FEATURE(logicOp); // Missing on G57 r32p1
    // DISABLE_FEATURE(variableMultisampleRate); // Missing on G57 r32p1
    
    result = physical_device->dispatch_table.CreateDevice(

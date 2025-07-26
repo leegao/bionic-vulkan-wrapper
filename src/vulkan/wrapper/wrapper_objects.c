@@ -1,4 +1,5 @@
 #include "wrapper_objects.h"
+#include "wrapper_log.h"
 
 // Hashtable tagged wrapper objects:
 // VkImage -> wrapper_image
