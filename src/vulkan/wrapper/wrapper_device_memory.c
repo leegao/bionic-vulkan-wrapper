@@ -479,4 +479,3 @@ wrapper_UnmapMemory2KHR(VkDevice _device,
    mem->map_address = NULL;
    return VK_SUCCESS;
 }
-

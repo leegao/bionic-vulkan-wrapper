@@ -149,6 +149,8 @@ static void parse_hex_to_struct(struct wrapper_entry_masks *masks, const char *h
     }
 }
 
+struct wrapper_entry_masks wrapper_printer_masks = { 0 };
+
 void initialize_cmd_print_masks() {
     // set the various bits in wrapper_printer_masks
     const char* mask_bcn = getenv("WRAPPER_CMD_LOG_LEVEL");
@@ -179,30 +181,6 @@ void initialize_cmd_print_masks() {
         // This is a 704-bit hex-encoded integer
         parse_hex_to_struct(&wrapper_printer_masks, mask_bcn + 2);
         return;
-    }
-
-    if (strstr(mask_bcn, "gfx")) {
-        // full mask = 0x1f000f03391c000000000000000
-        // f0 0x4000000000000000 = vkCreateShaderModule
-        // f0 0x8000000000000000 = vkDestroyShaderModule
-        wrapper_printer_masks.f0 |= 0xc000000000000000ULL;
-        // f1 0x0000000000000001 = vkCreatePipelineCache
-        // f1 0x0000000000000010 = vkCreateGraphicsPipelines
-        // f1 0x0000000000000080 = vkDestroyPipeline
-        // f1 0x0000000000000100 = vkCreatePipelineLayout
-        // f1 0x0000000000000200 = vkDestroyPipelineLayout
-        // f1 0x0000000000001000 = vkCreateDescriptorSetLayout
-        // f1 0x0000000000002000 = vkDestroyDescriptorSetLayout
-        // f1 0x0000000000100000 = vkCreateFramebuffer
-        // f1 0x0000000000200000 = vkDestroyFramebuffer
-        // f1 0x0000000000400000 = vkCreateRenderPass
-        // f1 0x0000000000800000 = vkDestroyRenderPass
-        // f1 0x0000001000000000 = vkCmdSetViewport
-        // f1 0x0000002000000000 = vkCmdSetScissor
-        // f1 0x0000004000000000 = vkCmdSetLineWidth
-        // f1 0x0000008000000000 = vkCmdSetDepthBias
-        // f1 0x0000010000000000 = vkCmdSetBlendConstants
-        wrapper_printer_masks.f1 |= 0x000001f000f03391ULL;
     }
 
     if (strstr(mask_bcn, "gfx")) {
