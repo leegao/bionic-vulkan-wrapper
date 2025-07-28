@@ -43,12 +43,6 @@ static const uint32_t bc7_iv_spv[] = {
 #include "bc7_iv.spv.h"
 };
 
-#define CHECK_W(call) ({ \
-   VkResult __result = wrapper_##call; \
-   if (__result) { WLOGE("%s failed with %d", #call, __result); } \
-   __result; \
-})
-
 // A struct to hold the state required by our interceptor
 typedef struct InterceptorState {
    VkDevice device;
@@ -543,7 +537,7 @@ wrapper_AllocateCommandBuffers(VkDevice _device,
 
    if (result != VK_SUCCESS) {
       WLOGE("Failed to allocate command buffers: %d", result);
-      CHECKV(FreeCommandBuffers(device->dispatch_handle,
+      CHECKV(FreeCommandBuffers(_device,
                                  pAllocateInfo->commandPool,
                                  pAllocateInfo->commandBufferCount,
                                  dispatch_handles));
@@ -821,7 +815,7 @@ wrapper_BindBufferMemory(VkDevice device,
       .memoryOffset  = memoryOffset,
    };
 
-   return CHECK(BindBufferMemory2(device, 1, &bind));
+   return WCHECK(BindBufferMemory2(device, 1, &bind));
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
