@@ -1346,7 +1346,7 @@ static void BCnDecompression(VkFormat format,
 // Takes in the srcBuffer and decompresses it into a staging buffer
 // Both buffers must be bound to memory and are host visible (for mapping)
 // This is the software fallback for BCn decompression that aren't implemented by the compute shader
-static void HostSideDecompression(
+static VkResult HostSideDecompression(
       struct wrapper_device* _device,
       wrapper_buffer* srcBuffer,
       VkDeviceMemory dstMemory,
@@ -1364,7 +1364,7 @@ static void HostSideDecompression(
    VkResult result = WCHECK(MapMemory2KHR((VkDevice) _device, &mapInfoSrc, &srcData));
    if (result != VK_SUCCESS) {
       WLOGE("ERROR: Failed to map source buffer memory: %d", result);
-      return;
+      return result;
    }
 
    // Map the destination memory
@@ -1395,9 +1395,18 @@ static void HostSideDecompression(
    //    dstPixels[i] = 0xFFFF00FF; // Magenta color in RGBA format
    // }
 
+   VkMappedMemoryRange flushRange = {
+      .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+      .memory = dstMemory,
+      .offset = 0,
+      .size = VK_WHOLE_SIZE,
+   };
+   result = WCHECK(FlushMappedMemoryRanges((VkDevice) _device, 1, &flushRange));
+
    WCHECKV(UnmapMemory((VkDevice) _device, dstMemory));
 final:
    WCHECKV(UnmapMemory((VkDevice) _device, srcBuffer->memory));
+   return result;
 }
 
 static VkDeviceSize calculate_bc_copy_size(const VkBufferImageCopy* region, uint32_t block_size_in_bytes) {
@@ -1814,7 +1823,11 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
 
          CmdComputeShaderForDecompression(wcb, &args);
       } else {
-         HostSideDecompression(_device, wbuf, stagingBufferMemory, region, wimg->original_format);
+         result = HostSideDecompression(_device, wbuf, stagingBufferMemory, region, wimg->original_format);
+         if (result != VK_SUCCESS) {
+            WLOGE("Host BCn decompression failed, expect visual glitches.");
+            return;
+         }
       }
 
       if (!use_image_view) {

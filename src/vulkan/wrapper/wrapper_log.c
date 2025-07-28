@@ -17,7 +17,7 @@ static FILE* __cmd_log_fd;
 static bool __cmd_log_initialized;
 
 FILE* get_wrapper_cmd_log_fd() {
-    return __log_fd;
+    return __cmd_log_fd;
 }
 
 static void cleanup_log_file(void) {
@@ -59,6 +59,7 @@ int should_log_cmd() {
     __cmd_log_initialized = true;
 
     const char *log_level = getenv("WRAPPER_CMD_LOG_LEVEL");
+    LOG("Logging cmds at %s", log_level);
     if (!log_level) {
         __cmd_log_level = VK_CMD_NONE;
     } else if (strcmp(log_level, "all") == 0) {
@@ -66,10 +67,10 @@ int should_log_cmd() {
     } else if (strcmp(log_level, "name") == 0) {
         __cmd_log_level = VK_CMD_NAME;
     } else {
-        __cmd_log_level = VK_CMD_NONE;
+        __cmd_log_level = VK_CMD_ALL;
     }
 
-    if (__log_level != LOG_LEVEL_NONE) {
+    if (__cmd_log_level != LOG_LEVEL_NONE) {
         __cmd_log_fd = open_log_file("wrapper_cmds");
         if (!__cmd_log_fd) {
             __cmd_log_level = LOG_LEVEL_NONE;
@@ -88,6 +89,7 @@ int should_log() {
     __log_initialized = true;
 
     const char *log_level = getenv("WRAPPER_LOG_LEVEL");
+    LOG("Logging logs at %s", log_level);
     if (!log_level) {
         __log_level = LOG_LEVEL_ERROR;
     } else if (strcmp(log_level, "all") == 0) {
