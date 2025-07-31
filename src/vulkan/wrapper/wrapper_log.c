@@ -73,7 +73,8 @@ int should_log_cmd() {
     if (__cmd_log_level != LOG_LEVEL_NONE) {
         __cmd_log_fd = open_log_file("wrapper_cmds");
         if (!__cmd_log_fd) {
-            __cmd_log_level = LOG_LEVEL_NONE;
+            // Try to log to stdout / winelogs
+            __cmd_log_fd = stdout;
         } else {
             atexit(cleanup_cmd_log_file);
         }
@@ -106,8 +107,10 @@ int should_log() {
 
     if (__log_level != LOG_LEVEL_NONE) {
         __log_fd = open_log_file("wrapper_log");
+        // If __log_fd failed to open, still log to logcat
         if (!__log_fd) {
-            __log_level = LOG_LEVEL_NONE;
+            // Try to log to stdout / winelogs
+            __log_fd = stdout;
         } else {
             atexit(cleanup_log_file);
         }
@@ -117,12 +120,16 @@ int should_log() {
 }
 
 void wlog(const char* fmt, ...) {
-   va_list args;
-   va_start(args, fmt);
-   vfprintf(__log_fd, fmt, args);
-   va_end(args);
-   fprintf(__log_fd, "\n");
-   fflush(__log_fd);
+    FILE* fd = __log_fd;
+    if (!fd) {
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(fd, fmt, args);
+    va_end(args);
+    fprintf(fd, "\n");
+    fflush(fd);
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL
