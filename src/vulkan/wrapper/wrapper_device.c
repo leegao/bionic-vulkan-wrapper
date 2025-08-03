@@ -436,7 +436,6 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
 
    VkResult result = CHECK(QueueSubmit2(_queue, submitCount, pSubmits, fence));
    // VkResult result = base->device->dispatch_table.QueueSubmit2(base->dispatch_handle, submitCount, pSubmits__, fence);
-   WLOGD("Result = %d", result);
    return result;
 }
 
