@@ -1010,7 +1010,6 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
    };
    result = WCHECK(CreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &state->pipeline));
    WCHECKV(DestroyShaderModule(device, computeShaderModule, NULL));
-   if (result != VK_SUCCESS) return result;
    return result;
 }
 
