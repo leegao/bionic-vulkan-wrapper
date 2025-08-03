@@ -1520,7 +1520,7 @@ static void CmdComputeShaderForDecompression(
    VkDescriptorBufferInfo srcBufferInfo = {
       .buffer = srcBuffer,
       .offset = region->bufferOffset,
-      .range = srcBufferSize,
+      .range = VK_WHOLE_SIZE,
    };
 
    VkDescriptorBufferInfo uniformConstantBufferInfo = {
@@ -1644,8 +1644,8 @@ static void CmdComputeShaderForDecompression(
       };
 
       WCHECKV(CmdPipelineBarrier((VkCommandBuffer) _commandBuffer,
-                           VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
                            0, 0, NULL, 0, NULL, 1, &imageBarrier));
    }
 }
