@@ -973,28 +973,28 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
       setLayoutBinding[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
    }
 
-   // VkDescriptorSetLayoutCreateInfo setLayoutCreateInfo = {
-   //    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-   //    .bindingCount = bindingCount,
-   //    .pBindings = setLayoutBinding,
-   // };
-   // result = WCHECK(CreateDescriptorSetLayout(device, &setLayoutCreateInfo, NULL, &state->descriptorSetLayout));
-   // if (result != VK_SUCCESS) return result;
+   VkDescriptorSetLayoutCreateInfo setLayoutCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+      .bindingCount = bindingCount,
+      .pBindings = setLayoutBinding,
+   };
+   result = WCHECK(CreateDescriptorSetLayout(device, &setLayoutCreateInfo, NULL, &state->descriptorSetLayout));
+   if (result != VK_SUCCESS) return result;
 
-   // VkPushConstantRange pushConstantRange = {
-   //    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-   //    .offset = 0,
-   //    .size = sizeof(PushConstantData),
-   // };
+   VkPushConstantRange pushConstantRange = {
+      .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      .offset = 0,
+      .size = sizeof(PushConstantData),
+   };
 
    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-      .setLayoutCount = 0, // TODO
-      .pSetLayouts = NULL,
-      // .pSetLayouts = &state->descriptorSetLayout,
-      .pushConstantRangeCount = 0, // TODO
-      // .pPushConstantRanges = &pushConstantRange,
-      .pPushConstantRanges = NULL,
+      .setLayoutCount = 1, // TODO
+      // .pSetLayouts = NULL,
+      .pSetLayouts = &state->descriptorSetLayout,
+      .pushConstantRangeCount = 1, // TODO
+      .pPushConstantRanges = &pushConstantRange,
+      // .pPushConstantRanges = NULL,
    };
    result = WCHECK(CreatePipelineLayout(device, &pipelineLayoutCreateInfo, NULL, &state->pipelineLayout));
    if (result != VK_SUCCESS) return result;
@@ -1002,8 +1002,8 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
    VkShaderModule computeShaderModule;
    VkShaderModuleCreateInfo shaderModuleCreateInfo = {
       .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-      .codeSize = sizeof(noop_spv), // spv_size,
-      .pCode = (const uint32_t*) noop_spv, //spv_code,
+      .codeSize = spv_size, //sizeof(noop_spv), // spv_size,
+      .pCode = (const uint32_t*) spv_code, //noop_spv, //spv_code,
    };
    result = WCHECK(CreateShaderModule(device, &shaderModuleCreateInfo, NULL, &computeShaderModule));
    if (result != VK_SUCCESS) return result;
@@ -1020,7 +1020,7 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
    };
    result = WCHECK(CreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &state->pipeline));
    // if (result != VK_SUCCESS) return result;
-   // WCHECKV(DestroyShaderModule(device, computeShaderModule, NULL));
+   WCHECKV(DestroyShaderModule(device, computeShaderModule, NULL));
    return result;
 }
 
@@ -1548,41 +1548,41 @@ static void CmdComputeShaderForDecompression(
    }
 
    // Use the descriptor pool from this buffer
-   // simple_mtx_lock(&wbuf->resource_mutex);
-   // VkDescriptorSet descriptorSet;
-   // if (list_is_empty(&wbuf->temp_descriptor_pools)) {
-   //    // The current pool is full or fragmented, create a new one for this command buffer
-   //    result = add_new_temp_pool_to_buffer(wbuf);
-   //    if (result != VK_SUCCESS) {
-   //       WLOGE("Failed to allocate temp descriptor pool for buffer %d: %d", wbuf->obj_id, result);
-   //       simple_mtx_unlock(&wbuf->resource_mutex);
-   //       return;
-   //    }
-   // }
-   // struct wrapper_buffer_descriptor_pool *last_pool_node =
-   //    list_last_entry(&wbuf->temp_descriptor_pools, struct wrapper_buffer_descriptor_pool, link);
+   simple_mtx_lock(&wbuf->resource_mutex);
+   VkDescriptorSet descriptorSet;
+   if (list_is_empty(&wbuf->temp_descriptor_pools)) {
+      // The current pool is full or fragmented, create a new one for this command buffer
+      result = add_new_temp_pool_to_buffer(wbuf);
+      if (result != VK_SUCCESS) {
+         WLOGE("Failed to allocate temp descriptor pool for buffer %d: %d", wbuf->obj_id, result);
+         simple_mtx_unlock(&wbuf->resource_mutex);
+         return;
+      }
+   }
+   struct wrapper_buffer_descriptor_pool *last_pool_node =
+      list_last_entry(&wbuf->temp_descriptor_pools, struct wrapper_buffer_descriptor_pool, link);
 
-   // VkDescriptorSetAllocateInfo allocInfo = {
-   //    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-   //    .descriptorPool = last_pool_node->pool,
-   //    .descriptorSetCount = 1,
-   //    .pSetLayouts = &state->descriptorSetLayout,
-   // };
-   // result = wrapper_device_trampolines.AllocateDescriptorSets((VkDevice) _device, &allocInfo, &descriptorSet);
-   // if (result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL) {
-   //    // The current pool is full or fragmented, create a new one for this command buffer
-   //    WLOG("Descriptor pool exhausted, creating a new one for buffer %d", wbuf->obj_id);
-   //    result = add_new_temp_pool_to_buffer(wbuf);
-   //    if (result != VK_SUCCESS) {
-   //       WLOGE("Failed to allocate temp descriptor pool for buffer %d: %d", wbuf->obj_id, result);
-   //       simple_mtx_unlock(&wbuf->resource_mutex);
-   //       return;
-   //    }
-   //    last_pool_node = list_last_entry(&wbuf->temp_descriptor_pools, struct wrapper_buffer_descriptor_pool, link);
-   //    allocInfo.descriptorPool = last_pool_node->pool;
-   //    result = wrapper_device_trampolines.AllocateDescriptorSets((VkDevice) _device, &allocInfo, &descriptorSet);
-   // }
-   // simple_mtx_unlock(&wbuf->resource_mutex);
+   VkDescriptorSetAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+      .descriptorPool = last_pool_node->pool,
+      .descriptorSetCount = 1,
+      .pSetLayouts = &state->descriptorSetLayout,
+   };
+   result = wrapper_device_trampolines.AllocateDescriptorSets((VkDevice) _device, &allocInfo, &descriptorSet);
+   if (result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL) {
+      // The current pool is full or fragmented, create a new one for this command buffer
+      WLOG("Descriptor pool exhausted, creating a new one for buffer %d", wbuf->obj_id);
+      result = add_new_temp_pool_to_buffer(wbuf);
+      if (result != VK_SUCCESS) {
+         WLOGE("Failed to allocate temp descriptor pool for buffer %d: %d", wbuf->obj_id, result);
+         simple_mtx_unlock(&wbuf->resource_mutex);
+         return;
+      }
+      last_pool_node = list_last_entry(&wbuf->temp_descriptor_pools, struct wrapper_buffer_descriptor_pool, link);
+      allocInfo.descriptorPool = last_pool_node->pool;
+      result = wrapper_device_trampolines.AllocateDescriptorSets((VkDevice) _device, &allocInfo, &descriptorSet);
+   }
+   simple_mtx_unlock(&wbuf->resource_mutex);
 
    VkDescriptorPoolSize pool_sizes[] = {
       { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 },
@@ -1660,36 +1660,33 @@ static void CmdComputeShaderForDecompression(
       .range = is_bc7 ? sizeof(Bc7Constants) : (is_bc6 ? sizeof(Bc6Constants) : 0),
    };
 
-   // VkWriteDescriptorSet writeSet[3] = {
-   //    {
-   //       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-   //       .dstSet = descriptorSet,
-   //       .dstBinding = 0,
-   //       .descriptorCount = 1,
-   //       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-   //       .pBufferInfo = &srcBufferInfo,
-   //    },
-   //    {
-   //       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-   //       .dstSet = descriptorSet,
-   //       .dstBinding = 1,
-   //       .descriptorCount = 1,
-   //    },
-   //    {
-   //       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-   //       .dstSet = descriptorSet,
-   //       .dstBinding = 2,
-   //       .descriptorCount = 1,
-   //       .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-   //       .pBufferInfo = &uniformConstantBufferInfo,
-   //    }
-   // };
+   VkWriteDescriptorSet writeSet[3] = {
+      {
+         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+         .dstSet = descriptorSet,
+         .dstBinding = 0,
+         .descriptorCount = 1,
+         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+         .pBufferInfo = &srcBufferInfo,
+      },
+      {
+         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+         .dstSet = descriptorSet,
+         .dstBinding = 1,
+         .descriptorCount = 1,
+      },
+      {
+         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+         .dstSet = descriptorSet,
+         .dstBinding = 2,
+         .descriptorCount = 1,
+         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+         .pBufferInfo = &uniformConstantBufferInfo,
+      }
+   };
 
    VkDescriptorImageInfo dstImageInfo = { 0 };
    VkDescriptorBufferInfo dstBufferInfo = { 0 };
-
-
-   VkImageView dstImageView;
 
    if (use_image_view) {
       VkImageViewCreateInfo viewCreateInfo = {
@@ -1706,6 +1703,7 @@ static void CmdComputeShaderForDecompression(
          },
       };
       
+      VkImageView dstImageView;
       result = WCHECK(CreateImageView((VkDevice) _device, &viewCreateInfo, NULL, &dstImageView));
       if (result != VK_SUCCESS) {
          return;
@@ -1717,18 +1715,18 @@ static void CmdComputeShaderForDecompression(
 
       dstImageInfo.imageView = dstImageView;
       dstImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-      // writeSet[1].pImageInfo = &dstImageInfo;
-      // writeSet[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+      writeSet[1].pImageInfo = &dstImageInfo;
+      writeSet[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
    } else {
       dstBufferInfo.buffer = stagingBuffer;
       dstBufferInfo.offset = 0;
       dstBufferInfo.range = VK_WHOLE_SIZE;
-      // writeSet[1].pBufferInfo = &dstBufferInfo;
-      // writeSet[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+      writeSet[1].pBufferInfo = &dstBufferInfo;
+      writeSet[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
    }
 
    int writeSetCount = is_bc6 || is_bc7 ? 3 : 2;
-   // WCHECKV(UpdateDescriptorSets((VkDevice) _device, writeSetCount, writeSet, 0, NULL));
+   WCHECKV(UpdateDescriptorSets((VkDevice) _device, writeSetCount, writeSet, 0, NULL));
 
    // WCHECKV(CmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline));
    // if (SetupNoOpShader(_commandBuffer) != VK_SUCCESS) {
@@ -1736,26 +1734,24 @@ static void CmdComputeShaderForDecompression(
    // }
    WCHECKV(CmdBindPipeline((VkCommandBuffer) _commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, state->pipeline));
 
-   // WCHECKV(CmdBindDescriptorSets((VkCommandBuffer) _commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-   //                         state->pipelineLayout, 0, 1, &descriptorSet, 0, NULL));
+   WCHECKV(CmdBindDescriptorSets((VkCommandBuffer) _commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                           state->pipelineLayout, 0, 1, &descriptorSet, 0, NULL));
 
-   // PushConstantData pushConstants = {
-   //       .srcFormat = wimg->original_format,
-   //       .srcRowLength = (region->bufferRowLength == 0) ? region->imageExtent.width : region->bufferRowLength,
-   //       .srcImageHeight = (region->bufferImageHeight == 0) ? region->imageExtent.height : region->bufferImageHeight,
-   //       .imageOffsetX = region->imageOffset.x,
-   //       .imageOffsetY = region->imageOffset.y,
-   //       .imageExtentX = region->imageExtent.width,
-   //       .imageExtentY = region->imageExtent.height,
-   //       .srcBufferSize = srcBufferSize,
-   //       .unsupportedBitsBc = get_unsupported_bcn_masks(),
-   //       .watercoloredBitsBc = get_watermarked_bcn_masks(),
-   // };
+   PushConstantData pushConstants = {
+         .srcFormat = wimg->original_format,
+         .srcRowLength = (region->bufferRowLength == 0) ? region->imageExtent.width : region->bufferRowLength,
+         .srcImageHeight = (region->bufferImageHeight == 0) ? region->imageExtent.height : region->bufferImageHeight,
+         .imageOffsetX = region->imageOffset.x,
+         .imageOffsetY = region->imageOffset.y,
+         .imageExtentX = region->imageExtent.width,
+         .imageExtentY = region->imageExtent.height,
+         .srcBufferSize = srcBufferSize,
+         .unsupportedBitsBc = get_unsupported_bcn_masks(),
+         .watercoloredBitsBc = get_watermarked_bcn_masks(),
+   };
 
-   // WCHECKV(CmdPushConstants((VkCommandBuffer) _commandBuffer, state->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
-   //                   0, sizeof(PushConstantData), &pushConstants));
-
-
+   WCHECKV(CmdPushConstants((VkCommandBuffer) _commandBuffer, state->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
+                     0, sizeof(PushConstantData), &pushConstants));
 
    uint32_t groupCountX = (region->imageExtent.width + 7) / 8;
    uint32_t groupCountY = (region->imageExtent.height + 7) / 8;
@@ -1764,59 +1760,7 @@ static void CmdComputeShaderForDecompression(
 
    int id = count++;
 
-   WLOGD("Calling CmdDispatch for %d", id);
    WCHECKV(CmdDispatch((VkCommandBuffer) _commandBuffer, groupCountX, groupCountY, 1));
-   WLOGD("CmdDispatch Finished for %d", id);
-
-   // WLOGD("Calling EndCommandBuffer for %d", id);
-   // WCHECK(EndCommandBuffer(_commandBuffer->dispatch_handle));
-   // WLOGD("Finished EndCommandBuffer for %d", id);
-
-   // // 2. Submit it and wait for it to finish
-   // VkSubmitInfo submitInfo = {
-   //    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-   //    .commandBufferCount = 1,
-   //    .pCommandBuffers = (VkCommandBuffer*) &_commandBuffer,
-   // };
-   // VkFence fence;
-   // VkFenceCreateInfo fenceInfo = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-
-   // WLOGD("Calling CreateFence for %d", id);
-   // WCHECK(CreateFence((VkDevice)_device, &fenceInfo, NULL, &fence));
-   // WLOGD("CreateFence finished for %d", id);
-
-   // // Submit to the graphics queue. Ensure you have the right one.
-
-   // WLOGD("Calling QueueSubmit for %d", id);
-   // WCHECK(QueueSubmit((VkQueue) _device->graphics_queue, 1, &submitInfo, fence));
-   // WLOGD("QueueSubmit finished for %d", id);
-
-   // // This is the key part - we block the CPU until the GPU is idle
-   // WLOGD("Calling WaitForFences for %d", id);
-   // WCHECK(WaitForFences((VkDevice)_device, 1, &fence, VK_TRUE, UINT64_MAX));
-   // WLOGD("WaitForFences finished for %d", id);
-   // WLOGD("Calling DestroyFence for %d", id);
-   // WCHECKV(DestroyFence((VkDevice)_device, fence, NULL));
-   // WLOGD("DestroyFence finished for %d", id);
-
-   // // 3. The command buffer is now finished. We need to begin it again so the application
-   // //    can continue recording subsequent commands.
-   // VkCommandBufferBeginInfo beginInfo = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-   // // The application might have been using ONE_TIME_SUBMIT, etc. You might need to check the wcb flags.
-   // WLOGD("Calling BeginCommandBuffer for %d", id);
-   // WCHECK(BeginCommandBuffer((VkCommandBuffer) _commandBuffer, &beginInfo));
-   // WLOGD("BeginCommandBuffer finished for %d", id);
-   
-   // // *** END OF SYNCHRONOUS TEST ***
-   
-   // // Now, after waiting, we can safely destroy the temporary resources
-   // WLOGD("Calling DestroyImageView for %d", id);
-   // WCHECKV(DestroyImageView((VkDevice)_device, dstImageView, NULL));
-   // WLOGD("DestroyImageView finished for %d", id);
-   // WLOGD("Calling DestroyDescriptorPool for %d", id);
-   // WCHECKV(DestroyDescriptorPool((VkDevice)_device, singleUsePool, NULL));
-   // WLOGD("DestroyDescriptorPool finished for %d", id);
-
 
    // If using image view output, we need to transition the image back to the destination layout
    if (use_image_view) {   
@@ -2000,8 +1944,8 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             args.stagingBuffer = stagingBuffer;
          }
 
-         // CmdComputeShaderForDecompression(wcb, &args);
-         SubmitOneTimeCommands(_device, wcb->pool, _device->graphics_queue, (void (*)(struct wrapper_command_buffer*, void*)) &CmdComputeShaderForDecompression, &args);
+         CmdComputeShaderForDecompression(wcb, &args);
+         // SubmitOneTimeCommands(_device, wcb->pool, _device->graphics_queue, (void (*)(struct wrapper_command_buffer*, void*)) &CmdComputeShaderForDecompression, &args);
       } else {
          result = HostSideDecompression(_device, wbuf, stagingBufferMemory, region, wimg->original_format);
          if (result != VK_SUCCESS) {
