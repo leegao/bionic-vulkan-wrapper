@@ -113,6 +113,8 @@ TEMPLATE_C = Template(COPYRIGHT + """\
 #include "vk_unwrappers.h"
 #include "vk_printers.h"
 
+_Atomic static int commands = 0;
+
 #define VK_PRINT_VkAccelerationStructureVersionInfoKHR(...)
 #define VK_PRINT_VkAccelerationStructureBuildGeometryInfoKHR(...)
 #define VK_PRINT_VkCuLaunchInfoNVX(...)

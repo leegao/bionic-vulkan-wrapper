@@ -54,6 +54,7 @@ static VKAPI_ATTR $return_type VKAPI_CALL
 wrapper_tramp_$name(
     $decl_params)
 {
+    int cmd_id = commands++;
     struct temporary_objects temp;
     list_inithead(&temp.objects);
 $handle_unwrap_logic
@@ -79,7 +80,7 @@ COMMAND_BLACKLIST = [
 def print_param(command, param, mode='input'):
     if param == 'result':
         return [
-            f"        VK_CMD_LOG_UNCONDITIONAL(\"  out: result: VkResult = %ld\", (int64_t) result);",
+            f"        VK_CMD_LOG_UNCONDITIONAL(\"  out: result: VkResult = %ld (id=%d)\", (int64_t) result, cmd_id);",
             f"        VK_CMD_FLUSH();",
         ]
     is_input = param.num_pointers == 0 or param.is_const
@@ -95,31 +96,47 @@ def print_param(command, param, mode='input'):
     token = 'in' if is_input else 'out'
     output = []
     if is_wrapped:
-        output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type} (handle) = %p\", {param.name});");
+        output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type} (handle) = %p (id=%d)\", {param.name}, cmd_id);");
     elif is_struct:
         if not param.num_pointers: # Impossible
             output.append(f"#error: Impossible case struct+non-ptr {command.name} {param}")
         elif is_array and is_ptr1:
             # VkObject[10]
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}[]: {param.type}\");");
+            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}[]: {param.type} (id=%d)\", cmd_id);");
             output.append(f"        for (uint32_t i = 0; i < {param.len if is_input else (f"*{param.len}" if param.len != "1" else "1")}; i++) {{")
-            output.append(f"            VK_CMD_LOG_UNCONDITIONAL(\"    {param.name}[%d]: {param.type}\", i);");
+            output.append(f"            VK_CMD_LOG_UNCONDITIONAL(\"    {param.name}[%d]: {param.type} (id=%d)\", i, cmd_id);");
             output.append(f"            VK_PRINT_{param.type}(\"      \", &{param.name}[i]);")
             output.append(f"        }}")
         elif is_ptr1:
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type}*\");");
+            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type}* (id=%d)\", cmd_id);");
             output.append(f"        VK_PRINT_{param.type}(\"    \", {param.name});")
         else:
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type}** = %p\", {param.name});");
+            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type}** = %p (id=%d)\", {param.name}, cmd_id);");
     else:
         if not param.num_pointers:
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type} = %lx\", (int64_t){param.name});")
+            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type} = %lx (id=%d)\", (int64_t){param.name}, cmd_id);")
+        elif is_array and is_ptr1:
+            # VkObject[10]
+            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}[]: {param.type} = %p (id=%d)\", {param.name}, cmd_id);");
+            count = param.len
+            deref = f"{param.name}[i]"
+            if param.len == 'null-terminated' or (param.type == 'void' and is_ptr1):
+                return output
+            if param.len == '1':
+                count = '1'
+            elif '->' in param.len:
+                count = count
+            elif param.len.startswith('p') and not is_input:
+                count = '*' + count
+            output.append(f"        for (uint32_t i = 0; i < {count}; i++) {{")
+            output.append(f"            VK_CMD_LOG_UNCONDITIONAL(\"    {param.name}[%d]: {param.type} = %lx (id=%d)\", i, (int64_t){param.name}[i], cmd_id);");
+            output.append(f"        }}")
         elif param.num_pointers and not is_input and param.type not in ("void", "Display", "xcb_connection_t"):
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: *{param.name}: {param.type} = %lx\", (int64_t)*{param.name});")
+            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: *{param.name}: {param.type} = %lx (id=%d)\", (int64_t)*{param.name}, cmd_id);")
         elif param.num_pointers:
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type}{'*' * param.num_pointers} = %lx\", (int64_t){param.name});")
+            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type}{'*' * param.num_pointers} = %lx (id=%d)\", (int64_t){param.name}, cmd_id);")
         else:
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type} = %lx\", (int64_t){param.name});");
+            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type} = %lx (id=%d)\", (int64_t){param.name}, cmd_id);");
             pass
     # output.append(f"    }}")
     # output.append(f"#endif")
@@ -152,7 +169,7 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
         physical_device = "base->physical"
 
     # handle_unwrap_logic.append(f"#ifdef NEEDS_PRINTING_{command.name}")
-    handle_unwrap_logic.append(f"    VK_CMD_LOG(\"{command.name}\");")
+    handle_unwrap_logic.append(f"    VK_CMD_LOG(\"{command.name} (id=%d)\", cmd_id);")
     # handle_unwrap_logic.append(f"#endif")
 
     handle_unwrap_logic.append(f"")
