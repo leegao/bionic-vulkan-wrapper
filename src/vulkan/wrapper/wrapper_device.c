@@ -43,16 +43,6 @@ static const uint32_t bc7_iv_spv[] = {
 #include "bc7_iv.spv.h"
 };
 
-// A struct to hold the state required by our interceptor
-typedef struct InterceptorState {
-   VkDevice device;
-   VkPipeline pipeline;
-   VkPipelineLayout pipelineLayout;
-   VkDescriptorSetLayout descriptorSetLayout;
-   VkBuffer constantsBuffer;
-   VkDeviceMemory constantsBufferMemory;
-} InterceptorState;
-
 // Initializes the Vulkan objects needed for the compute dispatch.
 // Call this after intercepting vkCreateDevice.
 static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, size_t spv_size, const uint32_t* spv_code, bool use_image_view, int bc_mode);
@@ -60,10 +50,6 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
 // Cleans up the Vulkan objects.
 // Call this before intercepting vkDestroyDevice.
 static void InterceptorState_Cleanup(InterceptorState* state);
-
-static InterceptorState g_interceptorState_s3tc = {0};
-static InterceptorState g_interceptorState_bc6 = {0};
-static InterceptorState g_interceptorState_bc7 = {0};
 
 const struct vk_device_extension_table wrapper_device_extensions =
 {
@@ -333,7 +319,7 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
 
    // Initialize the BCn interceptor states
    bool use_image_view = use_image_view_mode();
-   result = InterceptorState_Init(&g_interceptorState_s3tc, 
+   result = InterceptorState_Init(&device->s3tc, 
       wrapper_device_to_handle(device), 
       use_image_view ? sizeof(s3tc_iv_spv) : sizeof(s3tc_spv), 
       use_image_view ? s3tc_iv_spv : s3tc_spv, 
@@ -342,7 +328,7 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
       WLOGE("Failed to initialize InterceptorState for s3tc");
       return vk_error(physical_device, result);
    }
-   result = InterceptorState_Init(&g_interceptorState_bc6, 
+   result = InterceptorState_Init(&device->bc6, 
       wrapper_device_to_handle(device), 
       use_image_view ? sizeof(bc6_iv_spv) : sizeof(bc6_spv), 
       use_image_view ? bc6_iv_spv : bc6_spv, 
@@ -351,7 +337,7 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
       WLOGE("Failed to initialize InterceptorState for bc6");
       return vk_error(physical_device, result);
    }
-   result = InterceptorState_Init(&g_interceptorState_bc7, 
+   result = InterceptorState_Init(&device->bc7, 
       wrapper_device_to_handle(device), 
       use_image_view ? sizeof(bc7_iv_spv) : sizeof(bc7_spv), 
       use_image_view ? bc7_iv_spv : bc7_spv, 
@@ -1798,13 +1784,13 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
       }
 
       if (use_compute_shader) {
-         struct InterceptorState* state = &g_interceptorState_s3tc;
+         struct InterceptorState* state = &_device->s3tc;
          if (wimg->original_format == VK_FORMAT_BC7_UNORM_BLOCK 
             || wimg->original_format == VK_FORMAT_BC7_SRGB_BLOCK) {
-            state = &g_interceptorState_bc7;
+            state = &_device->bc7;
          } else if (wimg->original_format == VK_FORMAT_BC6H_SFLOAT_BLOCK 
             || wimg->original_format == VK_FORMAT_BC6H_UFLOAT_BLOCK) {
-            state = &g_interceptorState_bc6;
+            state = &_device->bc6;
          }
          struct CmdComputeShaderForDecompressionArgs args = {
             ._device = _device,
