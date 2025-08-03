@@ -231,6 +231,40 @@ void initialize_cmd_print_masks() {
         wrapper_printer_masks.f5 |= 0x0000000800000000ULL;
     }
 
+    if (strstr(mask_bcn, "debug1")) {
+        // full mask = 0x800000000200000000000000000000000000101000b0402005b008800030a0017000080000
+        // f0 0x0000000000080000 = vkQueueSubmit
+        // f0 0x0000001000000000 = vkCreateFence
+        // f0 0x0000002000000000 = vkDestroyFence
+        // f0 0x0000004000000000 = vkResetFences
+        // f0 0x0000010000000000 = vkWaitForFences
+        // f0 0x0020000000000000 = vkCreateBuffer
+        // f0 0x0080000000000000 = vkCreateBufferView
+        // f0 0x1000000000000000 = vkCreateImageView
+        // f0 0x2000000000000000 = vkDestroyImageView
+        wrapper_printer_masks.f0 |= 0x30a0017000080000ULL;
+        // f1 0x0000000000008000 = vkDestroyDescriptorPool
+        // f1 0x0000000000080000 = vkUpdateDescriptorSets
+        // f1 0x0000000010000000 = vkResetCommandPool
+        // f1 0x0000000020000000 = vkAllocateCommandBuffers
+        // f1 0x0000000080000000 = vkBeginCommandBuffer
+        // f1 0x0000000100000000 = vkEndCommandBuffer
+        // f1 0x0000000400000000 = vkCmdBindPipeline
+        // f1 0x0000200000000000 = vkCmdBindDescriptorSets
+        // f1 0x0040000000000000 = vkCmdDispatch
+        // f1 0x1000000000000000 = vkCmdCopyBuffer
+        // f1 0x2000000000000000 = vkCmdCopyImage
+        // f1 0x8000000000000000 = vkCmdCopyBufferToImage
+        wrapper_printer_masks.f1 |= 0xb0402005b0088000ULL;
+        // f2 0x0000000000001000 = vkCmdPipelineBarrier
+        // f2 0x0000000000100000 = vkCmdPushConstants
+        wrapper_printer_masks.f2 |= 0x0000000000101000ULL;
+        // f4 0x0000000000000002 = vkBindBufferMemory2
+        // f4 0x0000008000000000 = vkGetBufferMemoryRequirements2
+        wrapper_printer_masks.f4 |= 0x0000008000000002ULL;
+
+    }
+
 // #define CHECK_CMD_MASK(cmd) \
 //     if (strstr(mask_bcn, #cmd)) SET_VK_ID_##cmd##_ON(wrapper_printer_masks);
 //     UNROLL_ENTRY_POINTS(CHECK_CMD_MASK)

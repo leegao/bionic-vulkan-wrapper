@@ -66,6 +66,15 @@ struct wrapper_queue {
 
 VK_DEFINE_HANDLE_CASTS(wrapper_queue, vk.base, VkQueue,
                        VK_OBJECT_TYPE_QUEUE)
+// A struct to hold the state required by our interceptor
+typedef struct InterceptorState {
+   VkDevice device;
+   VkPipeline pipeline;
+   VkPipelineLayout pipelineLayout;
+   VkDescriptorSetLayout descriptorSetLayout;
+   VkBuffer constantsBuffer;
+   VkDeviceMemory constantsBufferMemory;
+} InterceptorState;
 
 struct wrapper_device {
    struct vk_device vk;
@@ -88,6 +97,10 @@ struct wrapper_device {
    uint32_t graphics_queue_idx;
 
    VkCommandPool computePool;
+
+   InterceptorState s3tc;
+   InterceptorState bc6;
+   InterceptorState bc7;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_device, vk.base, VkDevice,

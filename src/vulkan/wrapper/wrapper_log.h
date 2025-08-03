@@ -33,17 +33,6 @@ extern int __android_log_print(
 
 #define WFORMAT(fmt, ...) fmt " \t (%s:%d)", ## __VA_ARGS__, __FUNCTION__, __LINE__
 
-#define __WLOG__(LEVEL, fmt, ...) \
-    if (should_log() >= LEVEL) { \
-        wlog(WFORMAT(fmt, ## __VA_ARGS__)); \
-        LOG(WFORMAT(fmt, ## __VA_ARGS__)); \
-    }
-
-#define WLOGA(fmt, ...) __WLOG__(LOG_LEVEL_ALL, "! " fmt, ## __VA_ARGS__)
-#define WLOGD(fmt, ...) __WLOG__(LOG_LEVEL_DEBUG, fmt, ## __VA_ARGS__)
-#define WLOG(fmt, ...)  __WLOG__(LOG_LEVEL_VERBOSE, fmt, ## __VA_ARGS__)
-#define WLOGE(fmt, ...) __WLOG__(LOG_LEVEL_ERROR, "[ERROR] " fmt, ## __VA_ARGS__)
-
 // For wrapper cmd-log
 #define VK_CMD_FD get_wrapper_cmd_log_fd()
 #define VK_CMD_CAN_LOG_LEVEL should_log_cmd()
@@ -72,6 +61,20 @@ extern int __android_log_print(
 
 #define VK_CMD_PRINTF(fmt, ...) { if ((VK_CMD_CAN_LOG_LEVEL >= VK_CMD_ALL) && (VK_CMD_FD)) fprintf(VK_CMD_FD, fmt, ## __VA_ARGS__); }
 #define VK_CMD_FLUSH() { if ((VK_CMD_CAN_LOG_LEVEL >= VK_CMD_ALL) && (VK_CMD_FD)) fflush(VK_CMD_FD); }
+
+#pragma GCC diagnostic ignored "-Wformat"
+#define __WLOG__(LEVEL, fmt, ...) \
+    if (should_log() >= LEVEL) { \
+        wlog(WFORMAT(fmt, ## __VA_ARGS__)); \
+        LOG(WFORMAT(fmt, ## __VA_ARGS__)); \
+        if (LEVEL < LOG_LEVEL_ALL) \
+            VK_CMD_LOG_UNCONDITIONAL(fmt, ## __VA_ARGS__); \
+    }
+
+#define WLOGA(fmt, ...) __WLOG__(LOG_LEVEL_ALL, "  ! " fmt, ## __VA_ARGS__)
+#define WLOGD(fmt, ...) __WLOG__(LOG_LEVEL_DEBUG, fmt, ## __VA_ARGS__)
+#define WLOG(fmt, ...)  __WLOG__(LOG_LEVEL_VERBOSE, fmt, ## __VA_ARGS__)
+#define WLOGE(fmt, ...) __WLOG__(LOG_LEVEL_ERROR, "[ERROR] " fmt, ## __VA_ARGS__)
 
 void get_current_time_string(char* buffer, size_t bufferSize);
 

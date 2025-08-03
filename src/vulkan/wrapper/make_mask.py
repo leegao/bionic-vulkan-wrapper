@@ -619,7 +619,7 @@ for line in lines:
     line = line.strip()
     if line.startswith("vk"):
         line = line[2:]
-    if line.startswith("0x"):
+    elif line.startswith("0x"):
         mask |= int(line, 16)
         continue
     if line not in VK_IDS:

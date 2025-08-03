@@ -93,7 +93,7 @@ vk_print_${s.name}(int can_log_level, int log_level, FILE* fd, const char* prefi
             % else:
         for (uint32_t i = 0; i < count_${member.name}; i++) {
                 % if member.is_handle and get_wrapper_type_for_vk_type(member.type):
-            VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep} (handle) = %p", prefix, i, in_info->${member.name});
+            VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep} (handle) = %lx", prefix, i, (int64_t) in_info->${member.name}[i]);
                 % elif member.resolved_type in all_vk_types:
                     % if member.num_pointers == 2:
             #error "Not implemented ${member.text}"

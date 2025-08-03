@@ -193,9 +193,20 @@ bc7_iv = custom_target(
   depfile : 'bc7_iv.spv.h.d',
 )
 
+noop = custom_target(
+  'noop.spv.h',
+  input : [files('noop.comp')],
+  output : 'noop.spv.h',
+  command : [
+      prog_glslang, '-V', '-S', 'comp', '-DUSE_IMAGE_VIEW_OUTPUT', '-x', '--nan-clamp', '-Os', '--spirv-dis', '-o', '@OUTPUT@', '@INPUT@',
+      glslang_quiet, glslang_depfile,
+  ],
+  depfile : 'noop.spv.h.d',
+)
+
 libvulkan_wrapper = shared_library(
   'vulkan_wrapper',
-  [wrapper_entrypoints, wrapper_trampolines, wrapper_features, wrapper_files, unwrappers, vk_printers, s3tc, bc6, bc7, s3tc_iv, bc6_iv, bc7_iv],
+  [wrapper_entrypoints, wrapper_trampolines, wrapper_features, wrapper_files, unwrappers, vk_printers, s3tc, bc6, bc7, s3tc_iv, bc6_iv, bc7_iv, noop],
   include_directories: [
     inc_include,
     inc_src,
