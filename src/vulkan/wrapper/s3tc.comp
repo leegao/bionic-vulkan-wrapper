@@ -235,19 +235,6 @@ void main() {
     uint block_index = block_coord.y * block_stride + block_coord.x;
     uint buffer_offset = is_8bpp ? block_index * 2 : block_index * 4;
 
-    // This fetch might overflow, return a magenta for now
-//     if (is_8bpp && (buffer_offset + 1) * 4 > push_constants.srcBufferSize) {
-// #ifdef USE_IMAGE_VIEW_OUTPUT
-//         imageStore(dstImage, final_dst_coord, vec4(1.0, 0.0, 1.0, 1.0));
-// #endif
-//         return;
-//     } else if ((buffer_offset + 3) * 4 > push_constants.srcBufferSize) {
-// #ifdef USE_IMAGE_VIEW_OUTPUT
-//         imageStore(dstImage, final_dst_coord, vec4(1.0, 0.0, 1.0, 1.0));
-// #endif
-//         return;
-//     }
-
     if (is_leader) {
         if (is_8bpp) {
             // 2 quads per 4x4 block

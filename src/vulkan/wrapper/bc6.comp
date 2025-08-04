@@ -711,14 +711,6 @@ void main() {
     uint block_index = block_coord.y * block_stride + block_coord.x;
     uint buffer_offset = block_index * 4;
 
-    // This fetch might overflow, return a magenta for now
-//     if ((buffer_offset + 3) * 4 >= push_constants.srcBufferSize) {
-// #ifdef USE_IMAGE_VIEW_OUTPUT
-//         imageStore(dstImage, final_dst_coord, ivec4(0x3c00, 0x3c00, 0, 0x3c00));
-// #endif
-//         return;
-//     }
-
     // Load the 128-bit block data into shared memory if this invocation is a leader
     if (is_leader) {
         shared_block_data[shared_idx] = uvec4(
@@ -769,28 +761,31 @@ void main() {
         }
     }
 
-    ivec3 rgba_result = interpolate_endpoint(interp);
+    ivec3 rgb_result = interpolate_endpoint(interp);
     if (is_signed)
     {
-        ivec3 neg_result = 0x8000 | (((-rgba_result) * 31) >> 5);
-        ivec3 pos_result = (rgba_result * 31) >> 5;
-        rgba_result = mix(pos_result, neg_result, lessThan(rgba_result, ivec3(0)));
+        ivec3 neg_result = 0x8000 | (((-rgb_result) * 31) >> 5);
+        ivec3 pos_result = (rgb_result * 31) >> 5;
+        rgb_result = mix(pos_result, neg_result, lessThan(rgb_result, ivec3(0)));
 
         // Fixup for -0.0. Seems to not be emitted by hardware decoder.
-        rgba_result = mix(rgba_result, ivec3(0), equal(rgba_result, ivec3(0x8000)));
+        rgb_result = mix(rgb_result, ivec3(0), equal(rgb_result, ivec3(0x8000)));
     } else {
-        rgba_result = (rgba_result * 31) >> 6;
+        rgb_result = (rgb_result * 31) >> 6;
     }
 
 #ifdef USE_IMAGE_VIEW_OUTPUT
-    uvec4 final_rbga_color = uvec4(rgba_result, 0x3c00); // Alpha is always 1.0 for BC6.
-    // vec4 final_rbga_color = vec4(1.0, 0.0, 1.0, 1.0); // Convert to normalized float and set alpha to 1.0
+    uvec4 final_rbga_color = uvec4(rgb_result, 0x3c00); // Alpha is always 1.0 for BC6.
     imageStore(dstImage, final_dst_coord, final_rbga_color);
 #else
-    // Pack into AABBGGRR format. Alpha is always 1.0 for BC6.
-    // uint packed_color = (0xFF << 24) | (rgb8.b << 16) | (rgb8.g << 8) | rgb8.r;
     // Calculate the linear index into the destination buffer using its row length (dst_width is the stride)
     int dst_index = int(final_dst_coord.y * push_constants.dst_width + final_dst_coord.x);
-    dstBuffer.data[dst_index] =  0xffff00ff; // Magenta for now
+    // Pack into halfp 16b format
+    uint packed_rg = (uint(rgb_result.r) & 0xFFFFu) | 
+                 ((uint(rgb_result.g) & 0xFFFFu) << 16);
+    uint packed_ba = (uint(rgb_result.b) & 0xFFFFu) | 
+                    (0x3C00u << 16); // 0x3C00 is half-precision 1.0
+    dstBuffer.data[dst_index * 2] =  packed_rg;
+    dstBuffer.data[dst_index * 2 + 1] =  packed_ba;
 #endif
 }

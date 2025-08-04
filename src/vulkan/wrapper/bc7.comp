@@ -437,14 +437,6 @@ void main() {
     uint block_index = block_coord.y * block_stride + block_coord.x;
     uint buffer_offset = block_index * 4;
 
-    // This fetch might overflow, return a magenta for now
-//     if ((buffer_offset + 3) * 4 >= push_constants.srcBufferSize) {
-// #ifdef USE_IMAGE_VIEW_OUTPUT
-//         imageStore(dstImage, final_dst_coord, vec4(0.0, 1.0, 1.0, 1.0));
-// #endif
-//         return;
-//     }
-
     // Load the 128-bit block data into shared memory if this invocation is a leader
     if (is_leader) {
         shared_block_data[shared_idx] = uvec4(
@@ -498,12 +490,16 @@ void main() {
     }
 
     uvec4 rgba_result = interpolate_endpoint(interp);
+    vec4 decompressed_color = rgba_result / 255.0;
+
+    if (push_constants.srcFormat == 146) {
+        decompressed_color.rgb = srgb_to_linear(decompressed_color.rgb);
+    }
 #ifdef USE_IMAGE_VIEW_OUTPUT
-    imageStore(dstImage, final_dst_coord, rgba_result / 255.0);
-    // imageStore(dstImage, final_dst_coord, vec4(1.0,0,1.0,1.0));
+    imageStore(dstImage, final_dst_coord, decompressed_color);
 #else
     // Calculate the linear index into the destination buffer using its row length (dst_width is the stride)
     int dst_index = int(final_dst_coord.y * push_constants.dst_width + final_dst_coord.x);
-    dstBuffer.data[dst_index] =  packUnorm4x8(rgba_result);
+    dstBuffer.data[dst_index] =  packUnorm4x8(decompressed_color);
 #endif
 }
