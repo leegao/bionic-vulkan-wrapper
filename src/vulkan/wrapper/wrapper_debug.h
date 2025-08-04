@@ -1,5 +1,15 @@
 #pragma once
 
+bool check_flag(const char* env, bool default_value);
+
+#define CHECK_FLAG(name) ({ \
+    static bool __value; \
+    static bool __initialized; \
+    if (!__initialized) \
+        __value = check_flag(name, false); \
+    __value; \
+})
+
 uint32_t make_bcn_masks(const char* flag);
 
 uint32_t get_unsupported_bcn_masks(void);

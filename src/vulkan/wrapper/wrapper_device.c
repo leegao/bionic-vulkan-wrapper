@@ -1805,7 +1805,16 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             args.stagingBuffer = stagingBuffer;
          }
 
-         CmdComputeShaderForDecompression(wcb, &args);
+         if (CHECK_FLAG("WRAPPER_ONE_BY_ONE")) {
+            SubmitOneTimeCommands(
+               _device, 
+               wcb->pool, 
+               _device->graphics_queue, 
+               (void (*)(struct wrapper_command_buffer*, void*)) &CmdComputeShaderForDecompression,
+               &args);
+         } else {
+            CmdComputeShaderForDecompression(wcb, &args);
+         }
       } else {
          result = HostSideDecompression(_device, wbuf, stagingBufferMemory, region, wimg->original_format);
          if (result != VK_SUCCESS) {

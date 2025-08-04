@@ -56,7 +56,7 @@ wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
    }
 
    exts->KHR_present_wait = exts->KHR_timeline_semaphore;
-   if (check_flag("NO_PRESENT_WAIT", false)) {
+   if (CHECK_FLAG("NO_PRESENT_WAIT")) {
       if (exts->KHR_present_wait) {
          WLOG("Disabling KHR_present_wait, some drivers misreport KHR_timeline_semaphore support (e.g. Adreno 6XX, disable by setting NO_PRESENT_WAIT=0)");
          exts->KHR_present_wait = false;
@@ -234,7 +234,7 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       pdevice->needs_bc1_emulation = !pdevice->base_supported_features.textureCompressionBC && !has_bc1_support(pdevice);
       pdevice->needs_bc4_emulation = !pdevice->base_supported_features.textureCompressionBC && !has_bc4_support(pdevice);
 
-      if (check_flag("FORCE_BCN_EMULATION", false)) {
+      if (CHECK_FLAG("FORCE_BCN_EMULATION")) {
          if (pdevice->base_supported_features.textureCompressionBC) {
             WLOG("Forcing BCn emulation (disable by setting FORCE_BCN_EMULATION=0)");
             pdevice->base_supported_features.textureCompressionBC = false;
@@ -243,13 +243,13 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
          pdevice->needs_bc4_emulation = true;
       }
 
-      if (check_flag("NO_BCN_EMULATION", false)) {
+      if (CHECK_FLAG("NO_BCN_EMULATION")) {
          WLOG("Disabling BCn emulation (disable by setting NO_BCN_EMULATION=0)");
          pdevice->needs_bc1_emulation = false;
          pdevice->needs_bc4_emulation = false;
       }
 
-      if (check_flag("NO_BC123_EMULATION", false)) {
+      if (CHECK_FLAG("NO_BC123_EMULATION")) {
          WLOG("Disabling BC123 emulation (disable by setting NO_BC123_EMULATION=0)");
          pdevice->needs_bc1_emulation = false;
       }

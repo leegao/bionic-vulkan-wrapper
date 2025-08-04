@@ -3,6 +3,18 @@
 #include "wrapper_trampolines.h"
 #include "wrapper_debug.h"
 
+bool check_flag(const char* env, bool default_value) {
+   const char* value = getenv(env);
+   if (!value) return default_value;
+   if (strcmp(value, "1") == 0) {
+      return true;
+   } else if (strcmp(value, "0") == 0) {
+      return false;
+   } else {
+      return default_value;
+   }
+}
+
 uint32_t make_bcn_masks(const char* flag) {
     uint32_t mask = 0;
     const char* mask_bcn = getenv(flag);

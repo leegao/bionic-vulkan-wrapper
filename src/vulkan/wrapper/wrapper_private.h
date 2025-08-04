@@ -20,6 +20,7 @@
 #include "wrapper_objects.h"
 #include "wrapper_log.h"
 #include "wrapper_trampolines.h"
+#include "wrapper_debug.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,71 +64,6 @@ void adrenotools_set_turbo(bool turbo);
 #ifdef __cplusplus
 }
 #endif
-
-// #define NEEDS_PRINTING_CmdCopyBuffer 1;
-// #define NEEDS_PRINTING_AllocateDescriptorSets 1;
-#define NEEDS_PRINTING_BindBufferMemory 1
-#define NEEDS_PRINTING_BindBufferMemory2 1
-// #define NEEDS_PRINTING_CmdBeginRenderPass 1;
-// #define NEEDS_PRINTING_CmdBindDescriptorSets 1;
-// #define NEEDS_PRINTING_CmdBindIndexBuffer 1;
-// #define NEEDS_PRINTING_CmdBindPipeline 1;
-// #define NEEDS_PRINTING_CmdBindVertexBuffers 1;
-// #define NEEDS_PRINTING_CmdDraw 1;
-// #define NEEDS_PRINTING_CmdPipelineBarrier 1;
-// #define NEEDS_PRINTING_CmdPushConstants 1;
-// #define NEEDS_PRINTING_CmdSetScissor 1;
-// #define NEEDS_PRINTING_CmdSetViewport 1;
-// #define NEEDS_PRINTING_CreateBuffer 1;
-// #define NEEDS_PRINTING_CreateDescriptorPool 1;
-// #define NEEDS_PRINTING_CreateDescriptorSetLayout 1;
-// #define NEEDS_PRINTING_CreateDescriptorUpdateTemplate 1;
-// #define NEEDS_PRINTING_CreateFramebuffer 1;
-// #define NEEDS_PRINTING_CreateGraphicsPipelines 1;
-// #define NEEDS_PRINTING_CreatePipelineLayout 1;
-// #define NEEDS_PRINTING_CreateRenderPass 1;
-// #define NEEDS_PRINTING_CreateShaderModule 1;
-// #define NEEDS_PRINTING_DestroyShaderModule 1;
-// #define NEEDS_PRINTING_GetBufferMemoryRequirements2 1;
-// #define NEEDS_PRINTING_MapMemory 1;
-// #define NEEDS_PRINTING_UpdateDescriptorSetWithTemplate 1;
-// #define NEEDS_PRINTING_CmdCopyBufferToImage 1;
-#define NEEDS_PRINTING_CreateImage 1
-// #define NEEDS_PRINTING_DestroyImage 1
-// #define NEEDS_PRINTING_CreateImageView 1;
-// #define NEEDS_PRINTING_GetAndroidHardwareBufferPropertiesANDROID 1;
-#define NEEDS_PRINTING_CreateBuffer 1
-// #define NEEDS_PRINTING_WaitForFences 1;
-#define NEEDS_PRINTING_GetBufferMemoryRequirements2 1
-#define NEEDS_PRINTING_GetImageMemoryRequirements2 1
-#define NEEDS_PRINTING_GetImageMemoryRequirements 1
-#define NEEDS_PRINTING_BindImageMemory 1
-// #define NEEDS_PRINTING_QueueSubmit2 1;
-#define NEEDS_PRINTING_AllocateMemory 1
-// #define NEEDS_PRINTING_GetPhysicalDeviceImageFormatProperties2 1
-#define NEEDS_PRINTING_GetMemoryFdKHR 1
-#define NEEDS_PRINTING_GetMemoryFd 1
-#define NEEDS_PRINTING_GetPhysicalDeviceMemoryProperties 1
-#define NEEDS_PRINTING_GetPhysicalDeviceMemoryProperties2 1
-
-#define NEEDS_PRINTING_CreateGraphicsPipelines 1
-#define NEEDS_PRINTING_CreatePipelineCache 1
-#define NEEDS_PRINTING_DestroyPipeline 1
-#define NEEDS_PRINTING_CreateShaderModule 1
-#define NEEDS_PRINTING_DestroyShaderModule 1
-#define NEEDS_PRINTING_CreatePipelineLayout 1
-#define NEEDS_PRINTING_DestroyPipelineLayout 1
-#define NEEDS_PRINTING_CreateDescriptorSetLayout 1
-#define NEEDS_PRINTING_DestroyDescriptorSetLayout 1
-#define NEEDS_PRINTING_CreateRenderPass 1
-#define NEEDS_PRINTING_DestroyRenderPass 1
-#define NEEDS_PRINTING_CreateFramebuffer 1
-#define NEEDS_PRINTING_DestroyFramebuffer 1
-#define NEEDS_PRINTING_CmdSetViewport 1
-#define NEEDS_PRINTING_CmdSetScissor 1
-#define NEEDS_PRINTING_CmdSetLineWidth 1
-#define NEEDS_PRINTING_CmdSetDepthBias 1
-#define NEEDS_PRINTING_CmdSetBlendConstants 1
 
 extern const struct vk_instance_extension_table wrapper_instance_extensions;
 extern const struct vk_device_extension_table wrapper_device_extensions;
@@ -331,18 +267,6 @@ static VkFormat unwrap_vk_format(struct wrapper_device* device, VkFormat in_form
    }
    // Replace BCn formats with R8G8B8A8_UNORM if they are emulated
    return unwrap_vk_format_physical_device(device->physical, in_format);
-}
-
-static bool check_flag(const char* env, bool default_value) {
-   const char* value = getenv(env);
-   if (!value) return default_value;
-   if (strcmp(value, "1") == 0) {
-      return true;
-   } else if (strcmp(value, "0") == 0) {
-      return false;
-   } else {
-      return default_value;
-   }
 }
 
 typedef struct {
