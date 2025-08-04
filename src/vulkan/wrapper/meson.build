@@ -193,6 +193,16 @@ bc7_iv = custom_target(
   depfile : 'bc7_iv.spv.h.d',
 )
 
+spirv_tools_lib_dir = meson.current_source_dir() / 'lib'
+spirv_tools_opt_lib = cpp.find_library('SPIRV-Tools-opt', dirs: spirv_tools_lib_dir, static: true)
+spirv_tools_lib = cpp.find_library('SPIRV-Tools', dirs: spirv_tools_lib_dir, static: true)
+spirv_tools_inc = include_directories(meson.current_source_dir() / include)
+
+spirv_tools_deps = declare_dependency(
+  link_with: [spirv_tools_opt_lib, spirv_tools_lib],
+  include_directories: spirv_tools_inc,
+)
+
 libvulkan_wrapper = shared_library(
   'vulkan_wrapper',
   [wrapper_entrypoints, wrapper_trampolines, wrapper_features, wrapper_files, unwrappers, vk_printers, s3tc, bc6, bc7, s3tc_iv, bc6_iv, bc7_iv],
@@ -200,7 +210,7 @@ libvulkan_wrapper = shared_library(
     inc_include,
     inc_src,
   ],
-  dependencies: [wrapper_deps, vulkan_wsi_deps],
+  dependencies: [wrapper_deps, vulkan_wsi_deps, spirv_tools_deps],
   gnu_symbol_visibility: 'hidden',
   install: true,
 )
