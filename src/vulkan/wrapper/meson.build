@@ -120,6 +120,7 @@ wrapper_files = files(
   'wrapper_log.c',
   'wrapper_debug.c',
   'wrapper_objects.c',
+  'spirv_edit.cpp',
 )
 
 wrapper_deps = [

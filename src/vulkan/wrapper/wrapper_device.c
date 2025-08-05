@@ -16,6 +16,7 @@
 #include "wrapper_trampolines.h"
 #include "wrapper_debug.h"
 #include "vk_unwrappers.h"
+#include "spirv_edit.h"
 
 #include "bcdec.h"
 
@@ -988,6 +989,10 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
    };
    result = WCHECK(CreatePipelineLayout(device, &pipelineLayoutCreateInfo, NULL, &state->pipelineLayout));
    if (result != VK_SUCCESS) return result;
+
+   // TEST: run a debug run of the pass of the lowering pass on the compute shader
+   struct SpirvCode spirv_code = { 0 };
+   optimize_spirv_for_size(spv_code, spv_size / sizeof(uint32_t), &spirv_code);
 
    VkShaderModule computeShaderModule;
    VkShaderModuleCreateInfo shaderModuleCreateInfo = {
