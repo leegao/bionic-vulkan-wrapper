@@ -1,5 +1,9 @@
 cd $(git rev-parse --show-toplevel)
 
+cd ../SPIRV-Tools
+sh build.sh
+cd -
+
 mkdir -p src/vulkan/wrapper/lib
 rm src/vulkan/wrapper/lib/*.a
 cp ../SPIRV-Tools/build/app/local/arm64-v8a/*.a src/vulkan/wrapper/lib/
