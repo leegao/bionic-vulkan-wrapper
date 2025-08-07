@@ -304,12 +304,20 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    // DISABLE_FEATURE(variableMultisampleRate); // Missing on G57 r32p1
    
    // DEBUG: Disable ClipDistance
-   // if (pdf && pdf->shaderClipDistance) { \
-   //    pdf->shaderClipDistance = false; \
-   // } \
-   // if (pdf2 && pdf2->features.shaderClipDistance) { \
-   //    pdf2->features.shaderClipDistance = false; \
-   // }
+   if (CHECK_FLAG("FORCE_CLIP_DISTANCE")) {
+      if (pdf && pdf->shaderClipDistance) {
+         pdf->shaderClipDistance = false;
+      }
+      if (pdf2 && pdf2->features.shaderClipDistance) {
+         pdf2->features.shaderClipDistance = false;
+      }
+      if (pdf && pdf->shaderCullDistance) {
+         pdf->shaderCullDistance = false;
+      }
+      if (pdf2 && pdf2->features.shaderCullDistance) {
+         pdf2->features.shaderCullDistance = false;
+      }
+   }
 
    result = physical_device->dispatch_table.CreateDevice(
       physical_device->dispatch_handle, &wrapper_create_info,
@@ -1882,6 +1890,11 @@ VkResult wrapper_CreateShaderModule(VkDevice device,
     VkShaderModule* pShaderModule) {
    VK_FROM_HANDLE(wrapper_device, wdev, device);
    bool needs_emulation = !wdev->physical->base_supported_features.shaderClipDistance && !CHECK_FLAG("DISABLE_CLIP_DISTANCE");
+
+   if (CHECK_FLAG("FORCE_CLIP_DISTANCE")) {
+      needs_emulation = true;
+   }
+
    if (!needs_emulation) {
       return CHECK(CreateShaderModule(device, pCreateInfo, pAllocator, pShaderModule));
    }
