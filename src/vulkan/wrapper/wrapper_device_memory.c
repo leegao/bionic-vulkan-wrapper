@@ -410,9 +410,9 @@ wrapper_MapMemory2KHR(VkDevice _device,
 
    mem = wrapper_device_memory_from_handle(device, pMemoryMapInfo->memory);
    if (!placed_info || !mem)
-      return device->dispatch_table.MapMemory(device->dispatch_handle,
+      return CHECK(MapMemory(_device,
          pMemoryMapInfo->memory, pMemoryMapInfo->offset, pMemoryMapInfo->size,
-            0, ppData);
+            0, ppData));
 
    if (mem->map_address) {
       if (placed_info->pPlacedAddress != mem->map_address) {

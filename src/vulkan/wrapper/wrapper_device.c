@@ -303,6 +303,14 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    // DISABLE_FEATURE(logicOp); // Missing on G57 r32p1
    // DISABLE_FEATURE(variableMultisampleRate); // Missing on G57 r32p1
    
+   // DEBUG: Disable ClipDistance
+   // if (pdf && pdf->shaderClipDistance) { \
+   //    pdf->shaderClipDistance = false; \
+   // } \
+   // if (pdf2 && pdf2->features.shaderClipDistance) { \
+   //    pdf2->features.shaderClipDistance = false; \
+   // }
+
    result = physical_device->dispatch_table.CreateDevice(
       physical_device->dispatch_handle, &wrapper_create_info,
          pAllocator, &device->dispatch_handle);
@@ -1349,8 +1357,8 @@ static VkResult HostSideDecompression(
       .memory = srcBuffer->memory,
       .offset = srcBuffer->memoryOffset,
       .size = VK_WHOLE_SIZE,
-   };
-   VkResult result = WCHECK(MapMemory2KHR((VkDevice) _device, &mapInfoSrc, &srcData));
+   }; 
+   VkResult result = WCHECK(MapMemory2KHR((VkDevice) _device, &mapInfoSrc, &srcData)); 
    if (result != VK_SUCCESS) {
       WLOGE("ERROR: Failed to map source buffer memory: %d", result);
       return result;
@@ -1394,7 +1402,8 @@ static VkResult HostSideDecompression(
 
    WCHECKV(UnmapMemory((VkDevice) _device, dstMemory));
 final:
-   WCHECKV(UnmapMemory((VkDevice) _device, srcBuffer->memory));
+   // TODO: this breaks some applications that maps the srcBuffer, e.g. 32bit emulated placeAddr
+   // WCHECKV(UnmapMemory((VkDevice) _device, srcBuffer->memory));
    return result;
 }
 
@@ -1866,3 +1875,28 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
       // }
    }
 }
+
+VkResult wrapper_CreateShaderModule(VkDevice device,
+    const VkShaderModuleCreateInfo* pCreateInfo,
+    const VkAllocationCallbacks* pAllocator,
+    VkShaderModule* pShaderModule) {
+   VK_FROM_HANDLE(wrapper_device, wdev, device);
+   bool needs_emulation = !wdev->physical->base_supported_features.shaderClipDistance && !CHECK_FLAG("DISABLE_CLIP_DISTANCE");
+   if (!needs_emulation) {
+      return CHECK(CreateShaderModule(device, pCreateInfo, pAllocator, pShaderModule));
+   }
+
+   size_t orig_size = pCreateInfo->codeSize;
+   const uint32_t* orig_code = pCreateInfo->pCode;
+   struct SpirvCode lowered = { 0 };
+   if (lower_eliminate_clip_distance(orig_code, orig_size / 4, &lowered)) {
+      WLOGE("lower_eliminate_clip_distance failed");
+      return CHECK(CreateShaderModule(device, pCreateInfo, pAllocator, pShaderModule));
+   }
+
+   VkShaderModuleCreateInfo newCreateInfo = *pCreateInfo;
+   newCreateInfo.codeSize = lowered.spirv_word_count * 4;
+   newCreateInfo.pCode = lowered.spirv_code;
+   return CHECK(CreateShaderModule(device, &newCreateInfo, pAllocator, pShaderModule));
+}
+
