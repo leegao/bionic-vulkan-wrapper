@@ -18,6 +18,8 @@ uint32_t get_watermarked_bcn_masks(void);
 
 uint32_t get_host_decoding_bcn_masks(void);
 
+uint32_t get_watermark_size(void);
+
 void initialize_cmd_print_masks(void);
 
 bool use_image_view_mode(void);

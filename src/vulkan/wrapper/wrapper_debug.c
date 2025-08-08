@@ -112,24 +112,39 @@ uint32_t make_bcn_masks(const char* flag) {
 #undef MASK_BIT
 }
 
-#define STATIC_INIT_MASKS(mask) \
+#define STATIC_INIT(mask, default) \
     static bool initialized = false; \
-    static uint32_t mask = 0; \
-    if (initialized)  return mask; \
+    static uint32_t mask = default; \
+    if (initialized) return mask; \
     initialized = true
 
 uint32_t get_unsupported_bcn_masks() {
-    STATIC_INIT_MASKS(mask);
+    STATIC_INIT(mask, 0);
     return mask = make_bcn_masks("MASK_BCN");
 }
 
 uint32_t get_watermarked_bcn_masks() {
-    STATIC_INIT_MASKS(mask);
+    STATIC_INIT(mask, 0);
     return mask = make_bcn_masks("WATERMARK_BCN");
 }
 
+uint32_t get_watermark_size() {
+    STATIC_INIT(size, 32);
+    const char* mask_bcn = getenv("WATERMARK_SIZE");
+    if (!mask_bcn) return size = 32;
+
+    if (strstr(mask_bcn, "XXL")) return size = 256;
+    if (strstr(mask_bcn, "XL")) return size = 128;
+    if (strstr(mask_bcn, "L")) return size = 64;
+    if (strstr(mask_bcn, "M")) return size = 32;
+    if (strstr(mask_bcn, "S")) return size = 16;
+    if (strstr(mask_bcn, "XS")) return size = 8;
+    if (strstr(mask_bcn, "XXS")) return size = 4;
+    return size;
+}
+
 uint32_t get_host_decoding_bcn_masks() {
-    STATIC_INIT_MASKS(mask);
+    STATIC_INIT(mask, 0);
     return mask = make_bcn_masks("USE_CPU_BCN");
 }
 
