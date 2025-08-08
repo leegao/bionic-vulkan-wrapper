@@ -29,7 +29,7 @@ from collections import OrderedDict, namedtuple, defaultdict
 # '{file_without_suffix}_depend_files'.
 from vk_extensions import get_all_required, filter_api
 
-EntrypointParam = namedtuple('EntrypointParam', 'type name decl len elem is_const num_pointers')
+EntrypointParam = namedtuple('EntrypointParam', 'type name decl len is_const num_pointers')
 
 WrappedStructs = {
     "VkPhysicalDevice": "wrapper_physical_device",
@@ -511,7 +511,7 @@ def get_entrypoints(doc, api, beta):
                 name=p.find('./name').text,
                 decl=''.join(p.itertext()),
                 len=p.attrib.get('altlen', p.attrib.get('len', None)),
-                elem=p,
+                # elem=p,
                 is_const="const" in "".join(p.itertext()),
                 num_pointers=("".join(p.itertext())).count('*')
             ) for p in command.findall('./param') if filter_api(p, api)]

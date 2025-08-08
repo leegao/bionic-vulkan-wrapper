@@ -280,6 +280,7 @@ typedef struct {
     uint32_t srcBufferSize;
     uint32_t unsupportedBitsBc;
     uint32_t watercoloredBitsBc;
+    uint32_t watermarkerSize;
 } PushConstantData;
 
 typedef struct __attribute__((aligned(16))) ivec2_t_std140 {

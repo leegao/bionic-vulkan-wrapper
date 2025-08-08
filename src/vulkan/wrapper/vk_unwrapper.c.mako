@@ -46,7 +46,7 @@
         void** x: x
         cstr[n]* x: x
 
-    Tainted: ${tainted}
+    Tainted: ${sorted(list(tainted))}
 */
 
 % for s in structs:

@@ -92,6 +92,8 @@ static bool vulkan_library_init()
    if (vulkan_library_handle)
       return true;
 
+   should_log();
+
    vulkan_library_handle = get_vulkan_handle();
 
    if (vulkan_library_handle) {

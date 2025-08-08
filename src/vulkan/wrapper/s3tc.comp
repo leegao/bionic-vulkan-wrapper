@@ -70,6 +70,7 @@ layout(push_constant) uniform PushConstants {
 
     uint unsupportedBitsBc; // bitmask
     uint watercoloredBitsBc;
+    uint watermarkerSize;
 } push_constants;
 
 // --- Buffers ---
@@ -185,7 +186,7 @@ void main() {
     // Check the bitmask
     bool is_masked = (push_constants.unsupportedBitsBc & (1 << (push_constants.srcFormat - 131))) != 0;
     bool is_watermarked = ((push_constants.watercoloredBitsBc & (1 << (push_constants.srcFormat - 131))) != 0)
-        && pixel_coord.x < 32 && pixel_coord.y < 32;
+        && pixel_coord.x < push_constants.watermarkerSize && pixel_coord.y < push_constants.watermarkerSize;
     if (is_masked || is_watermarked) {
 #define RETURN(r,g,b) imageStore(dstImage, final_dst_coord, vec4(r/256.0, g/256.0, b/256.0, 1.0)); break
 #ifdef USE_IMAGE_VIEW_OUTPUT

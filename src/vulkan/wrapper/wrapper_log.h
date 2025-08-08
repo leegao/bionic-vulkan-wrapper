@@ -1,9 +1,12 @@
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <vulkan/vulkan_core.h>
 #include <stdbool.h>
 #include <stdint.h>
-
-#include "wrapper_objects.h"
 
 extern int __android_log_print(
   int prio,
@@ -43,6 +46,7 @@ extern int __android_log_print(
 #define WLOGD(fmt, ...) __WLOG__(LOG_LEVEL_DEBUG, fmt, ## __VA_ARGS__)
 #define WLOG(fmt, ...)  __WLOG__(LOG_LEVEL_VERBOSE, fmt, ## __VA_ARGS__)
 #define WLOGE(fmt, ...) __WLOG__(LOG_LEVEL_ERROR, "[ERROR] " fmt, ## __VA_ARGS__)
+#define CAN_LOG(level) (should_log() >= level)
 
 // For wrapper cmd-log
 #define VK_CMD_FD get_wrapper_cmd_log_fd()
@@ -92,4 +96,10 @@ wrapper_debug_callback(
     const VkDebugUtilsMessengerCallbackDataEXT*      pCallbackData,
     void*                                            pUserData);
 
+struct wrapper_device;
+
 void wrapper_log_device_fault(struct wrapper_device *device, const char* call);
+
+#ifdef __cplusplus
+}
+#endif

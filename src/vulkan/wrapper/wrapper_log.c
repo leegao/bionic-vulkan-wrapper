@@ -1,3 +1,5 @@
+#include <time.h>
+
 #include "wrapper_private.h"
 #include "wrapper_log.h"
 #include "wrapper_trampolines.h"
@@ -7,6 +9,7 @@
 static int __log_level;
 static FILE* __log_fd;
 static bool __log_initialized;
+static double __start_ms;
 
 FILE* get_wrapper_log_fd() {
     return __log_fd;
@@ -42,6 +45,12 @@ void get_current_time_string(char* buffer, size_t bufferSize) {
         return;
     }
     strftime(buffer, bufferSize, "%Y_%m_%d_%H_%M_%S", tm_info);
+}
+
+static double get_current_seconds() {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1.0e9;
 }
 
 static FILE* open_log_file(const char* prefix) {
@@ -89,6 +98,8 @@ int should_log() {
     }
     __log_initialized = true;
 
+    __start_ms = get_current_seconds();
+
     const char *log_level = getenv("WRAPPER_LOG_LEVEL");
     LOG("Logging logs at %s", log_level);
     if (!log_level) {
@@ -124,6 +135,7 @@ void wlog(const char* fmt, ...) {
     if (!fd) {
         return;
     }
+    fprintf(fd, "[%06.2f] ", (get_current_seconds() - __start_ms));
     va_list args;
     va_start(args, fmt);
     vfprintf(fd, fmt, args);

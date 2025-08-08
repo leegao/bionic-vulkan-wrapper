@@ -112,24 +112,39 @@ uint32_t make_bcn_masks(const char* flag) {
 #undef MASK_BIT
 }
 
-#define STATIC_INIT_MASKS(mask) \
+#define STATIC_INIT(mask, default) \
     static bool initialized = false; \
-    static uint32_t mask = 0; \
-    if (initialized)  return mask; \
+    static uint32_t mask = default; \
+    if (initialized) return mask; \
     initialized = true
 
 uint32_t get_unsupported_bcn_masks() {
-    STATIC_INIT_MASKS(mask);
+    STATIC_INIT(mask, 0);
     return mask = make_bcn_masks("MASK_BCN");
 }
 
 uint32_t get_watermarked_bcn_masks() {
-    STATIC_INIT_MASKS(mask);
+    STATIC_INIT(mask, 0);
     return mask = make_bcn_masks("WATERMARK_BCN");
 }
 
+uint32_t get_watermark_size() {
+    STATIC_INIT(size, 32);
+    const char* mask_bcn = getenv("WATERMARK_SIZE");
+    if (!mask_bcn) return size = 32;
+
+    if (strstr(mask_bcn, "XXL")) return size = 256;
+    if (strstr(mask_bcn, "XL")) return size = 128;
+    if (strstr(mask_bcn, "L")) return size = 64;
+    if (strstr(mask_bcn, "M")) return size = 32;
+    if (strstr(mask_bcn, "S")) return size = 16;
+    if (strstr(mask_bcn, "XS")) return size = 8;
+    if (strstr(mask_bcn, "XXS")) return size = 4;
+    return size;
+}
+
 uint32_t get_host_decoding_bcn_masks() {
-    STATIC_INIT_MASKS(mask);
+    STATIC_INIT(mask, 0);
     return mask = make_bcn_masks("USE_CPU_BCN");
 }
 
@@ -195,89 +210,77 @@ void initialize_cmd_print_masks() {
         return;
     }
 
+#define CMD(call) SET_VK_ID_##call##_ON(wrapper_printer_masks)
     if (strstr(mask_bcn, "gfx")) {
-        // full mask = 0x1f000f03391c000000000000000
-        // f0 0x4000000000000000 = vkCreateShaderModule
-        // f0 0x8000000000000000 = vkDestroyShaderModule
-        wrapper_printer_masks.f0 |= 0xc000000000000000ULL;
-        // f1 0x0000000000000001 = vkCreatePipelineCache
-        // f1 0x0000000000000010 = vkCreateGraphicsPipelines
-        // f1 0x0000000000000080 = vkDestroyPipeline
-        // f1 0x0000000000000100 = vkCreatePipelineLayout
-        // f1 0x0000000000000200 = vkDestroyPipelineLayout
-        // f1 0x0000000000001000 = vkCreateDescriptorSetLayout
-        // f1 0x0000000000002000 = vkDestroyDescriptorSetLayout
-        // f1 0x0000000000100000 = vkCreateFramebuffer
-        // f1 0x0000000000200000 = vkDestroyFramebuffer
-        // f1 0x0000000000400000 = vkCreateRenderPass
-        // f1 0x0000000000800000 = vkDestroyRenderPass
-        // f1 0x0000001000000000 = vkCmdSetViewport
-        // f1 0x0000002000000000 = vkCmdSetScissor
-        // f1 0x0000004000000000 = vkCmdSetLineWidth
-        // f1 0x0000008000000000 = vkCmdSetDepthBias
-        // f1 0x0000010000000000 = vkCmdSetBlendConstants
-        wrapper_printer_masks.f1 |= 0x000001f000f03391ULL;
+        CMD(CreateShaderModule);
+        CMD(DestroyShaderModule);
+        CMD(CreatePipelineCache);
+        CMD(CreateGraphicsPipelines);
+        CMD(DestroyPipeline);
+        CMD(CreatePipelineLayout);
+        CMD(DestroyPipelineLayout);
+        CMD(CreateDescriptorSetLayout);
+        CMD(DestroyDescriptorSetLayout);
+        CMD(CreateFramebuffer);
+        CMD(DestroyFramebuffer);
+        CMD(CreateRenderPass);
+        CMD(DestroyRenderPass);
+        CMD(CmdSetViewport);
+        CMD(CmdSetScissor);
+        CMD(CmdSetLineWidth);
+        CMD(CmdSetDepthBias);
+        CMD(CmdSetBlendConstants);
     }
 
     if (strstr(mask_bcn, "mem")) {
-        // full mask = 0x800000000000002800000000200000001002200000000000000000000000000000000000012200001c1400080
-        // f0 0x0000000000000080 = vkGetPhysicalDeviceMemoryProperties
-        // f0 0x0000000000400000 = vkAllocateMemory
-        // f0 0x0000000001000000 = vkMapMemory
-        // f0 0x0000000040000000 = vkBindBufferMemory
-        // f0 0x0000000080000000 = vkGetImageMemoryRequirements
-        // f0 0x0000000100000000 = vkBindImageMemory
-        // f0 0x0020000000000000 = vkCreateBuffer
-        // f0 0x0200000000000000 = vkCreateImage
-        // f0 0x1000000000000000 = vkCreateImageView
-        wrapper_printer_masks.f0 |= 0x12200001c1400080ULL;
-        // f3 0x0000000000020000 = vkGetPhysicalDeviceImageFormatProperties2
-        // f3 0x0000000000200000 = vkGetPhysicalDeviceMemoryProperties2
-        // f3 0x0000000100000000 = vkGetMemoryFdKHR
-        wrapper_printer_masks.f3 |= 0x0000000100220000ULL;
-        // f4 0x0000000000000002 = vkBindBufferMemory2
-        // f4 0x0000008000000000 = vkGetBufferMemoryRequirements2
-        // f4 0x0000020000000000 = vkGetImageMemoryRequirements2
-        wrapper_printer_masks.f4 |= 0x0000028000000002ULL;
-        // f5 0x0000000800000000 = vkGetAndroidHardwareBufferPropertiesANDROID
-        wrapper_printer_masks.f5 |= 0x0000000800000000ULL;
+        CMD(GetPhysicalDeviceMemoryProperties);
+        CMD(AllocateMemory);
+        CMD(MapMemory);
+        CMD(BindBufferMemory);
+        CMD(GetImageMemoryRequirements);
+        CMD(BindImageMemory);
+        CMD(CreateBuffer);
+        CMD(CreateImage);
+        CMD(CreateImageView);
+        CMD(GetPhysicalDeviceImageFormatProperties2);
+        CMD(GetPhysicalDeviceMemoryProperties2);
+        CMD(GetMemoryFdKHR);
+        CMD(BindBufferMemory2);
+        CMD(GetBufferMemoryRequirements2);
+        CMD(GetImageMemoryRequirements2);
+        CMD(GetAndroidHardwareBufferPropertiesANDROID);
     }
 
     if (strstr(mask_bcn, "debug1")) {
-        // full mask = 0x800000000200000000000000000000000000101000b0402005b008912070a0017000080000
-        // f0 0x0000000000080000 = vkQueueSubmit
-        // f0 0x0000001000000000 = vkCreateFence
-        // f0 0x0000002000000000 = vkDestroyFence
-        // f0 0x0000004000000000 = vkResetFences
-        // f0 0x0000010000000000 = vkWaitForFences
-        // f0 0x0020000000000000 = vkCreateBuffer
-        // f0 0x0080000000000000 = vkCreateBufferView
-        // f0 0x1000000000000000 = vkCreateImageView
-        // f0 0x2000000000000000 = vkDestroyImageView
-        // f0 0x4000000000000000 = vkCreateShaderModule
-        wrapper_printer_masks.f0 |= 0x70a0017000080000ULL;
-        // f1 0x0000000000000020 = vkCreateComputePipelines
-        // f1 0x0000000000000100 = vkCreatePipelineLayout
-        // f1 0x0000000000001000 = vkCreateDescriptorSetLayout
-        // f1 0x0000000000008000 = vkDestroyDescriptorPool
-        // f1 0x0000000000080000 = vkUpdateDescriptorSets
-        // f1 0x0000000010000000 = vkResetCommandPool
-        // f1 0x0000000020000000 = vkAllocateCommandBuffers
-        // f1 0x0000000080000000 = vkBeginCommandBuffer
-        // f1 0x0000000100000000 = vkEndCommandBuffer
-        // f1 0x0000000400000000 = vkCmdBindPipeline
-        // f1 0x0000200000000000 = vkCmdBindDescriptorSets
-        // f1 0x0040000000000000 = vkCmdDispatch
-        // f1 0x1000000000000000 = vkCmdCopyBuffer
-        // f1 0x2000000000000000 = vkCmdCopyImage
-        // f1 0x8000000000000000 = vkCmdCopyBufferToImage
-        wrapper_printer_masks.f1 |= 0xb0402005b0089120ULL;
-        // f2 0x0000000000001000 = vkCmdPipelineBarrier
-        // f2 0x0000000000100000 = vkCmdPushConstants
-        wrapper_printer_masks.f2 |= 0x0000000000101000ULL;
-        // f4 0x0000000000000002 = vkBindBufferMemory2
-        // f4 0x0000008000000000 = vkGetBufferMemoryRequirements2
-        wrapper_printer_masks.f4 |= 0x0000008000000002ULL;
+        CMD(QueueSubmit);
+        CMD(CreateFence);
+        CMD(DestroyFence);
+        CMD(ResetFences);
+        CMD(WaitForFences);
+        CMD(CreateBuffer);
+        CMD(CreateBufferView);
+        CMD(CreateImageView);
+        CMD(DestroyImageView);
+        CMD(CreateShaderModule);
+        CMD(CreateComputePipelines);
+        CMD(CreatePipelineLayout);
+        CMD(CreateDescriptorSetLayout);
+        CMD(DestroyDescriptorPool);
+        CMD(UpdateDescriptorSets);
+        CMD(ResetCommandPool);
+        CMD(AllocateCommandBuffers);
+        CMD(BeginCommandBuffer);
+        CMD(EndCommandBuffer);
+        CMD(CmdBindPipeline);
+        CMD(CmdBindDescriptorSets);
+        CMD(CmdDispatch);
+        CMD(CmdCopyBuffer);
+        CMD(CmdCopyImage);
+        CMD(CmdCopyBufferToImage);
+        CMD(CmdPipelineBarrier);
+        CMD(CmdPushConstants);
+        CMD(BindBufferMemory2);
+        CMD(GetBufferMemoryRequirements2);
     }
 
 
