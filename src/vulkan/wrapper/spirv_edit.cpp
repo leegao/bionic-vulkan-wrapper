@@ -43,7 +43,7 @@ static void print_spirv_code(const char* prefix, int size, const uint32_t* pCode
 }
 
 void LogDisassembly(const std::string& title, const std::vector<uint32_t>& binary, int id) {
-    if (!CHECK_FLAG("LOG_DISASSEMBLY")) {
+    if (!CHECK_FLAG("LOG_DISASSEMBLY") && !CAN_LOG(LOG_LEVEL_ALL)) {
         return;
     }
     spvtools::SpirvTools tools(SPV_ENV_VULKAN_1_1_SPIRV_1_4);
