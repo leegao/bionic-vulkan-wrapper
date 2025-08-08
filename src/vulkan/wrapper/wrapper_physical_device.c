@@ -546,6 +546,43 @@ wrapper_GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
       return VK_SUCCESS;
    }
 
+   // Unset the external memory bit
+   // GetPhysicalDeviceImageFormatProperties2 (id=3280)
+   //    in: physicalDevice: VkPhysicalDevice (handle) = 0xb400007940754010 (id=3280)
+   //    in: pImageFormatInfo: VkPhysicalDeviceImageFormatInfo2* (id=3280)
+   //       .format: VkFormat = 0x2c
+   //       .type: VkImageType = 0x1
+   //       .tiling: VkImageTiling = 0x0
+   //       .usage: VkImageUsageFlags = 0x7
+   //       .flags: VkImageCreateFlags = 0x8
+   //       .pNext(VkPhysicalDeviceExternalImageFormatInfo)
+   //          .handleType: VkExternalMemoryHandleTypeFlagBits = 0x1
+   //    out: result: VkResult = 0 (id=3280)
+   //    out: pImageFormatProperties: VkImageFormatProperties2* (id=3280)
+   //       .imageFormatProperties: VkImageFormatProperties
+   //          .maxExtent: VkExtent3D
+   //          .width: uint32_t = 0x4000
+   //          .height: uint32_t = 0x4000
+   //          .depth: uint32_t = 0x1
+   //          .maxMipLevels: uint32_t = 0xf
+   //          .maxArrayLayers: uint32_t = 0x800
+   //          .sampleCounts: VkSampleCountFlags = 0x7
+   //          .maxResourceSize: VkDeviceSize = 0xffffffff
+   //       .pNext(VkExternalImageFormatProperties)
+   //          .externalMemoryProperties: VkExternalMemoryProperties
+   //          .externalMemoryFeatures: VkExternalMemoryFeatureFlags = 0x7
+   //          .exportFromImportedHandleTypes: VkExternalMemoryHandleTypeFlags = 0x201
+   //          .compatibleHandleTypes: VkExternalMemoryHandleTypeFlags = 0x201
+   if (CHECK_FLAG("DISABLE_EXTERNAL_FD")) {
+      vk_foreach_struct(pnext, pImageFormatProperties->pNext) {
+         if (pnext->sType == VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES) {
+            WLOGD("Unsetting VkExternalImageFormatProperties::externalMemoryFeatures");
+            VkExternalImageFormatProperties* obj = (VkExternalImageFormatProperties*) pnext;
+            obj->externalMemoryProperties.externalMemoryFeatures = 0;
+         }
+      }
+   }
+
    return result;
 }                                                
 

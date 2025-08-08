@@ -75,6 +75,8 @@ int should_log_cmd() {
         __cmd_log_level = VK_CMD_ALL;
     } else if (strcmp(log_level, "name") == 0) {
         __cmd_log_level = VK_CMD_NAME;
+    } else if (strcmp(log_level, "none") == 0) {
+        __cmd_log_level = VK_CMD_NONE;
     } else {
         __cmd_log_level = VK_CMD_ALL;
     }
