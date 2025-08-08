@@ -148,6 +148,11 @@ uint32_t get_host_decoding_bcn_masks() {
     return mask = make_bcn_masks("USE_CPU_BCN");
 }
 
+uint32_t get_disabled_bcn_masks() {
+    STATIC_INIT(mask, 0);
+    return mask = make_bcn_masks("DISABLE_BCN");
+}
+
 static void parse_hex_to_struct(struct wrapper_entry_masks *masks, const char *hex_string) {
     uint64_t *fields[16] = {
         &masks->f0, &masks->f1, &masks->f2, &masks->f3, &masks->f4,

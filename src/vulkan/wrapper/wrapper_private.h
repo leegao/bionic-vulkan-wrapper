@@ -220,44 +220,49 @@ typedef struct {
 } VkLayerDeviceCreateInfo;
 
 static VkFormat unwrap_vk_format_physical_device(struct wrapper_physical_device* pdevice, VkFormat in_format) {
-   if (!pdevice) {
-      WLOGE("unwrap_vk_format: null pdevice");
-      return in_format;
-   }
-   // Replace BCn formats with R8G8B8A8_UNORM if they are emulated
-   if (is_bc123_image_format(in_format) && pdevice->needs_bc1_emulation) {
-      // VK_FORMAT_BC1_RGB_UNORM_BLOCK = 131, -> VK_FORMAT_R8G8B8A8_UNORM
-      // VK_FORMAT_BC1_RGB_SRGB_BLOCK = 132, -> VK_FORMAT_R8G8B8A8_UNORM
-      // VK_FORMAT_BC1_RGBA_UNORM_BLOCK = 133, -> VK_FORMAT_R8G8B8A8_UNORM
-      // VK_FORMAT_BC1_RGBA_SRGB_BLOCK = 134, -> VK_FORMAT_R8G8B8A8_UNORM
-      // VK_FORMAT_BC2_UNORM_BLOCK = 135, -> VK_FORMAT_R8G8B8A8_UNORM
-      // VK_FORMAT_BC2_SRGB_BLOCK = 136, -> VK_FORMAT_R8G8B8A8_UNORM
-      // VK_FORMAT_BC3_UNORM_BLOCK = 137, -> VK_FORMAT_R8G8B8A8_UNORM
-      // VK_FORMAT_BC3_SRGB_BLOCK = 138, -> VK_FORMAT_R8G8B8A8_UNORM
+    if (!pdevice) {
+        WLOGE("unwrap_vk_format: null pdevice");
+        return in_format;
+    }
+    uint32_t disabled_mask = get_disabled_bcn_masks();
+    uint32_t format_id = (uint32_t) in_format - VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+    if ((disabled_mask & (1 << format_id)) != 0) {
+        return in_format;
+    }
+    // Replace BCn formats with R8G8B8A8_UNORM if they are emulated
+    if (is_bc123_image_format(in_format) && pdevice->needs_bc1_emulation) {
+        // VK_FORMAT_BC1_RGB_UNORM_BLOCK = 131, -> VK_FORMAT_R8G8B8A8_UNORM
+        // VK_FORMAT_BC1_RGB_SRGB_BLOCK = 132, -> VK_FORMAT_R8G8B8A8_UNORM
+        // VK_FORMAT_BC1_RGBA_UNORM_BLOCK = 133, -> VK_FORMAT_R8G8B8A8_UNORM
+        // VK_FORMAT_BC1_RGBA_SRGB_BLOCK = 134, -> VK_FORMAT_R8G8B8A8_UNORM
+        // VK_FORMAT_BC2_UNORM_BLOCK = 135, -> VK_FORMAT_R8G8B8A8_UNORM
+        // VK_FORMAT_BC2_SRGB_BLOCK = 136, -> VK_FORMAT_R8G8B8A8_UNORM
+        // VK_FORMAT_BC3_UNORM_BLOCK = 137, -> VK_FORMAT_R8G8B8A8_UNORM
+        // VK_FORMAT_BC3_SRGB_BLOCK = 138, -> VK_FORMAT_R8G8B8A8_UNORM
 
-      return VK_FORMAT_R8G8B8A8_UNORM;
-   }
-   if (is_bc4567_image_format(in_format) && pdevice->needs_bc4_emulation) {
-      // VK_FORMAT_BC4_UNORM_BLOCK = 139, -> VK_FORMAT_R8G8B8A8_UNORM
-      // VK_FORMAT_BC4_SNORM_BLOCK = 140, -> VK_FORMAT_R8G8B8A8_SNORM *
-      // VK_FORMAT_BC5_UNORM_BLOCK = 141, -> VK_FORMAT_R8G8B8A8_UNORM
-      // VK_FORMAT_BC5_SNORM_BLOCK = 142, -> VK_FORMAT_R8G8B8A8_SNORM *
-      // VK_FORMAT_BC6H_UFLOAT_BLOCK = 143, -> VK_FORMAT_R16G16B16A16_SFLOAT *
-      // VK_FORMAT_BC6H_SFLOAT_BLOCK = 144, -> VK_FORMAT_R16G16B16A16_SFLOAT *
-      // VK_FORMAT_BC7_UNORM_BLOCK = 145, -> VK_FORMAT_R8G8B8A8_UNORM
-      // VK_FORMAT_BC7_SRGB_BLOCK = 146, -> VK_FORMAT_R8G8B8A8_UNORM
+        return VK_FORMAT_R8G8B8A8_UNORM;
+    }
+    if (is_bc4567_image_format(in_format) && pdevice->needs_bc4_emulation) {
+        // VK_FORMAT_BC4_UNORM_BLOCK = 139, -> VK_FORMAT_R8G8B8A8_UNORM
+        // VK_FORMAT_BC4_SNORM_BLOCK = 140, -> VK_FORMAT_R8G8B8A8_SNORM *
+        // VK_FORMAT_BC5_UNORM_BLOCK = 141, -> VK_FORMAT_R8G8B8A8_UNORM
+        // VK_FORMAT_BC5_SNORM_BLOCK = 142, -> VK_FORMAT_R8G8B8A8_SNORM *
+        // VK_FORMAT_BC6H_UFLOAT_BLOCK = 143, -> VK_FORMAT_R16G16B16A16_SFLOAT *
+        // VK_FORMAT_BC6H_SFLOAT_BLOCK = 144, -> VK_FORMAT_R16G16B16A16_SFLOAT *
+        // VK_FORMAT_BC7_UNORM_BLOCK = 145, -> VK_FORMAT_R8G8B8A8_UNORM
+        // VK_FORMAT_BC7_SRGB_BLOCK = 146, -> VK_FORMAT_R8G8B8A8_UNORM
 
-      // VK_FORMAT_R16G16B16A16_SFLOAT Formats
-      if (in_format == VK_FORMAT_BC6H_UFLOAT_BLOCK || in_format == VK_FORMAT_BC6H_SFLOAT_BLOCK) {
-         return VK_FORMAT_R16G16B16A16_SFLOAT;
-      }
-      // VK_FORMAT_R8G8B8A8_SNORM Formats
-      if (in_format == VK_FORMAT_BC4_SNORM_BLOCK || in_format == VK_FORMAT_BC5_SNORM_BLOCK) {
-         return VK_FORMAT_R8G8B8A8_SNORM;
-      }
-      return VK_FORMAT_R8G8B8A8_UNORM;
-   }
-   return in_format;
+        // VK_FORMAT_R16G16B16A16_SFLOAT Formats
+        if (in_format == VK_FORMAT_BC6H_UFLOAT_BLOCK || in_format == VK_FORMAT_BC6H_SFLOAT_BLOCK) {
+            return VK_FORMAT_R16G16B16A16_SFLOAT;
+        }
+        // VK_FORMAT_R8G8B8A8_SNORM Formats
+        if (in_format == VK_FORMAT_BC4_SNORM_BLOCK || in_format == VK_FORMAT_BC5_SNORM_BLOCK) {
+            return VK_FORMAT_R8G8B8A8_SNORM;
+        }
+        return VK_FORMAT_R8G8B8A8_UNORM;
+    }
+    return in_format;
 }
 
 static VkFormat unwrap_vk_format(struct wrapper_device* device, VkFormat in_format) {

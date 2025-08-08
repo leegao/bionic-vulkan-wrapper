@@ -23,6 +23,11 @@ wrapper_CreateImage(VkDevice _device,
    VK_FROM_HANDLE(wrapper_device, device, _device);
    bool emulate_bcn = (is_bc123_image_format(pCreateInfo->format) && device->physical->needs_bc1_emulation) ||
                      (is_bc4567_image_format(pCreateInfo->format) && device->physical->needs_bc4_emulation);
+   uint32_t disabled_mask = get_disabled_bcn_masks();
+   uint32_t format_id = (uint32_t) pCreateInfo->format - VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+   if ((disabled_mask & (1 << format_id)) != 0) {
+      emulate_bcn = false;
+   }
 
    VkImageCreateInfo create_info = *pCreateInfo;
    VkResult result;

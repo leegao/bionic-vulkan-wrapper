@@ -12,14 +12,14 @@ extern "C" {
 #include "spirv-tools/spirv-tools/libspirv.hpp"
 
 void LogDisassembly(const std::string& title, const std::vector<uint32_t>& binary, int id) {
-    if (!CAN_LOG(LOG_LEVEL_DEBUG)) {
+    if (!CAN_LOG(LOG_LEVEL_ALL)) {
         return;
     }
     spvtools::SpirvTools tools(SPV_ENV_VULKAN_1_1_SPIRV_1_4);
     std::string disassembly;
     tools.Disassemble(binary, &disassembly, SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES);
-    WLOGD("--- %s --- (id=%d)", title.c_str(), id);
-    WLOGD("(id=%d) %s", id, disassembly.c_str());
+    WLOGA("--- %s --- (id=%d)", title.c_str(), id);
+    WLOGA("(id=%d) %s", id, disassembly.c_str());
 }
 
 void OptimizerMessageConsumer(spv_message_level_t level, const char* source,
