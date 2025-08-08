@@ -1312,8 +1312,8 @@ static void BCnDecompression(VkFormat format,
    bool is_watermarked = (watermarkedBitsBc & (1 << format_id)) != 0;
 
    // Loop over the image in 4x4 blocks
-   for (int y = regions->imageOffset.y; y < height; y += 4) {
-      for (int x = regions->imageOffset.x; x < width; x += 4) {
+   for (int y = 0; y < height; y += 4) {
+      for (int x = 0; x < width; x += 4) {
          // Calculate pointer to the destination 4x4 block
          void *dstPixelBlock =
                   (uint8_t *) mappedDst + (y * pitch) + (x * output_pixel_size_bytes);
