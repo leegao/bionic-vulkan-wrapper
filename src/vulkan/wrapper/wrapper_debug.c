@@ -366,3 +366,7 @@ bool use_wrapper_trace() {
 
     return value = false;
 }
+
+bool should_log_memory_debug() {
+    return CHECK_FLAG("DEBUG_MEMORY");
+}

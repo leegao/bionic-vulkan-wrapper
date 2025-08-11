@@ -29,3 +29,5 @@ bool use_image_view_mode(void);
 bool use_compute_shader_mode(void);
 
 bool use_wrapper_trace(void);
+
+bool should_log_memory_debug(void);
