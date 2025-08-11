@@ -4,6 +4,8 @@
 extern "C" {
 #endif
 
+#include "wrapper_debug.h"
+
 #include <vulkan/vulkan_core.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -19,7 +21,8 @@ extern int __android_log_print(
 
 // For wrapper log
 #define LOG_FD get_wrapper_log_fd()
-#define LOG_LEVEL_ALL 4
+#define LOG_LEVEL_ALL 5
+#define LOG_LEVEL_TRACE 4
 #define LOG_LEVEL_DEBUG 3
 #define LOG_LEVEL_VERBOSE 2
 #define LOG_LEVEL_ERROR 1
@@ -42,6 +45,7 @@ extern int __android_log_print(
         LOG(WFORMAT(fmt, ## __VA_ARGS__)); \
     }
 
+#define WLOGT(fmt, ...) __WLOG__(LOG_LEVEL_TRACE, "" fmt, ## __VA_ARGS__)
 #define WLOGA(fmt, ...) __WLOG__(LOG_LEVEL_ALL, "! " fmt, ## __VA_ARGS__)
 #define WLOGD(fmt, ...) __WLOG__(LOG_LEVEL_DEBUG, fmt, ## __VA_ARGS__)
 #define WLOG(fmt, ...)  __WLOG__(LOG_LEVEL_VERBOSE, fmt, ## __VA_ARGS__)
@@ -73,6 +77,7 @@ extern int __android_log_print(
 #define VK_CMD_LOGA(...) __VK_CMD_LOG(VK_CMD_CAN_LOG_LEVEL, VK_CMD_ALL, VK_CMD_FD, __VA_ARGS__)
 
 #define VK_CMD_CAN_LOGA ((VK_CMD_CAN_LOG_LEVEL >= VK_CMD_ALL) && (VK_CMD_FD))
+#define VK_CMD_CAN_TRACE ((VK_CMD_CAN_LOG_LEVEL >= VK_CMD_ALL) && (VK_CMD_FD) && use_wrapper_trace())
 
 #define VK_CMD_PRINTF(fmt, ...) { if ((VK_CMD_CAN_LOG_LEVEL >= VK_CMD_ALL) && (VK_CMD_FD)) fprintf(VK_CMD_FD, fmt, ## __VA_ARGS__); }
 #define VK_CMD_FLUSH() { if ((VK_CMD_CAN_LOG_LEVEL >= VK_CMD_ALL) && (VK_CMD_FD)) fflush(VK_CMD_FD); }

@@ -348,3 +348,21 @@ bool use_compute_shader_mode() {
 
    return g_use_compute_shader_mode;
 }
+
+
+bool use_wrapper_trace() {
+    static bool value;
+    static bool init;
+    if (init)
+        return value;
+    init = true;
+    const char* mask_bcn = getenv("WRAPPER_CMD_LOG_LEVEL");
+    if (!mask_bcn) 
+        return value = false;
+
+    if (strstr(mask_bcn, "trace")) {
+        return value = true;
+    }
+
+    return value = false;
+}

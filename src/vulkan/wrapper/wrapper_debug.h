@@ -27,3 +27,5 @@ void initialize_cmd_print_masks(void);
 bool use_image_view_mode(void);
 
 bool use_compute_shader_mode(void);
+
+bool use_wrapper_trace(void);

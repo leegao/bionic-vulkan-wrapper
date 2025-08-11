@@ -16,6 +16,7 @@
 #include "wrapper_trampolines.h"
 #include "wrapper_debug.h"
 #include "vk_unwrappers.h"
+#include "vk_printers.h"
 #include "spirv_edit.h"
 
 #include "bcdec.h"

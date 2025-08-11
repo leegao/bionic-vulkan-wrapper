@@ -295,27 +295,13 @@ wrapper_device_memory_from_handle(struct wrapper_device *device,
    return mem;
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_AllocateMemory(VkDevice _device,
+WRAPPER_AllocateMemory(VkDevice _device,
                        const VkMemoryAllocateInfo* pAllocateInfo,
                        const VkAllocationCallbacks* pAllocator,
                        VkDeviceMemory* pMemory) {
    VK_FROM_HANDLE(wrapper_device, device, _device);
    struct wrapper_device_memory *mem;
    VkResult result;
-
-   // LOG("in wrapper_AllocateMemory");
-
-   //  __vk_println_all("AllocateMemory");
-   //  __loga("AllocateMemory(device: %p, pAllocateInfo: %p, pAllocator: %p, pMemory: %p)", device, pAllocateInfo, pAllocator, pMemory);
-   //  __vk_println("  in: device: VkDevice (handle) = %p", device);
-   //  __vk_flush(2);
-   //  __vk_println("  in: pAllocateInfo: VkMemoryAllocateInfo*");
-   //  vk_print_VkMemoryAllocateInfo("    ", pAllocateInfo);
-   //  __vk_flush(2);
-   //  __vk_println("  in: pAllocator: VkAllocationCallbacks*");
-   //  vk_print_VkAllocationCallbacks("    ", pAllocator);
-   //  __vk_flush(2);
 
    VkMemoryPropertyFlags property_flags =
       device->physical->memory_properties.memoryTypes[
@@ -376,8 +362,7 @@ fallback:
    return result;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_FreeMemory(VkDevice _device, VkDeviceMemory _memory,
+WRAPPER_FreeMemory(VkDevice _device, VkDeviceMemory _memory,
                    const VkAllocationCallbacks* pAllocator)
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
@@ -394,8 +379,7 @@ wrapper_FreeMemory(VkDevice _device, VkDeviceMemory _memory,
                                      pAllocator);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_MapMemory2KHR(VkDevice _device,
+WRAPPER_MapMemory2KHR(VkDevice _device,
                       const VkMemoryMapInfoKHR* pMemoryMapInfo,
                       void** ppData)
 {
@@ -467,13 +451,11 @@ wrapper_MapMemory2KHR(VkDevice _device,
    return VK_SUCCESS;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_UnmapMemory(VkDevice _device, VkDeviceMemory _memory) {
+WRAPPER_UnmapMemory(VkDevice _device, VkDeviceMemory _memory) {
    vk_common_UnmapMemory(_device, _memory);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_UnmapMemory2KHR(VkDevice _device,
+WRAPPER_UnmapMemory2KHR(VkDevice _device,
                         const VkMemoryUnmapInfoKHR* pMemoryUnmapInfo)
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
