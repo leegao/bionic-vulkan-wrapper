@@ -175,7 +175,7 @@ void main() {
 
     bool is_bc1 = push_constants.srcFormat >= VK_FORMAT_BC1_RGB_UNORM_BLOCK && push_constants.srcFormat <= VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
     bool is_bc4 = push_constants.srcFormat == VK_FORMAT_BC4_UNORM_BLOCK || push_constants.srcFormat == VK_FORMAT_BC4_SNORM_BLOCK;
-    bool is_8bpp = is_bc1 || is_bc4;
+    bool use_2_quads = is_bc1 || is_bc4;
 
     ivec2 pixel_coord = ivec2(gl_WorkGroupID.xy) * 8 + ivec2(gl_LocalInvocationID.xy);
     ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + pixel_coord;
@@ -223,40 +223,41 @@ void main() {
         return;
     }
 
-    ivec2 local_coords = ivec2(gl_LocalInvocationID.xy); // on 8x8 warp grid
-    // The first worker in the 4x4 squad is the leader who's responsible for fetching data
-    bool is_leader = (local_coords.x % 4 == 0) && (local_coords.y % 4 == 0);
-    // 0 1
-    // 2 3
-    int shared_idx = (local_coords.y / 4) * 2 + (local_coords.x / 4);
-
-    // Load the 128-bit block data into shared memory if this invocation is a leader
-    ivec2 block_coord = pixel_coord / 4;
-    uint block_stride = push_constants.srcRowLength > 0 ? push_constants.srcRowLength / 4 : push_constants.dst_width;
-    uint block_index = block_coord.y * block_stride + block_coord.x;
-    uint buffer_offset = is_8bpp ? block_index * 2 : block_index * 4;
-
-    if (is_leader) {
-        if (is_8bpp) {
-            // 2 quads per 4x4 block
-            shared_block_data[shared_idx] = uvec4(
-                srcBuffer.data[buffer_offset + 0], srcBuffer.data[buffer_offset + 1],
-                // Do not use zw
-                0, 0
-            );
+    // Calculate the block coordinate
+    uint block_stride = (push_constants.srcRowLength + 3u) / 4;
+    uint local_thread_id = gl_LocalInvocationID.y * 8u + gl_LocalInvocationID.x;
+    if (local_thread_id < 4u) {
+        // Calculate source block coordinates on the 2x2 = 4 grid
+        uvec2 local_block_coord = uvec2(local_thread_id % 2u, local_thread_id / 2u);
+        uvec2 src_block_coord = uvec2(gl_WorkGroupID.xy) * 2 + local_block_coord;
+        
+        // Check if source block is within compressed texture bounds
+        // Each block is a 4x4 patch of texels
+        uint src_blocks_width = (push_constants.dst_width + 3u) / 4u;   // Blocks, not pixels
+        uint src_blocks_height = (push_constants.dst_height + 3u) / 4u;
+        if (src_block_coord.x < src_blocks_width && src_block_coord.y < src_blocks_height) {
+            uint src_block_index = uint(src_block_coord.y) * block_stride + uint(src_block_coord.x);
+            uint data_offset = src_block_index * (use_2_quads ? 2u : 4u);
+            uint data0 = srcBuffer.data[data_offset];
+            uint data1 = srcBuffer.data[data_offset + 1u];
+            if (use_2_quads) {
+                shared_block_data[local_thread_id] = uvec4(data0, data1, 0u, 0u);
+            } else {
+                uint data2 = srcBuffer.data[data_offset + 2u];
+                uint data3 = srcBuffer.data[data_offset + 3u];
+                shared_block_data[local_thread_id] = uvec4(data0, data1, data2, data3);
+            }
         } else {
-            // 4 quads per 4x4 block
-            shared_block_data[shared_idx] = uvec4(
-                srcBuffer.data[buffer_offset + 0], srcBuffer.data[buffer_offset + 1],
-                srcBuffer.data[buffer_offset + 2], srcBuffer.data[buffer_offset + 3]
-            );
+            shared_block_data[local_thread_id] = uvec4(0);
         }
     }
-    
-    // Synchronize to ensure all leaders have written their data before any invocation reads it
+
+    // Synchronize to ensure all loaders have written their data before any invocation reads it
     barrier();
-    // All invocations read the shared memory (only leaders fetch from main memory)
-    uvec4 payload = shared_block_data[shared_idx];
+    
+    uvec2 block_coord = gl_LocalInvocationID.xy / 4;
+    uint block_index = block_coord.y * 2u + block_coord.x;
+    uvec4 payload = shared_block_data[block_index];
 
     // Find the specific pixel this thread is responsible for within its 4x4 block
     ivec2 tile_coord = pixel_coord % 4;

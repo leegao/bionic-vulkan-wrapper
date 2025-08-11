@@ -125,18 +125,12 @@ int lower_eliminate_clip_distance(const uint32_t* spirv_binary, size_t spirv_wor
         OptimizerMessageConsumer(level, source, position, message, id);
     });
 
-    // Cannonicalization passes
-    // optimizer.RegisterPass(spvtools::CreateMergeReturnPass());
-    // optimizer.RegisterPass(spvtools::CreateInlineExhaustivePass());
-    // optimizer.RegisterPass(spvtools::CreateEliminateDeadFunctionsPass());
-
     // Mali specific pass
     optimizer.RegisterPass(spvtools::CreateRemoveClipCullDistPass());
 
-    // optimizer.RegisterPerformancePasses(); // For -O
-
-    optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
-    // optimizer.RegisterPass(spvtools::CreateCompactIdsPass());
+    if (CHECK_FLAG("SPIRV_AGGRESSIVE_DCE")) {
+        optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
+    }
 
     WLOGD("Original SPIR-V Word Count %d (id=%d)", spirv_word_count, id);
 
@@ -151,7 +145,8 @@ int lower_eliminate_clip_distance(const uint32_t* spirv_binary, size_t spirv_wor
     WLOGD("Lowered SPIR-V Word Count %d (id=%d)", optimized_binary.size(), id);
 
     if (optimized_binary.size() != spirv_word_count) {
-        LogDisassembly("Original", {spirv_binary, spirv_binary+spirv_word_count}, id);
+        if (CHECK_FLAG("LOG_DISASSEMBLY"))
+            LogDisassembly("Original", {spirv_binary, spirv_binary+spirv_word_count}, id);
         LogDisassembly("Lowered", optimized_binary, id);
     }
 
