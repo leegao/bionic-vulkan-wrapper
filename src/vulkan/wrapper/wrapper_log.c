@@ -108,6 +108,8 @@ int should_log() {
         __log_level = LOG_LEVEL_ERROR;
     } else if (strcmp(log_level, "all") == 0) {
         __log_level = LOG_LEVEL_ALL;
+    } else if (strcmp(log_level, "trace") == 0) {
+        __log_level = LOG_LEVEL_TRACE;
     } else if (strcmp(log_level, "debug") == 0) {
         __log_level = LOG_LEVEL_DEBUG;
     } else if (strcmp(log_level, "verbose") == 0) {

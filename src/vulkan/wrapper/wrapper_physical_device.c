@@ -270,8 +270,7 @@ void destroy_physical_device(struct vk_physical_device *pdevice) {
    vk_free(&pdevice->instance->alloc, pdevice);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_EnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
+WRAPPER_EnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
                                            const char* pLayerName,
                                            uint32_t* pPropertyCount,
                                            VkExtensionProperties* pProperties)
@@ -289,15 +288,13 @@ wrapper_EnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
    return result;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_GetPhysicalDeviceFeatures(VkPhysicalDevice physicalDevice,
+WRAPPER_GetPhysicalDeviceFeatures(VkPhysicalDevice physicalDevice,
                                   VkPhysicalDeviceFeatures* pFeatures) 
 {
    return vk_common_GetPhysicalDeviceFeatures(physicalDevice, pFeatures);
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
+WRAPPER_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
                                    VkPhysicalDeviceFeatures2* pFeatures) {                                                              
    vk_common_GetPhysicalDeviceFeatures2(physicalDevice, pFeatures);
    // Fake select dxvk 1.10.3 mandatory features
@@ -332,8 +329,7 @@ wrapper_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
    }
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
+WRAPPER_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
                                      VkPhysicalDeviceProperties2* pProperties)
 {
    VK_FROM_HANDLE(wrapper_physical_device, pdevice, physicalDevice);
@@ -433,8 +429,7 @@ wrapper_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
    }
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_GetPhysicalDeviceImageFormatProperties(VkPhysicalDevice physicalDevice,
+WRAPPER_GetPhysicalDeviceImageFormatProperties(VkPhysicalDevice physicalDevice,
 	                                           VkFormat format,
 	                                           VkImageType type,
 	                                           VkImageTiling tiling,
@@ -493,8 +488,7 @@ wrapper_GetPhysicalDeviceImageFormatProperties(VkPhysicalDevice physicalDevice,
    return result;   
 }	                                           
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
+WRAPPER_GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
                                                 const VkPhysicalDeviceImageFormatInfo2* pImageFormatInfo,
                                                 VkImageFormatProperties2* pImageFormatProperties)
 {
@@ -586,8 +580,7 @@ wrapper_GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
    return result;
 }                                                
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
+WRAPPER_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
                                             VkFormat format,
                                             VkFormatProperties* pFormatProperties)
 {

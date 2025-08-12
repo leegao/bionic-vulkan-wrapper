@@ -295,8 +295,7 @@ wrapper_device_memory_from_handle(struct wrapper_device *device,
    return mem;
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_AllocateMemory(VkDevice _device,
+WRAPPER_AllocateMemory(VkDevice _device,
                        const VkMemoryAllocateInfo* pAllocateInfo,
                        const VkAllocationCallbacks* pAllocator,
                        VkDeviceMemory* pMemory) {
@@ -304,25 +303,21 @@ wrapper_AllocateMemory(VkDevice _device,
    struct wrapper_device_memory *mem;
    VkResult result;
 
-   // LOG("in wrapper_AllocateMemory");
+   bool debug = should_log_memory_debug();
 
-   //  __vk_println_all("AllocateMemory");
-   //  __loga("AllocateMemory(device: %p, pAllocateInfo: %p, pAllocator: %p, pMemory: %p)", device, pAllocateInfo, pAllocator, pMemory);
-   //  __vk_println("  in: device: VkDevice (handle) = %p", device);
-   //  __vk_flush(2);
-   //  __vk_println("  in: pAllocateInfo: VkMemoryAllocateInfo*");
-   //  vk_print_VkMemoryAllocateInfo("    ", pAllocateInfo);
-   //  __vk_flush(2);
-   //  __vk_println("  in: pAllocator: VkAllocationCallbacks*");
-   //  vk_print_VkAllocationCallbacks("    ", pAllocator);
-   //  __vk_flush(2);
+   if (debug) {
+      WLOGD("WRAPPER_AllocateMemory, pAllocateInfo:");
+      LOG_STRUCT(VkMemoryAllocateInfo, pAllocateInfo);
+   }
 
    VkMemoryPropertyFlags property_flags =
       device->physical->memory_properties.memoryTypes[
          pAllocateInfo->memoryTypeIndex].propertyFlags;
 
-   if (!(property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+   if (!(property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+      if (debug) WLOGD("Memory type %d does not support VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT", pAllocateInfo->memoryTypeIndex);
       goto fallback;
+   }
 
    if (!device->vk.enabled_features.memoryMapPlaced ||
        !device->vk.enabled_extensions.EXT_map_memory_placed)
@@ -337,6 +332,7 @@ wrapper_AllocateMemory(VkDevice _device,
    if (vk_find_struct_const(pAllocateInfo, EXPORT_MEMORY_ALLOCATE_INFO))
       goto fallback;
 
+   if (debug) WLOGD("Emulating AllocateMemory");
    simple_mtx_lock(&device->resource_mutex);
 
    result = wrapper_device_memory_create(device, pAllocator, &mem);
@@ -345,17 +341,22 @@ wrapper_AllocateMemory(VkDevice _device,
       goto out;
    }
 
+   if (debug) WLOGD("Trying dmabuf");
    result = wrapper_allocate_memory_dmabuf(device, pAllocateInfo,
       pAllocator, &mem->dispatch_handle, &mem->dmabuf_fd);
 
    if (result != VK_SUCCESS) {
       wrapper_device_memory_reset(mem);
+
+      if (debug) WLOGD("Trying dmaheap");
       result = wrapper_allocate_memory_dmaheap(device,
          pAllocateInfo, pAllocator, &mem->dispatch_handle, &mem->dmabuf_fd);
    }
 
    if (result != VK_SUCCESS) {
       wrapper_device_memory_reset(mem);
+
+      if (debug) WLOGD("Trying ahb");
       result = wrapper_allocate_memory_ahardware_buffer(device,
          pAllocateInfo, pAllocator, &mem->dispatch_handle, &mem->ahardware_buffer);
    }
@@ -365,19 +366,22 @@ wrapper_AllocateMemory(VkDevice _device,
       vk_error(device, result);
    } else {
       *pMemory = mem->dispatch_handle;
+      if (debug) WLOGD("AllocateMemory out VkDeviceMemory: %p", *pMemory);
    }
 
 out:
    simple_mtx_unlock(&mem->device->resource_mutex);
+   if (debug) WLOGD("vkAllocateMemory returned %d", result);
    return result;
 
 fallback:
+   if (debug) WLOGD("Dispatching to vkAllocateMemory (not emulating AllocateMemory)");
    result = CHECK(AllocateMemory(_device, pAllocateInfo, pAllocator, pMemory));
+   if (debug) WLOGD("vkAllocateMemory returned %d", result);
    return result;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_FreeMemory(VkDevice _device, VkDeviceMemory _memory,
+WRAPPER_FreeMemory(VkDevice _device, VkDeviceMemory _memory,
                    const VkAllocationCallbacks* pAllocator)
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
@@ -394,37 +398,50 @@ wrapper_FreeMemory(VkDevice _device, VkDeviceMemory _memory,
                                      pAllocator);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_MapMemory2KHR(VkDevice _device,
+WRAPPER_MapMemory2KHR(VkDevice _device,
                       const VkMemoryMapInfoKHR* pMemoryMapInfo,
                       void** ppData)
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
+   bool debug = should_log_memory_debug();
    const VkMemoryMapPlacedInfoEXT *placed_info = NULL;
    struct wrapper_device_memory *mem;
    int fd;
 
-   if (pMemoryMapInfo->flags & VK_MEMORY_MAP_PLACED_BIT_EXT)
+   if (pMemoryMapInfo->flags & VK_MEMORY_MAP_PLACED_BIT_EXT) {
       placed_info = vk_find_struct_const(pMemoryMapInfo->pNext,
          MEMORY_MAP_PLACED_INFO_EXT);
+      if (debug) {
+         WLOGD("Using VK_MEMORY_MAP_PLACED_BIT_EXT:")
+         LOG_STRUCT(VkMemoryMapPlacedInfoEXT, placed_info);
+      }
+   }
 
    mem = wrapper_device_memory_from_handle(device, pMemoryMapInfo->memory);
-   if (!placed_info || !mem)
+   if (!placed_info || !mem) {
+      if (debug) WLOGD("Not emulating MapMemory2KHR");
       return CHECK(MapMemory(_device,
          pMemoryMapInfo->memory, pMemoryMapInfo->offset, pMemoryMapInfo->size,
             0, ppData));
+   }
 
    if (mem->map_address) {
+      if (debug) WLOGD("mem %p has already been mapped to %p", pMemoryMapInfo->memory, mem->map_address);
       if (placed_info->pPlacedAddress != mem->map_address) {
+         WLOGE("mem %p has already been mapped to %p, but is requested to be remapped to %p, an invalid operation", mem, mem->map_address, placed_info->pPlacedAddress);
          return VK_ERROR_MEMORY_MAP_FAILED;
       } else {
          *ppData = (char *)mem->map_address
             + pMemoryMapInfo->offset;
+         if (debug) WLOGD("mem %p successfully mapped to %p", pMemoryMapInfo->memory, *ppData);
          return VK_SUCCESS;
       }
    }
    assert(mem->dmabuf_fd >= 0 || mem->ahardware_buffer != NULL);
 
+   if (debug) WLOGD("Creating a memory map for mem %p (ahb=%p)", pMemoryMapInfo->memory, mem->ahardware_buffer);
+
+   int ahb_size = -1;
    if (mem->ahardware_buffer) {
       const native_handle_t *handle;
       const int *handle_fds;
@@ -434,23 +451,41 @@ wrapper_MapMemory2KHR(VkDevice _device,
 
       int idx;
       for (idx = 0; idx < handle->numFds; idx++) {
-         size_t size = lseek(handle_fds[idx], 0, SEEK_END);
+         off_t size = lseek(handle_fds[idx], 0, SEEK_END);
+         if (size < 0) {
+            int error = errno;
+            WLOG("lseek(0, SEEK_END) failed on the AHB fd (idx=%d, fd=%d), errno = %d, trying another fd", idx, handle_fds[idx], error);
+            continue;
+         }
          if (size >= mem->alloc_size) {
+            if (debug) WLOGD("Found size from lseek(idx=%d, fd=%d) = %x (vs alloc_size of %x)", idx, handle_fds[idx], size, mem->alloc_size);
+            ahb_size = size;
             break;
          }
       }
-      assert(idx < handle->numFds);
+      if (idx >= handle->numFds) {
+         WLOGE("Failed to find an appropriate AHB fd >= alloc_size of 0x%x", mem->alloc_size);
+         return vk_error(device, VK_ERROR_MEMORY_MAP_FAILED);
+      }
       fd = handle_fds[idx];
    } else {
       fd = mem->dmabuf_fd;
    }
 
-   if (pMemoryMapInfo->size == VK_WHOLE_SIZE)
-      mem->map_size = mem->alloc_size > 0 ?
-         mem->alloc_size : lseek(fd, 0, SEEK_END);
-   else
-      mem->map_size = pMemoryMapInfo->size;
+   if (debug) WLOGD("mem %p associated with fd %d", pMemoryMapInfo->memory, fd);
 
+   if (pMemoryMapInfo->size == VK_WHOLE_SIZE) {
+      int result = mem->alloc_size > 0 ?
+         mem->alloc_size : lseek(fd, 0, SEEK_END);
+      if (result < 0) {
+         WLOGE("Failed to lseek(fd=%d, 0, SEEK_END), previous ahb_size = %x, errno = %d", fd, ahb_size, errno);
+      }
+      mem->map_size = result;
+   } else {
+      mem->map_size = pMemoryMapInfo->size;
+   }
+
+   if (debug) WLOGD("Mmapping mem %p with fd %d to %p with size %x", pMemoryMapInfo->memory, fd, placed_info->pPlacedAddress, mem->map_size);
    mem->map_address = mmap(placed_info->pPlacedAddress,
       mem->map_size, PROT_READ | PROT_WRITE,
          MAP_SHARED | MAP_FIXED, fd, 0);
@@ -458,39 +493,41 @@ wrapper_MapMemory2KHR(VkDevice _device,
    if (mem->map_address == MAP_FAILED) {
       mem->map_address = NULL;
       mem->map_size = 0;
-      fprintf(stderr, "%s: mmap failed\n", __func__);
+      WLOGE("mmap failed emulating MapMemory2KHR: errno = %d", errno);
       return vk_error(device, VK_ERROR_MEMORY_MAP_FAILED);
    }
 
    *ppData = (char *)mem->map_address + pMemoryMapInfo->offset;
 
+   if (debug) WLOGD("mem %p successfully mapped to %p", pMemoryMapInfo->memory, *ppData);
+
    return VK_SUCCESS;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_UnmapMemory(VkDevice _device, VkDeviceMemory _memory) {
+WRAPPER_UnmapMemory(VkDevice _device, VkDeviceMemory _memory) {
    vk_common_UnmapMemory(_device, _memory);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_UnmapMemory2KHR(VkDevice _device,
+WRAPPER_UnmapMemory2KHR(VkDevice _device,
                         const VkMemoryUnmapInfoKHR* pMemoryUnmapInfo)
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
    struct wrapper_device_memory *mem;
+   bool debug = should_log_memory_debug();
 
    mem = wrapper_device_memory_from_handle(device, pMemoryUnmapInfo->memory);
    if (!mem) {
-      device->dispatch_table.UnmapMemory(device->dispatch_handle,
-         pMemoryUnmapInfo->memory);
+      if (debug) WLOGD("Unmapping mem %p without emulation", pMemoryUnmapInfo->memory);
+      CHECKV(UnmapMemory(_device, pMemoryUnmapInfo->memory));
       return VK_SUCCESS;
    }
 
+   if (debug) WLOGD("Unmapping mem %p (mapped at %p)", pMemoryUnmapInfo->memory, mem->map_address);
    if (pMemoryUnmapInfo->flags & VK_MEMORY_UNMAP_RESERVE_BIT_EXT) {
       mem->map_address = mmap(mem->map_address, mem->map_size,
          PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
       if (mem->map_address == MAP_FAILED) {
-         fprintf(stderr, "Failed to replace mapping with reserved memory");
+         WLOGE("Failed to replace mapping with reserved memory");
          return vk_error(device, VK_ERROR_MEMORY_MAP_FAILED);
       }
    } else {

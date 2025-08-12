@@ -27,3 +27,7 @@
 #define WCHECKV(call) {__W_WRAP__(call, { if(has_device_wrapper_##call) { __CHECKV__(wrapper_device_entrypoints. call); } else { CHECKV(call); }})}
 #define WPCHECK(call) ({__W_WRAP__(call, has_physical_device_wrapper_##call ? __CHECK__(wrapper_physical_device_entrypoints. call) : PCHECK(call))})
 #define WPCHECKV(call) {__W_WRAP__(call, { if(has_physical_device_wrapper_##call) { __CHECKV__(wrapper_physical_device_entrypoints. call); } else { PCHECKV(call); }})}
+
+#define __WRAP(call) return call
+
+#define __WRAPV(call) call

@@ -13,9 +13,7 @@
 #include <drm-uapi/drm_fourcc.h>
 #endif
 
-
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_CreateImage(VkDevice _device,
+WRAPPER_CreateImage(VkDevice _device,
                     const VkImageCreateInfo* pCreateInfo,
                     const VkAllocationCallbacks* pAllocator,
                     VkImage* pImage)
@@ -73,8 +71,7 @@ wrapper_CreateImage(VkDevice _device,
    return result;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_DestroyImage(VkDevice _device,
+WRAPPER_DestroyImage(VkDevice _device,
                      VkImage _image,
                      const VkAllocationCallbacks* pAllocator)
 {
@@ -91,8 +88,7 @@ wrapper_DestroyImage(VkDevice _device,
 }
 
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_CreateImageView(
+WRAPPER_CreateImageView(
     VkDevice device,
     const VkImageViewCreateInfo* pCreateInfo,
     const VkAllocationCallbacks* pAllocator,

@@ -54,7 +54,7 @@ static VKAPI_ATTR $return_type VKAPI_CALL
 wrapper_tramp_$name(
     $decl_params)
 {
-    int cmd_id = commands++;
+    int cmd_id = __wrapper_commands++;
     struct temporary_objects temp;
     list_inithead(&temp.objects);
 $handle_unwrap_logic
@@ -63,6 +63,7 @@ $handle_wrap_logic
     free_temp_objects(&temp);
     return $return_block;
 }""")
+
 
 COMMAND_BLACKLIST = [
     'FreeCommandBuffers', # implemented
@@ -169,7 +170,7 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
         physical_device = "base->physical"
 
     # handle_unwrap_logic.append(f"#ifdef NEEDS_PRINTING_{command.name}")
-    handle_unwrap_logic.append(f"    VK_CMD_LOG(\"{command.name} (id=%d)\", cmd_id);")
+    handle_unwrap_logic.append(f"    VK_CMD_LOG(\"dispatch->{command.name} (id=%d)\", cmd_id);")
     # handle_unwrap_logic.append(f"#endif")
 
     handle_unwrap_logic.append(f"")
@@ -359,7 +360,7 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
     if command.return_type == 'VkResult' and command.name not in SPAMMY_COMMANDS:
         logger = "WLOGE" if command.name not in ("AllocateDescriptorSets", "GetPhysicalDeviceImageFormatProperties") else "WLOG"
         handle_wrap_logic.append(f"    if (result != VK_SUCCESS) {{")
-        handle_wrap_logic.append(f"        {logger}(\"Call to {command.name} with ({",".join(types)}) failed with result: %d\", {",".join(call)}, result);")
+        handle_wrap_logic.append(f"        {logger}(\"dispatch->{command.name}({",".join(types)}) failed with result: %d (id=%d)\", {",".join(call)}, result, cmd_id);")
         handle_wrap_logic.append(f"    }}")
 
     if command.return_type == 'VkResult':
@@ -371,7 +372,9 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
     return_block = "" if command.return_type == 'void' else "result"
     assign_block = "" if command.return_type == 'void' else f"{command.return_type} result = "
     
-    handle_unwrap_logic[idx] = f"WLOGA(\"{command.name}({', '.join(types)})\", {', '.join([p.name for p in params])});"
+    if command.name not in SPAMMY_COMMANDS:
+        handle_unwrap_logic[idx] = f"    WLOGA(\"dispatch->{command.name}({', '.join(types)}) (id=%d)\", {', '.join([p.name for p in params])}, cmd_id);"
+        handle_wrap_logic.append(f"    WLOGA(\"dispatch->{command.name} {'returned %d' if command.return_type != 'void' else 'finished'} (id=%d)\"{', result' if command.return_type != 'void' else ''}, cmd_id);")
 
     return TRAMPOLINE_TEMPLATE.substitute(
         return_type=command.return_type,
@@ -401,6 +404,18 @@ class EntrypointBase:
 
     def prefixed_name(self, prefix):
         return prefix + '_' + self.name
+
+WRAP_TEMPLATE = string.Template("""
+VKAPI_ATTR $return_type VKAPI_CALL wrapper_$name($decl_params) {
+    int cmd_id = __wrapper_commands++;
+    WLOGT("wrapper->$name($type_params) (id=%d)", $call_params, cmd_id);
+    bool should_print = VK_CMD_CAN_TRACE;
+$PRINT_PRE
+    $assign __wrapper_$name($call_params);
+    WLOGT("wrapper->$name $return_str (id=%d)", $return_fmt cmd_id);
+$PRINT_POST
+    return $result;
+}""")
 
 class Entrypoint(EntrypointBase):
     def __init__(self, name, return_type, params):
@@ -443,6 +458,84 @@ class Entrypoint(EntrypointBase):
             return _generate_trampoline(self, dispatch_table="base->dispatch_table")
         else:
             return _generate_trampoline(self, dispatch_table="base->device->dispatch_table")
+    
+    def wrap(self):
+        if self.alias:
+            return ""
+        
+        call = [param.name for param in self.params]
+        types = []
+
+        for param in self.params:
+            is_input = param.num_pointers == 0 or param.is_const
+
+            if not is_input:
+                types.append(f"{param.name}: %p")
+                continue
+            is_wrapped = param.type in WrappedStructs
+            is_struct = param.type in TYPES
+            is_special = param.type in SPECIAL_TYPES
+
+            # Wrapped handles
+            if is_wrapped:
+                types.append(f"{param.name}: %p")
+            elif is_struct:
+                types.append(f"{param.name}: %p")
+            elif is_special:
+                types.append(f"{param.name}: %x")
+            else:
+                types.append(f"{param.name}: %x")
+        # handle_wrap_logic.append(f"    WLOGA(\"dispatch->{command.name} {'returned %d' if command.return_type != 'void' else 'finished'} (id=%d)\"{', result' if command.return_type != 'void' else ''}, cmd_id);")
+        pre_print = []
+        pre_print.append(f"    if (should_log) {{")
+        pre_print.append(f"        VK_CMD_LOG(\"wrapper_{self.name} (id=%d)\", cmd_id);")
+        # pre_print += print_param(self, self.params[0], mode='input')
+        for param in self.params:
+            if self.name in COMMAND_BLACKLIST:
+                continue
+            is_input = param.num_pointers == 0 or param.is_const
+            if not is_input:
+                continue
+            pre_print += print_param(self, param, mode='input')
+        pre_print.append(f"        VK_CMD_FLUSH();")
+        pre_print.append(f"    }}")
+
+        post_print = []
+        post_print.append(f"    if (should_log) {{")
+        if self.return_type == 'VkResult':
+            post_print += print_param(self, 'result', mode='output')
+        for param in self.params[1:]:
+            if self.name in COMMAND_BLACKLIST:
+                continue
+            is_input = param.num_pointers == 0 or param.is_const
+            if is_input:
+                continue
+            if self.return_type == 'VkResult':
+                post_print.append(f"        if ({param.name} && result == VK_SUCCESS) {{")
+            else:
+                post_print.append(f"        if ({param.name}) {{")
+            post_print += print_param(self, param, mode='output')
+            post_print.append(f"        }} else {{")
+            post_print += [
+                f"            VK_CMD_LOG_UNCONDITIONAL(\"  out: *{param.name}: {param.type}* = %p\", {param.name});",
+                f"        }}"
+            ]
+        post_print.append(f"    }}")
+
+
+        return WRAP_TEMPLATE.substitute(
+            return_type=self.return_type,
+            name=self.name,
+            assign=f"{self.return_type} result =" if self.return_type != "void" else "",
+            result=f"result" if self.return_type != "void" else "",
+            decl_params=self.decl_params(),
+            call_params=", ".join(call),
+            type_params=types,
+            return_str='returned %d' if self.return_type != 'void' else 'finished',
+            return_fmt='result,' if self.return_type != 'void' else '',
+            PRINT_PRE="\n".join(pre_print),
+            PRINT_POST="\n".join(post_print),
+        )
 
 class EntrypointAlias(EntrypointBase):
     def __init__(self, name, entrypoint):

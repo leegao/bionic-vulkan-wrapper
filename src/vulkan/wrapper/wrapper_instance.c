@@ -6,6 +6,7 @@
 #include "vk_extensions.h"
 #include "vk_debug_utils.h"
 #include "wrapper_debug.h"
+#include "vk_printers.h"
 
 const struct vk_instance_extension_table wrapper_instance_extensions = {
    .KHR_get_surface_capabilities2 = true,
@@ -161,8 +162,7 @@ static VkResult wrapper_vulkan_init()
    return VK_SUCCESS;
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_EnumerateInstanceVersion(uint32_t* pApiVersion)
+WRAPPER_EnumerateInstanceVersion(uint32_t* pApiVersion)
 {
 
    if (!vulkan_library_init())
@@ -171,8 +171,7 @@ wrapper_EnumerateInstanceVersion(uint32_t* pApiVersion)
    return enumerate_instance_version(pApiVersion);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_EnumerateInstanceExtensionProperties(const char* pLayerName,
+WRAPPER_EnumerateInstanceExtensionProperties(const char* pLayerName,
                                              uint32_t* pPropertyCount,
                                              VkExtensionProperties* pProperties)
 {
@@ -235,8 +234,7 @@ static void wrapper_register_internal_log_callback(struct wrapper_instance *inst
     instance->internal_debug_messenger = messenger;
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
+WRAPPER_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
                        const VkAllocationCallbacks *pAllocator,
                        VkInstance *pInstance)
 {
@@ -352,8 +350,7 @@ wrapper_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
    return VK_SUCCESS;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_DestroyInstance(VkInstance _instance,
+WRAPPER_DestroyInstance(VkInstance _instance,
                         const VkAllocationCallbacks *pAllocator)
 {
    VK_FROM_HANDLE(wrapper_instance, instance, _instance);
@@ -372,8 +369,7 @@ wrapper_DestroyInstance(VkInstance _instance,
                                             pAllocator);
 }
 
-VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
-wrapper_GetInstanceProcAddr(VkInstance _instance,
+WRAPPER_GetInstanceProcAddr(VkInstance _instance,
                             const char *pName)
 {
 

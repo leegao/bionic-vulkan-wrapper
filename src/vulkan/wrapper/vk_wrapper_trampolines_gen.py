@@ -57,6 +57,8 @@ struct wrapper_entry_masks {
 
 extern struct wrapper_entry_masks wrapper_printer_masks;
 
+_Atomic extern int __wrapper_commands;
+
 % for e in entrypoints:
 % if e.alias:
 <% continue %>
@@ -75,6 +77,16 @@ extern struct wrapper_entry_masks wrapper_printer_masks;
 #define has_device_wrapper_${e.name}(...) (wrapper_device_entrypoints.${e.name})
 #define has_physical_device_wrapper_${e.name}(...) (wrapper_physical_device_entrypoints.${e.name})
 #define name_of_wrapper_${e.name}(...) "wrapper_${e.name}"
+
+#define WRAPPED_${e.name} ${"\\n".join([line + " \\\\" for line in e.wrap().split("\\n")])}
+
+#define RETURN_${e.name} VKAPI_ATTR ${e.return_type} VKAPI_CALL
+#define WRAPPER_NAME_${e.name}(...) ${e.name}
+#define WRAPPER_${e.name}(...) \\\\\n
+static RETURN_${e.name} __wrapper_${e.name}(__VA_ARGS__); \\\\\n
+WRAPPED_${e.name} \\\\\n
+static RETURN_${e.name} __wrapper_${e.name}(__VA_ARGS__)
+
 % if e.guard is not None:
 #else
 #define TRY_${e.name}(TRUE, FALSE) FALSE
@@ -113,7 +125,7 @@ TEMPLATE_C = Template(COPYRIGHT + """\
 #include "vk_unwrappers.h"
 #include "vk_printers.h"
 
-_Atomic static int commands = 0;
+_Atomic int __wrapper_commands = 0;
 
 #define VK_PRINT_VkAccelerationStructureVersionInfoKHR(...)
 #define VK_PRINT_VkAccelerationStructureBuildGeometryInfoKHR(...)
