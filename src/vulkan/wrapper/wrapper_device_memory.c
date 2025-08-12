@@ -441,6 +441,7 @@ WRAPPER_MapMemory2KHR(VkDevice _device,
 
    if (debug) WLOGD("Creating a memory map for mem %p (ahb=%p)", pMemoryMapInfo->memory, mem->ahardware_buffer);
 
+   int ahb_size = -1;
    if (mem->ahardware_buffer) {
       const native_handle_t *handle;
       const int *handle_fds;
@@ -450,12 +451,22 @@ WRAPPER_MapMemory2KHR(VkDevice _device,
 
       int idx;
       for (idx = 0; idx < handle->numFds; idx++) {
-         size_t size = lseek(handle_fds[idx], 0, SEEK_END);
+         off_t size = lseek(handle_fds[idx], 0, SEEK_END);
+         if (size < 0) {
+            int error = errno;
+            WLOG("lseek(0, SEEK_END) failed on the AHB fd (idx=%d, fd=%d), errno = %d, trying another fd", idx, handle_fds[idx], error);
+            continue;
+         }
          if (size >= mem->alloc_size) {
+            if (debug) WLOGD("Found size from lseek(idx=%d, fd=%d) = %x (vs alloc_size of %x)", idx, handle_fds[idx], size, mem->alloc_size);
+            ahb_size = size;
             break;
          }
       }
-      assert(idx < handle->numFds);
+      if (idx >= handle->numFds) {
+         WLOGE("Failed to find an appropriate AHB fd >= alloc_size of 0x%x", mem->alloc_size);
+         return vk_error(device, VK_ERROR_MEMORY_MAP_FAILED);
+      }
       fd = handle_fds[idx];
    } else {
       fd = mem->dmabuf_fd;
@@ -463,13 +474,18 @@ WRAPPER_MapMemory2KHR(VkDevice _device,
 
    if (debug) WLOGD("mem %p associated with fd %d", pMemoryMapInfo->memory, fd);
 
-   if (pMemoryMapInfo->size == VK_WHOLE_SIZE)
-      mem->map_size = mem->alloc_size > 0 ?
+   if (pMemoryMapInfo->size == VK_WHOLE_SIZE) {
+      int result = mem->alloc_size > 0 ?
          mem->alloc_size : lseek(fd, 0, SEEK_END);
-   else
+      if (result < 0) {
+         WLOGE("Failed to lseek(fd=%d, 0, SEEK_END), previous ahb_size = %x, errno = %d", fd, ahb_size, errno);
+      }
+      mem->map_size = result;
+   } else {
       mem->map_size = pMemoryMapInfo->size;
+   }
 
-   if (debug) WLOGD("Mmapping mem %p with fd %d to %p", pMemoryMapInfo->memory, fd, placed_info->pPlacedAddress);
+   if (debug) WLOGD("Mmapping mem %p with fd %d to %p with size %x", pMemoryMapInfo->memory, fd, placed_info->pPlacedAddress, mem->map_size);
    mem->map_address = mmap(placed_info->pPlacedAddress,
       mem->map_size, PROT_READ | PROT_WRITE,
          MAP_SHARED | MAP_FIXED, fd, 0);
@@ -477,7 +493,7 @@ WRAPPER_MapMemory2KHR(VkDevice _device,
    if (mem->map_address == MAP_FAILED) {
       mem->map_address = NULL;
       mem->map_size = 0;
-      WLOGE("mmap failed emulating MapMemory2KHR");
+      WLOGE("mmap failed emulating MapMemory2KHR: errno = %d", errno);
       return vk_error(device, VK_ERROR_MEMORY_MAP_FAILED);
    }
 
