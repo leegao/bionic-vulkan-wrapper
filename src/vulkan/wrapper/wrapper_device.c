@@ -319,8 +319,8 @@ WRAPPER_CreateDevice(VkPhysicalDevice physicalDevice,
       }
    }
 
-   result = physical_device->dispatch_table.CreateDevice(
-      physical_device->dispatch_handle, &wrapper_create_info,
+   result = WPDEVICE.CreateDevice(
+      physicalDevice, &wrapper_create_info,
          pAllocator, &device->dispatch_handle);
 
    if (result != VK_SUCCESS) {
