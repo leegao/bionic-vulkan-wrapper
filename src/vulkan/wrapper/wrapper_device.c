@@ -185,8 +185,7 @@ wrapper_create_device_queue(struct wrapper_device *device,
    return VK_SUCCESS;
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
+WRAPPER_CreateDevice(VkPhysicalDevice physicalDevice,
                      const VkDeviceCreateInfo* pCreateInfo,
                      const VkAllocationCallbacks* pAllocator,
                      VkDevice* pDevice)
@@ -393,14 +392,12 @@ wrapper_CreateDevice(VkPhysicalDevice physicalDevice,
    return VK_SUCCESS;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_GetDeviceQueue(VkDevice device, uint32_t queueFamilyIndex,
+WRAPPER_GetDeviceQueue(VkDevice device, uint32_t queueFamilyIndex,
                        uint32_t queueIndex, VkQueue* pQueue) {
    vk_common_GetDeviceQueue(device, queueFamilyIndex, queueIndex, pQueue);
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_GetDeviceQueue2(VkDevice _device, const VkDeviceQueueInfo2* pQueueInfo,
+WRAPPER_GetDeviceQueue2(VkDevice _device, const VkDeviceQueueInfo2* pQueueInfo,
                         VkQueue* pQueue) {
    VK_FROM_HANDLE(vk_device, device, _device);
 
@@ -417,21 +414,18 @@ wrapper_GetDeviceQueue2(VkDevice _device, const VkDeviceQueueInfo2* pQueueInfo,
    *pQueue = queue ? vk_queue_to_handle(queue) : VK_NULL_HANDLE;
 }
 
-VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
-wrapper_GetDeviceProcAddr(VkDevice _device, const char* pName) {
+WRAPPER_GetDeviceProcAddr(VkDevice _device, const char* pName) {
    VK_FROM_HANDLE(wrapper_device, device, _device);
    return vk_device_get_proc_addr(&device->vk, pName);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_QueueSubmit(VkQueue _queue, uint32_t submitCount,
+WRAPPER_QueueSubmit(VkQueue _queue, uint32_t submitCount,
                     const VkSubmitInfo* pSubmits, VkFence fence)
 {
    return CHECK(QueueSubmit(_queue, submitCount, pSubmits, fence));
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
+WRAPPER_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
                      const VkSubmitInfo2* pSubmits, VkFence fence)
 {
    #ifdef WRAPPER_DEBUG
@@ -457,8 +451,7 @@ wrapper_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
    return result;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_CmdExecuteCommands(VkCommandBuffer commandBuffer,
+WRAPPER_CmdExecuteCommands(VkCommandBuffer commandBuffer,
                            uint32_t commandBufferCount,
                            const VkCommandBuffer* pCommandBuffers)
 {
@@ -511,8 +504,7 @@ wrapper_command_buffer_destroy(struct wrapper_device *device,
 }
 
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_AllocateCommandBuffers(VkDevice _device,
+WRAPPER_AllocateCommandBuffers(VkDevice _device,
                                const VkCommandBufferAllocateInfo* pAllocateInfo,
                                VkCommandBuffer* pCommandBuffers)
 {
@@ -559,8 +551,7 @@ wrapper_AllocateCommandBuffers(VkDevice _device,
    return result;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_FreeCommandBuffers(VkDevice _device,
+WRAPPER_FreeCommandBuffers(VkDevice _device,
                            VkCommandPool commandPool,
                            uint32_t commandBufferCount,
                            const VkCommandBuffer* pCommandBuffers)
@@ -587,8 +578,7 @@ wrapper_FreeCommandBuffers(VkDevice _device,
    CHECKV(FreeCommandBuffers(_device, commandPool, commandBufferCount, dispatch_handles));
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_CreateCommandPool(VkDevice device,
+WRAPPER_CreateCommandPool(VkDevice device,
     const VkCommandPoolCreateInfo* pCreateInfo,
     const VkAllocationCallbacks* pAllocator,
     VkCommandPool* pCommandPool) {
@@ -599,8 +589,7 @@ wrapper_CreateCommandPool(VkDevice device,
    return result;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_DestroyCommandPool(VkDevice _device, VkCommandPool commandPool,
+WRAPPER_DestroyCommandPool(VkDevice _device, VkCommandPool commandPool,
                            const VkAllocationCallbacks* pAllocator)
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
@@ -624,8 +613,7 @@ wrapper_DestroyCommandPool(VkDevice _device, VkCommandPool commandPool,
    CHECKV(DestroyCommandPool(_device, commandPool, pAllocator));
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_DestroyDevice(VkDevice _device, const VkAllocationCallbacks* pAllocator)
+WRAPPER_DestroyDevice(VkDevice _device, const VkAllocationCallbacks* pAllocator)
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
 
@@ -689,8 +677,7 @@ unwrap_device_object(VkObjectType objectType,
    }
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_SetPrivateData(VkDevice _device, VkObjectType objectType,
+WRAPPER_SetPrivateData(VkDevice _device, VkObjectType objectType,
                        uint64_t objectHandle,
                        VkPrivateDataSlot privateDataSlot,
                        uint64_t data) {
@@ -699,8 +686,7 @@ wrapper_SetPrivateData(VkDevice _device, VkObjectType objectType,
       objectType, object_handle, privateDataSlot, data));
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_GetPrivateData(VkDevice _device, VkObjectType objectType,
+WRAPPER_GetPrivateData(VkDevice _device, VkObjectType objectType,
                        uint64_t objectHandle,
                        VkPrivateDataSlot privateDataSlot,
                        uint64_t* pData) {
@@ -759,8 +745,7 @@ static void free_temp_pool_from_buffer(VkDevice device, struct wrapper_buffer* w
    }
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_CreateBuffer(
+WRAPPER_CreateBuffer(
    VkDevice device,
    const VkBufferCreateInfo* pCreateInfo,
    const VkAllocationCallbacks* pAllocator,
@@ -780,8 +765,7 @@ wrapper_CreateBuffer(
    return result;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_DestroyBuffer(VkDevice device,
+WRAPPER_DestroyBuffer(VkDevice device,
                       VkBuffer buffer,
                       const VkAllocationCallbacks* pAllocator)
 {
@@ -805,8 +789,7 @@ wrapper_DestroyBuffer(VkDevice device,
    wrapper_buffer_destroy(_device, wbuf);
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_BindBufferMemory(VkDevice device, 
+WRAPPER_BindBufferMemory(VkDevice device, 
    VkBuffer buffer,
    VkDeviceMemory memory,
    VkDeviceSize memoryOffset) {
@@ -821,8 +804,7 @@ wrapper_BindBufferMemory(VkDevice device,
    return WCHECK(BindBufferMemory2(device, 1, &bind));
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL
-wrapper_BindBufferMemory2(
+WRAPPER_BindBufferMemory2(
     VkDevice device,
     uint32_t bindInfoCount,
     const VkBindBufferMemoryInfo* pBindInfos)
@@ -1829,8 +1811,7 @@ failure:
    return result;
 }
 
-VKAPI_ATTR void VKAPI_CALL
-wrapper_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
+WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
                       VkBuffer srcBuffer,
                       VkImage dstImage,
                       VkImageLayout dstImageLayout,
@@ -1992,7 +1973,7 @@ wrapper_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
    }
 }
 
-VkResult wrapper_CreateShaderModule(VkDevice device,
+WRAPPER_CreateShaderModule(VkDevice device,
     const VkShaderModuleCreateInfo* pCreateInfo,
     const VkAllocationCallbacks* pAllocator,
     VkShaderModule* pShaderModule) {
@@ -2020,4 +2001,3 @@ VkResult wrapper_CreateShaderModule(VkDevice device,
    newCreateInfo.pCode = lowered.spirv_code;
    return CHECK(CreateShaderModule(device, &newCreateInfo, pAllocator, pShaderModule));
 }
-

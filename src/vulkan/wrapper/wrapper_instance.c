@@ -76,16 +76,16 @@ static void *get_vulkan_handle_icd()
    }
 }
 
-static void* icd_handle;
+// static void* icd_handle;
 
 static void *get_vulkan_handle() 
 {
    // __log("in get_vulkan_handle");
-   if (!icd_handle)
-      icd_handle = get_vulkan_handle_icd();
+   // if (!icd_handle)
+   //    icd_handle = get_vulkan_handle_icd();
    // void* vvl = dlopen("/data/user/0/com.winlator.cmod/files/imagefs/usr/lib/libVkLayer_khronos_validation.so", RTLD_NOW | RTLD_LOCAL);
    // __log("Got vvl layer: %p", vvl);
-   return icd_handle;
+   return get_vulkan_handle_icd();
 }
 
 static bool vulkan_library_init()
@@ -101,13 +101,13 @@ static bool vulkan_library_init()
       dispatch_create_instance = dlsym(vulkan_library_handle, "vkCreateInstance");
       dispatch_get_instance_proc_addr = dlsym(vulkan_library_handle,
                                      "vkGetInstanceProcAddr");
-      enumerate_instance_version = dlsym(icd_handle,
+      enumerate_instance_version = dlsym(vulkan_library_handle,
                                          "vkEnumerateInstanceVersion");
       enumerate_instance_extension_properties =
-         dlsym(icd_handle, "vkEnumerateInstanceExtensionProperties");
+         dlsym(vulkan_library_handle, "vkEnumerateInstanceExtensionProperties");
 
       _vkEnumerateInstanceLayerProperties =
-         dlsym(icd_handle, "vkEnumerateInstanceLayerProperties");
+         dlsym(vulkan_library_handle, "vkEnumerateInstanceLayerProperties");
    }
    else {
       WLOGE("Failed to load vulkan handle: %s", dlerror());
