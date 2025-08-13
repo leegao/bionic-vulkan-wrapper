@@ -300,6 +300,35 @@ WRAPPER_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
    wrapper_create_info.ppEnabledExtensionNames = wrapper_enable_extensions;
    
    const char* layers[wrapper_create_info.enabledLayerCount + 1];
+   char time_str[20];
+   char path[256];
+   const char* log_filename[] = { path };
+   const char* report_flags[] = { "error", "info", "warn" };
+
+   const VkLayerSettingEXT layer_setting[] = {
+      {
+         "VK_LAYER_KHRONOS_validation",
+         "log_filename",
+         VK_LAYER_SETTING_TYPE_STRING_EXT,
+         1,
+         log_filename,
+      },
+      {
+         "VK_LAYER_KHRONOS_validation",
+         "report_flags",
+         VK_LAYER_SETTING_TYPE_STRING_EXT,
+         3,
+         report_flags,
+      },
+   };
+
+   VkLayerSettingsCreateInfoEXT layer_settings_create_info = {
+      VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT, 
+      NULL, 
+      2,
+      layer_setting,
+   };
+
    if (CHECK_FLAG("USE_VVL")) {
       if (!g_intercepted_layer_path) {
          WLOGE("Failed to intercept GraphicsEnv::SetLayerPaths(), cannot load VVL");
@@ -329,6 +358,11 @@ WRAPPER_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
       }
       layers[wrapper_create_info.enabledLayerCount - 1] = "VK_LAYER_KHRONOS_validation";
       wrapper_create_info.ppEnabledLayerNames = layers;
+
+      get_current_time_string(time_str, sizeof(time_str));
+      sprintf(path, "/sdcard/Documents/Wrapper/%s_%s.%s.%d.txt", "vvl", time_str, getprogname(), getpid());
+      layer_settings_create_info.pNext = wrapper_create_info.pNext;
+      wrapper_create_info.pNext = &layer_settings_create_info;
    }
 
    result = dispatch_create_instance(&wrapper_create_info, pAllocator,
