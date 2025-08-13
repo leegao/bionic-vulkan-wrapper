@@ -18,6 +18,10 @@
 
 #include "wrapper_trampolines.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct wrapper_instance {
    struct vk_instance vk;
 
@@ -126,15 +130,15 @@ VK_DEFINE_HANDLE_CASTS(wrapper_command_buffer, vk.base, VkCommandBuffer,
                        VK_OBJECT_TYPE_COMMAND_BUFFER)
 
 struct wrapper_device_memory {
-    struct AHardwareBuffer *ahardware_buffer;
-    struct wrapper_device *device;
-    struct list_head link;
-    int dmabuf_fd;
-    void *map_address;
-    size_t map_size;
-    size_t alloc_size;
-    VkDeviceMemory dispatch_handle;
-    const VkAllocationCallbacks *alloc;
+   struct AHardwareBuffer *ahardware_buffer;
+   struct wrapper_device *device;
+   struct list_head link;
+   int dmabuf_fd;
+   void *map_address;
+   size_t map_size;
+   size_t alloc_size;
+   VkDeviceMemory dispatch_handle;
+   const VkAllocationCallbacks *alloc;
 };
 
 VkResult enumerate_physical_device(struct vk_instance *_instance);
@@ -232,3 +236,7 @@ struct wrapper_command_pool {
 };
 
 MAKE_PROTOTYPES(wrapper_command_pool, VkCommandPool);
+
+#ifdef __cplusplus
+}
+#endif

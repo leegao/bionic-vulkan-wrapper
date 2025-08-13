@@ -295,6 +295,7 @@ wrapper_device_memory_from_handle(struct wrapper_device *device,
    return mem;
 }
 
+// TODO: track all memory associated with host visible data
 WRAPPER_AllocateMemory(VkDevice _device,
                        const VkMemoryAllocateInfo* pAllocateInfo,
                        const VkAllocationCallbacks* pAllocator,

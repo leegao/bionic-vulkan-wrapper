@@ -61,10 +61,6 @@ bool adrenotools_validate_gpu_mapping(void *handle);
 
 void adrenotools_set_turbo(bool turbo);
 
-#ifdef __cplusplus
-}
-#endif
-
 extern const struct vk_instance_extension_table wrapper_instance_extensions;
 extern const struct vk_device_extension_table wrapper_device_extensions;
 extern const struct vk_device_extension_table wrapper_filter_extensions;
@@ -437,3 +433,7 @@ static void populate_bc6_decoding_constants(Bc6Constants* constants) {
     memcpy(constants->partition_table2,  BC6_PARTITION_TABLE2_DATA,  sizeof(BC6_PARTITION_TABLE2_DATA));
     memcpy(constants->anchor_table2,     BC6_ANCHOR_TABLE2_DATA,     sizeof(BC6_ANCHOR_TABLE2_DATA));
 }
+
+#ifdef __cplusplus
+}
+#endif

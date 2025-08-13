@@ -376,6 +376,9 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
         handle_unwrap_logic[idx] = f"    WLOGA(\"dispatch->{command.name}({', '.join(types)}) (id=%d)\", {', '.join([p.name for p in params])}, cmd_id);"
         handle_wrap_logic.append(f"    WLOGA(\"dispatch->{command.name} {'returned %d' if command.return_type != 'void' else 'finished'} (id=%d)\"{', result' if command.return_type != 'void' else ''}, cmd_id);")
 
+    if params[0].type == 'VkQueue':
+        handle_unwrap_logic.append("    simple_mtx_lock(&base->resource_mutex);")
+        handle_wrap_logic = ["    simple_mtx_unlock(&base->resource_mutex);"] + handle_wrap_logic
     return TRAMPOLINE_TEMPLATE.substitute(
         return_type=command.return_type,
         name=command.name,

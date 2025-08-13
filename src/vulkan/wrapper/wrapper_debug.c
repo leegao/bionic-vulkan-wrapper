@@ -320,33 +320,7 @@ bool use_image_view_mode() {
 }
 
 bool use_compute_shader_mode() {
-   static bool initialized = false;
-   if (initialized) {
-      return g_use_compute_shader_mode;
-   }
-   initialized = true;
-
-   bool use_image_view = use_image_view_mode();
-
-   char* env = getenv("USE_COMPUTE_SHADER");
-   if (env) {
-      if (strcmp(env, "1") == 0) {
-         WLOG("Enabling experimental compute shader mode");
-         g_use_compute_shader_mode = true;
-      } else if (strcmp(env, "0") == 0) {
-         WLOG("Disabling experimental compute shader mode");
-         g_use_compute_shader_mode = false;
-         use_image_view = false;
-         g_use_image_view = false;
-      }
-   }
-
-   if (use_image_view) {
-      g_use_compute_shader_mode = true;
-      return true;
-   }
-
-   return g_use_compute_shader_mode;
+    return true;
 }
 
 
