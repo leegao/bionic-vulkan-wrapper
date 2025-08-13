@@ -121,6 +121,7 @@ wrapper_files = files(
   'wrapper_debug.c',
   'wrapper_objects.c',
   'spirv_edit.cpp',
+  'graphics_env_hooks.cpp',
 )
 
 wrapper_deps = [

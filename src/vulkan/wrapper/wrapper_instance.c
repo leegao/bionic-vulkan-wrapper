@@ -7,6 +7,7 @@
 #include "vk_debug_utils.h"
 #include "wrapper_debug.h"
 #include "vk_printers.h"
+#include "graphics_env_hooks.h"
 
 const struct vk_instance_extension_table wrapper_instance_extensions = {
    .KHR_get_surface_capabilities2 = true,
@@ -52,6 +53,8 @@ static struct vk_instance_extension_table *supported_instance_extensions;
 
 #include <dlfcn.h>
 
+static bool g_intercepted_layer_path = false;
+
 static void *get_vulkan_handle_icd() 
 {
    char *path = getenv("ADRENOTOOLS_DRIVER_PATH");
@@ -63,6 +66,10 @@ static void *get_vulkan_handle_icd()
 #endif
 
    struct stat sb;
+
+   if (CHECK_FLAG("USE_VVL")) {
+      g_intercepted_layer_path = set_layer_paths();
+   }
 
    if (hooks && path && (stat(path, &sb) == 0)) {
       WLOG("get_vulkan_handle: hooks=%s, path=%s, name=%s", hooks, path, name);
@@ -76,15 +83,8 @@ static void *get_vulkan_handle_icd()
    }
 }
 
-// static void* icd_handle;
-
 static void *get_vulkan_handle() 
 {
-   // __log("in get_vulkan_handle");
-   // if (!icd_handle)
-   //    icd_handle = get_vulkan_handle_icd();
-   // void* vvl = dlopen("/data/user/0/com.winlator.cmod/files/imagefs/usr/lib/libVkLayer_khronos_validation.so", RTLD_NOW | RTLD_LOCAL);
-   // __log("Got vvl layer: %p", vvl);
    return get_vulkan_handle_icd();
 }
 
@@ -298,43 +298,44 @@ WRAPPER_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
    wrapper_create_info.pApplicationInfo = &wrapper_application_info;
    wrapper_create_info.enabledExtensionCount = wrapper_enable_extension_count;
    wrapper_create_info.ppEnabledExtensionNames = wrapper_enable_extensions;
+   
+   const char* layers[wrapper_create_info.enabledLayerCount + 1];
+   if (CHECK_FLAG("USE_VVL")) {
+      if (!g_intercepted_layer_path) {
+         WLOGE("Failed to intercept GraphicsEnv::SetLayerPaths(), cannot load VVL");
+         return vk_error(NULL, VK_ERROR_LAYER_NOT_PRESENT);
+      }
 
-   // Initialize vvl
-   // if (icd_handle != vulkan_library_handle) {
-   //    __log("Additional initialization - adding more pnext chains");
-   //    VkLayerInstanceCreateInfo *chain_info = (VkLayerInstanceCreateInfo *)&wrapper_create_info;
-   //    while ((chain_info->sType != VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO || chain_info->function != 0) && chain_info->pNext) {
-   //        chain_info = (VkLayerInstanceCreateInfo *)&chain_info->pNext;
-   //    }
-   //    if (chain_info->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO && chain_info->function == 0) {
-   //       __log("ERROR: Found a loader create info");
-   //       unreachable("");
-   //    } else {
-   //       if (!chain_info->pNext) {
-   //          __log("Starting new loader create info");
-   //          void* next = dlsym(icd_handle, "vkGetInstanceProcAddr");
-   //          __log("Next: %p", next);
-   //          VkLayerInstanceLink deviceInfo = {
-   //             .pfnNextGetInstanceProcAddr = next
-   //          };
+      uint32_t layerCount;
+      _vkEnumerateInstanceLayerProperties(&layerCount, NULL);
 
-   //          VkLayerInstanceCreateInfo info = {
-   //             .sType = VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO,
-   //             .function = 0,
-   //             .u.pLayerInfo = &deviceInfo
-   //          };
-   //          chain_info->pNext = &info;
-   //          __log("Created new loader create info");
-   //       } else {
-   //          __log("ERROR");
-   //          unreachable("");
-   //       }
-   //    }
-   // }
+      if (layerCount == 0) {
+         WLOGE("No layers found, make sure that /data/data/com.winlator.cmod/files/imagefs/usr/lib/libVkLayer_khronos_validation.so exists");
+         return vk_error(NULL, VK_ERROR_LAYER_NOT_PRESENT);
+      } else {
+         VkLayerProperties availableLayers[layerCount];
+         _vkEnumerateInstanceLayerProperties(&layerCount, availableLayers);
+
+         WLOGD("Found %d layers in /data/data/com.winlator.cmod/files/imagefs/usr/lib/", layerCount);
+         for (int i = 0; i < layerCount; i++) {
+            WLOGD("    Layer[%d]: %s", i, availableLayers[i].layerName);
+         }
+      }
+
+      wrapper_create_info.enabledLayerCount += 1;
+      for (int i = 0; i < wrapper_create_info.enabledLayerCount - 1; i++) {
+         WLOGD("enabled_layer[%d]: %s", i, wrapper_create_info.ppEnabledLayerNames[i]);
+         layers[i] = wrapper_create_info.ppEnabledLayerNames[i];
+      }
+      layers[wrapper_create_info.enabledLayerCount - 1] = "VK_LAYER_KHRONOS_validation";
+      wrapper_create_info.ppEnabledLayerNames = layers;
+   }
 
    result = dispatch_create_instance(&wrapper_create_info, pAllocator,
                             &instance->dispatch_handle);
+
    if (result != VK_SUCCESS) {
+      WLOGE("vkCreateInstance failed, result = %d", result);
       vk_instance_finish(&instance->vk);
       vk_free2(vk_default_allocator(), pAllocator, instance);
       return vk_error(NULL, result);
