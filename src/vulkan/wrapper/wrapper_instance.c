@@ -304,6 +304,11 @@ WRAPPER_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
    char path[256];
    const char* log_filename[] = { path };
    const char* report_flags[] = { "error", "info", "warn" };
+   VkBool32 validate_sync[] = { VK_TRUE };
+   VkBool32 printf_enable[] = { VK_TRUE };
+   VkBool32 printf_verbose[] = { VK_TRUE };
+   VkBool32 validate_best_practices[] = { VK_TRUE };
+   VkBool32 validate_best_practices_arm[] = { VK_TRUE };
 
    const VkLayerSettingEXT layer_setting[] = {
       {
@@ -320,12 +325,47 @@ WRAPPER_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
          3,
          report_flags,
       },
+      {
+         "VK_LAYER_KHRONOS_validation",
+         "validate_sync",
+         VK_LAYER_SETTING_TYPE_BOOL32_EXT,
+         1,
+         validate_sync,
+      },
+      {
+         "VK_LAYER_KHRONOS_validation",
+         "printf_enable",
+         VK_LAYER_SETTING_TYPE_BOOL32_EXT,
+         1,
+         printf_enable,
+      },
+      {
+         "VK_LAYER_KHRONOS_validation",
+         "printf_verbose",
+         VK_LAYER_SETTING_TYPE_BOOL32_EXT,
+         1,
+         printf_verbose,
+      },
+      {
+         "VK_LAYER_KHRONOS_validation",
+         "validate_best_practices",
+         VK_LAYER_SETTING_TYPE_BOOL32_EXT,
+         1,
+         validate_best_practices,
+      },
+      {
+         "VK_LAYER_KHRONOS_validation",
+         "validate_best_practices_arm",
+         VK_LAYER_SETTING_TYPE_BOOL32_EXT,
+         1,
+         validate_best_practices_arm,
+      },
    };
 
    VkLayerSettingsCreateInfoEXT layer_settings_create_info = {
       VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT, 
       NULL, 
-      2,
+      3,
       layer_setting,
    };
 
