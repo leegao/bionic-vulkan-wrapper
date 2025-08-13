@@ -18,6 +18,7 @@
 #include "vk_unwrappers.h"
 #include "vk_printers.h"
 #include "spirv_edit.h"
+#include "artifacts.h"
 
 #include "bcdec.h"
 
@@ -335,7 +336,9 @@ WRAPPER_CreateDevice(VkPhysicalDevice physicalDevice,
                                  device->dispatch_handle);
 
    // Initialize the BCn interceptor states
-   bool use_image_view = use_image_view_mode();
+   bool record_artifacts = CHECK_FLAG("RECORD_ARTIFACTS");
+   bool use_image_view = use_image_view_mode() && !record_artifacts;
+   
    result = InterceptorState_Init(&device->s3tc, 
       wrapper_device_to_handle(device), 
       use_image_view ? sizeof(s3tc_iv_spv) : sizeof(s3tc_spv), 
@@ -809,18 +812,18 @@ WRAPPER_BindBufferMemory2(
     uint32_t bindInfoCount,
     const VkBindBufferMemoryInfo* pBindInfos)
 {
-   VK_FROM_HANDLE(wrapper_device, _device, device);
+   VK_FROM_HANDLE(wrapper_device, wdev, device);
 
    if (bindInfoCount == 0 || pBindInfos == NULL) {
       WLOGE("wrapper_BindBufferMemory2 called with no bind infos");
-      return vk_error(&_device->vk, VK_ERROR_INVALID_EXTERNAL_HANDLE);
+      return vk_error(&wdev->vk, VK_ERROR_INVALID_EXTERNAL_HANDLE);
    }
 
    // Track all of the bindInfos
    for (uint32_t i = 0; i < bindInfoCount; i++) {
-      wrapper_buffer *_buffer = get_wrapper_buffer(_device, pBindInfos[i].buffer);
+      wrapper_buffer *_buffer = get_wrapper_buffer(wdev, pBindInfos[i].buffer);
       if (!_buffer) {
-         WLOGE("wrapper_BindBufferMemory2: buffer %p not tracked", pBindInfos[i].buffer);
+         WLOG("wrapper_BindBufferMemory2: buffer %p not tracked", pBindInfos[i].buffer);
          // return vk_error(&_device->vk, VK_ERROR_INVALID_EXTERNAL_HANDLE);
          // TODO(leegao): figure out what's going wrong here, but there are reports of this
          continue;
@@ -885,7 +888,6 @@ static VkResult CreateConstantsUniformBuffer(
 static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, size_t spv_size, const uint32_t* spv_code, bool use_image_view, int bc_mode) {
    VkResult result;
    VK_FROM_HANDLE(wrapper_device, _device, device);
-   // 1. Create Descriptor Set Layout
    VkDescriptorSetLayoutBinding setLayoutBinding[3] = {
       {
          .binding = 0,
@@ -1107,7 +1109,9 @@ static VkResult SubmitOneTimeCommands(
    void (*recordCommands)(struct wrapper_command_buffer*, void*),
    void* pUserData
 ) {
-   WLOG("Submitting one-time commands...");
+   _Atomic static int counter = 0;
+   int id = counter++;
+   WLOGD("Submitting one-time commands for id=%d", id);
    VkResult result;
    VkDevice device = (VkDevice) _device;
    VkCommandBufferAllocateInfo allocInfo = { 0 };
@@ -1152,80 +1156,23 @@ static VkResult SubmitOneTimeCommands(
       return result;
    }
 
-   WLOG("Submitting command buffer to queue %p", queue);
+   WLOGD("Submitting command buffer to queue %p for id=%d", queue, id);
    result = WCHECK(QueueSubmit((VkQueue) queue, 1, &submitInfo, fence));
    if (result != VK_SUCCESS) {
       return result;
    }
 
-   WLOG("Waiting for fence %p", fence);
-   WCHECK(WaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
+   WLOGD("Waiting for fence %p for id=%d", fence, id);
+   result = WCHECK(WaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
    if (result != VK_SUCCESS) {
       return result;
    }
-   WLOG("Command buffer execution completed");
+   WLOGD("Command buffer execution completed for id=%d", id);
 
    WCHECKV(DestroyFence(device, fence, NULL));
    WCHECKV(FreeCommandBuffers(device, commandPool, 1, &commandBuffer));
    return VK_SUCCESS;
 }
-
-struct CmdComputeShaderForDecompressionArgs {
-   struct wrapper_device* _device;
-   struct wrapper_image* wimg;
-   VkBuffer srcBuffer;
-   VkImage dstImage;
-   VkImageLayout dstImageLayout;
-   VkBuffer stagingBuffer;
-   const VkBufferImageCopy* region;
-   struct InterceptorState* state;
-};
-
-// void decode_bc6h_to_r16g16b16a16_sfloat(const void* compressedData, void* dstPixelBlock, int pitch, int isSigned) {
-//     // bcdec_bc6h_half decompresses to a 4x4 block of 3-component (RGB) half-floats.
-//     // We need a temporary buffer to store this intermediate result because the
-//     // output format (RGBA) has a different layout than the library's output (RGB).
-//     half_float temp_rgb_half_block[4][4][3];
-
-//     // The pitch for the temporary float buffer is the size of one row in bytes.
-//     // A row has 4 pixels, each with 3 half_float components.
-//     const int temp_pitch_bytes = 4 * 3 * sizeof(half_float);
-
-//     // Step 1: Decompress the BC6h block into the temporary half-float buffer.
-//     // This is the most direct and efficient path for this target format.
-//     bcdec_bc6h_half(compressedData, temp_rgb_half_block, temp_pitch_bytes, isSigned);
-
-//     // Step 2: Copy the RGB half-float data to the RGBA destination and add the Alpha channel.
-//     unsigned char* dst_row_bytes = (unsigned char*)dstPixelBlock;
-
-//     // The bit representation of 1.0f in IEEE 754 half-precision format is 0x3C00.
-//     // This is used for the alpha channel, as BC6H is an RGB-only format.
-//     const half_float alpha_one = 0x3C00;
-
-//     for (int y = 0; y < 4; ++y) {
-//         // Get a pointer to the start of the current pixel row in the destination.
-//         half_float* dst_pixel = (half_float*)dst_row_bytes;
-        
-//         for (int x = 0; x < 4; ++x) {
-//             // Get the RGB half values from the temporary buffer.
-//             const half_float r_half = temp_rgb_half_block[y][x][0];
-//             const half_float g_half = temp_rgb_half_block[y][x][1];
-//             const half_float b_half = temp_rgb_half_block[y][x][2];
-
-//             // Write the RGBA values to the destination.
-//             dst_pixel[0] = r_half;
-//             dst_pixel[1] = g_half;
-//             dst_pixel[2] = b_half;
-//             dst_pixel[3] = alpha_one; // Set alpha to 1.0f
-
-//             // Move to the next pixel in the destination row (4 half_floats).
-//             dst_pixel += 4;
-//         }
-//         // Move to the next row in the destination buffer using the provided pitch.
-//         dst_row_bytes += pitch;
-//     }
-// }
-
 
 static void BCnDecompression(VkFormat format,
       void* mappedSrcBase,
@@ -1522,6 +1469,18 @@ static VkDeviceSize calculate_bc_copy_size(const VkBufferImageCopy* region, uint
     return offset_to_last_row + last_row_size_in_bytes;
 }
 
+struct CmdComputeShaderForDecompressionArgs {
+   struct wrapper_device* _device;
+   struct wrapper_image* wimg;
+   VkBuffer srcBuffer;
+   VkImage dstImage;
+   VkImageLayout dstImageLayout;
+   VkBuffer stagingBuffer;
+   const VkBufferImageCopy* region;
+   struct InterceptorState* state;
+   bool use_image_view;
+};
+
 static void CmdComputeShaderForDecompression(
     struct wrapper_command_buffer* _commandBuffer,
     struct CmdComputeShaderForDecompressionArgs* pArgs)
@@ -1535,7 +1494,7 @@ static void CmdComputeShaderForDecompression(
    VkImage dstImage = wimg->dispatch_handle;
    struct InterceptorState* state = pArgs->state;
    VkCommandBuffer commandBuffer = _commandBuffer->dispatch_handle;
-   bool use_image_view = use_image_view_mode();
+   bool use_image_view = pArgs->use_image_view;
    VkResult result;
 
    WLOG("CmdComputeShaderForDecompression: srcBuffer = %p, dstImage = %p", srcBuffer, dstImage);
@@ -1841,13 +1800,14 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
    }
 
    // --- Decompression Path ---
-   _Atomic static int count = 0;
-   count++;
-   WLOG("Emulating support for format=%d, count=%d", wimg->original_format, count);
-   
+   _Atomic static int counter = 0;
+   int decode_id = counter++;
+   WLOG("Emulating support for format=%d, decode_id=%d", wimg->original_format, decode_id);
+
+   bool record_artifacts = CHECK_FLAG("RECORD_ARTIFACTS");
    bool use_cpu_bcn = (get_host_decoding_bcn_masks() & (1 << (wimg->original_format - 131))) != 0;
    bool use_compute_shader = use_compute_shader_mode() && !use_cpu_bcn;
-   bool use_image_view = use_image_view_mode() && !use_cpu_bcn;
+   bool use_image_view = use_image_view_mode() && !use_cpu_bcn && !record_artifacts;
    
    // Check if the queues are the same
    struct wrapper_command_pool *pool = get_wrapper_command_pool(_device, wcb->pool);
@@ -1907,6 +1867,7 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             .srcBuffer = srcBuffer,
             .region = region,
             .state = state,
+            .use_image_view = use_image_view,
          };
 
          if (use_image_view) {
@@ -1916,13 +1877,18 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             args.stagingBuffer = stagingBuffer;
          }
 
-         if (CHECK_FLAG("WRAPPER_ONE_BY_ONE")) {
-            SubmitOneTimeCommands(
+         if (CHECK_FLAG("WRAPPER_ONE_BY_ONE") || record_artifacts) {
+            WLOGD("Submitting decode_id %d", decode_id);
+            result = SubmitOneTimeCommands(
                _device, 
                wcb->pool, 
                _device->graphics_queue, 
                (void (*)(struct wrapper_command_buffer*, void*)) &CmdComputeShaderForDecompression,
                &args);
+            if (result != VK_SUCCESS) {
+               WLOGE("GPU BCn decompression failed, expect visual glitches.");
+               return;
+            }
          } else {
             CmdComputeShaderForDecompression(wcb, &args);
          }
@@ -1932,6 +1898,11 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             WLOGE("Host BCn decompression failed, expect visual glitches.");
             return;
          }
+      }
+
+      if (record_artifacts) {
+         // Invariant: srcBuffer contains the BCn blocks, stagingBuffer contains the output
+         RecordBCnArtifacts(_device, region, srcBuffer, stagingBuffer, decode_id);
       }
 
       if (!use_image_view) {
