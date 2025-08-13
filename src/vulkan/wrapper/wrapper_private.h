@@ -163,62 +163,6 @@ static inline uint32_t get_bc_block_size(VkFormat format) {
     }
 }
 
-
-typedef enum VkLayerFunction_ {
-    VK_LAYER_FUNCTION_LINK = 0,
-    VK_LAYER_FUNCTION_DEVICE = 1,
-    VK_LAYER_FUNCTION_INSTANCE = 2
-} VkLayerFunction;
-/*
- * When creating the device chain the loader needs to pass
- * down information about it's device structure needed at
- * the end of the chain. Passing the data via the
- * VkLayerInstanceInfo avoids issues with finding the
- * exact instance being used.
- */
-typedef struct VkLayerInstanceInfo_ {
-    void* instance_info;
-    PFN_vkGetInstanceProcAddr pfnNextGetInstanceProcAddr;
-} VkLayerInstanceInfo;
-typedef struct VkLayerInstanceLink_ {
-    struct VkLayerInstanceLink_* pNext;
-    PFN_vkGetInstanceProcAddr pfnNextGetInstanceProcAddr;
-} VkLayerInstanceLink;
-/*
- * When creating the device chain the loader needs to pass
- * down information about it's device structure needed at
- * the end of the chain. Passing the data via the
- * VkLayerDeviceInfo avoids issues with finding the
- * exact instance being used.
- */
-typedef struct VkLayerDeviceInfo_ {
-    void* device_info;
-    PFN_vkGetInstanceProcAddr pfnNextGetInstanceProcAddr;
-} VkLayerDeviceInfo;
-typedef struct {
-    VkStructureType sType;  // VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO
-    const void* pNext;
-    VkLayerFunction function;
-    union {
-        VkLayerInstanceLink* pLayerInfo;
-        VkLayerInstanceInfo instanceInfo;
-    } u;
-} VkLayerInstanceCreateInfo;
-typedef struct VkLayerDeviceLink_ {
-    struct VkLayerDeviceLink_* pNext;
-    PFN_vkGetInstanceProcAddr pfnNextGetInstanceProcAddr;
-    PFN_vkGetDeviceProcAddr pfnNextGetDeviceProcAddr;
-} VkLayerDeviceLink;
-typedef struct {
-    VkStructureType sType;  // VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO
-    const void* pNext;
-    VkLayerFunction function;
-    union {
-        VkLayerDeviceLink* pLayerInfo;
-        VkLayerDeviceInfo deviceInfo;
-    } u;
-} VkLayerDeviceCreateInfo;
-
 static VkFormat unwrap_vk_format_physical_device(struct wrapper_physical_device* pdevice, VkFormat in_format) {
     if (!pdevice) {
         WLOGE("unwrap_vk_format: null pdevice");
