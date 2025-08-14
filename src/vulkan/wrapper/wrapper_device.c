@@ -1973,3 +1973,31 @@ WRAPPER_CreateShaderModule(VkDevice device,
    newCreateInfo.pCode = lowered.spirv_code;
    return CHECK(CreateShaderModule(device, &newCreateInfo, pAllocator, pShaderModule));
 }
+
+WRAPPER_CreateGraphicsPipelines(
+    VkDevice device,
+    VkPipelineCache pipelineCache,
+    uint32_t createInfoCount,
+    const VkGraphicsPipelineCreateInfo* pCreateInfos,
+    const VkAllocationCallbacks* pAllocator,
+    VkPipeline* pPipelines) {
+   VK_FROM_HANDLE(wrapper_device, wdev, device);
+   // Check for fillModeNonSolid support
+   if (!wdev->physical->base_supported_features.fillModeNonSolid) {
+      _Atomic static int counter = 0;
+      for (int i = 0; i < createInfoCount; i++) {
+         if (!pCreateInfos[i].pRasterizationState || pCreateInfos[i].pRasterizationState->polygonMode != VK_POLYGON_MODE_LINE) {
+            continue;
+         }
+         int id = counter++;
+         if (id < 10) {
+            WLOGE("VK_POLYGON_MODE_LINE requested, but fillModeNonSolid is not supported on this device");
+         } else if (id == 10) {
+            WLOGE("VK_POLYGON_MODE_LINE requested, but fillModeNonSolid is not supported on this device");
+            WLOGE("(this message has been shown 10 times, not reporting again)")
+         }
+      }
+   }
+
+   return CHECK(CreateGraphicsPipelines(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines));
+}
