@@ -55,7 +55,7 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
         };
         VkResult result = WCHECK(MapMemory2KHR((VkDevice) device, &mapInfoSrc, &srcData));
         if (result != VK_SUCCESS) {
-            WLOGE("ERROR: Failed to map srcBuffer memory: %d", result);
+            WLOGE("Failed to map srcBuffer memory: %d", result);
         } else {
             int w = region->bufferRowLength ? region->bufferRowLength : region->imageExtent.width;
             int h = region->bufferImageHeight ? region->bufferImageHeight : region->imageExtent.height;
@@ -75,6 +75,17 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
     } else if (wbuf->memory == VK_NULL_HANDLE) {
         WLOGE("dstBuffer not bound, skipping (decode_id=%d)", decode_id);
     } else {
+        // Invalidate the memory to be visible to the host in case this was decoded via the compute shader
+        VkMappedMemoryRange flushRange = {
+            .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+            .memory = wbuf->memory,
+            .offset = 0,
+            .size = VK_WHOLE_SIZE,
+        };
+        VkResult result = WCHECK(InvalidateMappedMemoryRanges((VkDevice) device, 1, &flushRange));
+        if (result != VK_SUCCESS) {
+            WLOGE("Failed to flush dstBuffer memory: %d", result);
+        }
         void* dstData;
         VkMemoryMapInfoKHR mapInfoSrc = {
             .sType = VK_STRUCTURE_TYPE_MEMORY_MAP_INFO_KHR,
@@ -82,9 +93,9 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
             .offset = 0,
             .size = VK_WHOLE_SIZE,
         };
-        VkResult result = WCHECK(MapMemory2KHR((VkDevice) device, &mapInfoSrc, &dstData));
+        result = WCHECK(MapMemory2KHR((VkDevice) device, &mapInfoSrc, &dstData));
         if (result != VK_SUCCESS) {
-            WLOGE("ERROR: Failed to map dstBuffer memory: %d", result);
+            WLOGE("Failed to map dstBuffer memory: %d", result);
         } else {
             int block_size = get_bc_target_size(device->physical, original_format);
             auto fd = open_log_file("_dst.dat", original_format, decode_id, "wb");
