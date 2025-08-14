@@ -214,6 +214,21 @@ static VkFormat unwrap_vk_format(struct wrapper_device* device, VkFormat in_form
    return unwrap_vk_format_physical_device(device->physical, in_format);
 }
 
+static inline uint32_t get_bc_target_size(struct wrapper_physical_device* pdevice, VkFormat in_format) {
+    VkFormat out_format = unwrap_vk_format_physical_device(pdevice, in_format);
+    switch (out_format) {
+    case VK_FORMAT_R8G8B8A8_UNORM:
+    case VK_FORMAT_R8G8B8A8_SNORM:
+        return 4;
+    case VK_FORMAT_R16G16B16A16_SFLOAT:
+        return 8;
+    default:
+        WLOGE("Unknown out_format: %d", out_format);
+        return 4;
+        break;
+    }
+}
+
 typedef struct {
     uint32_t srcFormat;
     uint32_t srcRowLength;

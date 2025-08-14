@@ -336,8 +336,8 @@ WRAPPER_CreateDevice(VkPhysicalDevice physicalDevice,
                                  device->dispatch_handle);
 
    // Initialize the BCn interceptor states
-   bool record_artifacts = CHECK_FLAG("RECORD_ARTIFACTS");
-   bool use_image_view = use_image_view_mode() && !record_artifacts;
+   bool dump_artifacts = CHECK_FLAG("DUMP_BCN_ARTIFACTS");
+   bool use_image_view = use_image_view_mode() && !dump_artifacts;
    
    result = InterceptorState_Init(&device->s3tc, 
       wrapper_device_to_handle(device), 
@@ -1414,6 +1414,7 @@ static VkResult HostSideDecompression(
       .sType = VK_STRUCTURE_TYPE_MEMORY_MAP_INFO_KHR,
       .memory = dstMemory,
       .offset = 0, // Assuming dstMemory is large enough to hold the decompressed
+      // TODO: FIX THIS for non rgba8 data
       .size = region->imageExtent.width * region->imageExtent.height * 4, // 4 bytes per pixel for RGBA
    };
    result = WCHECK(MapMemory2KHR((VkDevice) _device, &mapInfoDst, &dstData));
@@ -1804,10 +1805,10 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
    int decode_id = counter++;
    WLOG("Emulating support for format=%d, decode_id=%d", wimg->original_format, decode_id);
 
-   bool record_artifacts = CHECK_FLAG("RECORD_ARTIFACTS");
+   bool dump_artifacts = CHECK_FLAG("DUMP_BCN_ARTIFACTS");
    bool use_cpu_bcn = (get_host_decoding_bcn_masks() & (1 << (wimg->original_format - 131))) != 0;
    bool use_compute_shader = use_compute_shader_mode() && !use_cpu_bcn;
-   bool use_image_view = use_image_view_mode() && !use_cpu_bcn && !record_artifacts;
+   bool use_image_view = use_image_view_mode() && !use_cpu_bcn && !dump_artifacts;
    
    // Check if the queues are the same
    struct wrapper_command_pool *pool = get_wrapper_command_pool(_device, wcb->pool);
@@ -1877,7 +1878,7 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             args.stagingBuffer = stagingBuffer;
          }
 
-         if (CHECK_FLAG("WRAPPER_ONE_BY_ONE") || record_artifacts) {
+         if (CHECK_FLAG("WRAPPER_ONE_BY_ONE") || dump_artifacts) {
             WLOGD("Submitting decode_id %d", decode_id);
             result = SubmitOneTimeCommands(
                _device, 
@@ -1900,9 +1901,9 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
          }
       }
 
-      if (record_artifacts) {
+      if (dump_artifacts) {
          // Invariant: srcBuffer contains the BCn blocks, stagingBuffer contains the output
-         RecordBCnArtifacts(_device, region, srcBuffer, stagingBuffer, decode_id);
+         RecordBCnArtifacts(_device, wimg->original_format, region, srcBuffer, stagingBuffer, decode_id);
       }
 
       if (!use_image_view) {
