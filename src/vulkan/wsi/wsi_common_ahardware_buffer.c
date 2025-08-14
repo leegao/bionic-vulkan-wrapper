@@ -75,7 +75,7 @@ wsi_create_ahardware_buffer_image_mem(const struct wsi_swapchain *chain,
                                       const struct wsi_image_info *info,
                                       struct wsi_image *image)
 {
-   LOG_A("In wsi_create_ahardware_buffer_image_mem");
+   WSI_LOGT("not blitting");
    const struct wsi_device *wsi = chain->wsi;
    VkImage old_image = image->image;
    VkResult result;
@@ -129,7 +129,7 @@ wsi_create_ahardware_buffer_image_mem(const struct wsi_swapchain *chain,
    };
    result = wsi->AllocateMemory(chain->device, &memory_info,
                                 &chain->alloc, &image->memory);
-   LOG_A("wsi->AllocateMemory: %d", result);
+   WSI_LOGT("wsi->AllocateMemory: %d", result);
    if (result != VK_SUCCESS)
       return vk_errorf(NULL, result, "Failed to allocate memory");
    image->num_planes = 1;
@@ -142,6 +142,7 @@ wsi_create_ahardware_buffer_blit_context(const struct wsi_swapchain *chain,
                                          const struct wsi_image_info *info,
                                          struct wsi_image *image)
 {
+   WSI_LOGT("blitting");
    assert(chain->blit.type == WSI_SWAPCHAIN_IMAGE_BLIT);
    const struct wsi_device *wsi = chain->wsi;
    VkResult result;
@@ -172,7 +173,7 @@ wsi_create_ahardware_buffer_blit_context(const struct wsi_swapchain *chain,
       .pNext = &external_format,
       .handleTypes = handle_types,
    };
-   const VkImageCreateInfo image_info = {
+   VkImageCreateInfo image_info = {
       .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
       .pNext = &external_memory_info,
       .flags = 0u,
@@ -191,6 +192,20 @@ wsi_create_ahardware_buffer_blit_context(const struct wsi_swapchain *chain,
          info->create.pQueueFamilyIndices,
       .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
    };
+
+   // VVL if external_format.externalFormat
+   // Validation Error: [ VUID-VkImageCreateInfo-pNext-01974 ] | MessageID = 0xee97da05
+   // vkCreateImage(): pCreateInfo->pNext<VkExternalFormatANDROID>.externalFormat (40) is non-zero, format is VK_FORMAT_R8G8B8A8_UNORM.
+   // Validation Error: [ VUID-VkImageCreateInfo-pNext-02397 ] | MessageID = 0xcac730da
+   // vkCreateImage(): pCreateInfo->pNext<VkExternalFormatANDROID>.externalFormat (40) is non-zero, but usage is VK_IMAGE_USAGE_TRANSFER_DST_BIT.
+   // Validation Error: [ VUID-VkImageCreateInfo-pNext-02398 ] | MessageID = 0xc94b7919
+   // vkCreateImage(): pCreateInfo->pNext<VkExternalFormatANDROID>.externalFormat (40) is non-zero, but layout is VK_IMAGE_TILING_LINEAR.
+   if (external_format.externalFormat != 0) {
+      image_info.format = VK_FORMAT_UNDEFINED;
+      image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+      image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+   }
+
    result = wsi->CreateImage(chain->device, &image_info,
                              &chain->alloc, &image->blit.image);
    if (result != VK_SUCCESS)

@@ -388,7 +388,25 @@ int __android_log_print(
   ...
 );
 
-#define LOG_A(...) __android_log_print(6, "Wrapper", __VA_ARGS__)
+int should_log(void);
+
+void wlog(const char* fmt, ...);
+
+#define LOG_A(...) __android_log_print(6, "VkWrapper", __VA_ARGS__)
+
+#define W_WFORMAT(fmt, ...) fmt " \t (%s:%d)", ## __VA_ARGS__, __FUNCTION__, __LINE__
+
+#define W___WLOG__(LEVEL, fmt, ...) \
+    if (should_log() >= LEVEL) { \
+        wlog(W_WFORMAT(fmt, ## __VA_ARGS__)); \
+        LOG_A(W_WFORMAT(fmt, ## __VA_ARGS__)); \
+    }
+
+#define WSI_LOGT(fmt, ...) W___WLOG__(4, "" fmt, ## __VA_ARGS__)
+#define WSI_LOGA(fmt, ...) W___WLOG__(5, "! " fmt, ## __VA_ARGS__)
+#define WSI_LOGD(fmt, ...) W___WLOG__(3, fmt, ## __VA_ARGS__)
+#define WSI_LOG(fmt, ...)  W___WLOG__(2, fmt, ## __VA_ARGS__)
+#define WSI_LOGE(fmt, ...) W___WLOG__(1, "[ERROR] " fmt, ## __VA_ARGS__)
 
 #ifdef __cplusplus
 }
