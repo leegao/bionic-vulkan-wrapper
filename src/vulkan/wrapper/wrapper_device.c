@@ -1392,7 +1392,7 @@ static VkResult HostSideDecompression(
       wrapper_buffer* srcBuffer,
       VkDeviceMemory dstMemory,
       const VkBufferImageCopy* region,
-      VkFormat dstFormat
+      VkFormat in_format
 ) {
    // Map the source buffer
    void* srcData;
@@ -1413,9 +1413,8 @@ static VkResult HostSideDecompression(
    VkMemoryMapInfoKHR mapInfoDst = {
       .sType = VK_STRUCTURE_TYPE_MEMORY_MAP_INFO_KHR,
       .memory = dstMemory,
-      .offset = 0, // Assuming dstMemory is large enough to hold the decompressed
-      // TODO: FIX THIS for non rgba8 data
-      .size = region->imageExtent.width * region->imageExtent.height * 4, // 4 bytes per pixel for RGBA
+      .offset = 0,
+      .size = region->imageExtent.width * region->imageExtent.height * get_bc_target_size(_device->physical, in_format),
    };
    result = WCHECK(MapMemory2KHR((VkDevice) _device, &mapInfoDst, &dstData));
    if (result != VK_SUCCESS) {
@@ -1424,7 +1423,7 @@ static VkResult HostSideDecompression(
 
    // Decompress the data from srcData to dstData
    BCnDecompression(
-      dstFormat,
+      in_format,
       srcData,
       dstData,
       region
@@ -1838,7 +1837,7 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
       if (!use_image_view) {
          result = CreateStagingBuffer(
             _device, 
-            region->imageExtent.width * region->imageExtent.height * region->imageExtent.depth * 4,
+            region->imageExtent.width * region->imageExtent.height * get_bc_target_size(_device->physical, wimg->original_format),
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             &stagingBuffer, &stagingBufferMemory);
@@ -1848,6 +1847,7 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
          }
 
          // TODO: track these using the fence/semaphore for the submitted queue
+         // This should be safe to do now with the queue synchronization, check with vvl
          WLOGD("Tracking new staging buffer for image %d", wimg->obj_id);
          TRACK_STAGING(_device, BUFFER, stagingBuffer, wimg);
          TRACK_STAGING(_device, DEVICE_MEMORY, stagingBufferMemory, wimg);
