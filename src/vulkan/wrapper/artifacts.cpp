@@ -35,7 +35,7 @@ static FILE* open_log_file(const std::string postfix, VkFormat original_format, 
 
 static bool ValidateBCn(struct wrapper_device* device, VkFormat original_format,
                         const VkBufferImageCopy* region, void* srcData, void* dstData,
-                        int decode_id) {
+                        int decode_id, void** out) {
     uint32_t block_size = get_bc_target_size(device->physical, original_format);
     uint32_t data_size = block_size * region->imageExtent.width * region->imageExtent.height;
 
@@ -52,8 +52,7 @@ static bool ValidateBCn(struct wrapper_device* device, VkFormat original_format,
     WLOGD("Calculating h2 for dstData, fmt=%d, size=%d", original_format,  data_size);
     auto h2 = XXH32(dstData, data_size, 0);
     WLOGD("Calculated h2 = %x for dstData, fmt=%d, size=%d", h2, original_format,  data_size);
-    free(stagingData);
-    // TODO: print the difference
+    *out = stagingData;
     return h1 == h2;
 }
 
@@ -114,10 +113,12 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
         return;
     }
 
+    void* referenceData = NULL;
     if (validate_bcn) {
-        if (ValidateBCn(device, original_format, region, srcData, dstData, decode_id)) {
+        if (ValidateBCn(device, original_format, region, srcData, dstData, decode_id, &referenceData)) {
             // No difference between reference and compute implementations
             WLOGD("Reference and compute implementations of ValidateBCn(fmt=%d, id=%d) are the same.", original_format, decode_id);
+            free(referenceData);
             WCHECKV(UnmapMemory((VkDevice) device, dst_wbuf->memory));
             return;
         }
@@ -149,5 +150,13 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
         fwrite(dstData, block_size, region->imageExtent.width * region->imageExtent.height, fd);
         fclose(fd);
         WCHECKV(UnmapMemory((VkDevice) device, dst_wbuf->memory));
+    }
+
+    if (referenceData) {
+        int block_size = get_bc_target_size(device->physical, original_format);
+        auto fd = open_log_file("_ref.dat", original_format, decode_id, "wb");
+        fwrite(referenceData, block_size, region->imageExtent.width * region->imageExtent.height, fd);
+        fclose(fd);
+        free(referenceData);
     }
 }
