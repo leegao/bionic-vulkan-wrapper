@@ -12,7 +12,7 @@
 #include <sstream>
 #include <iomanip>
 
-static FILE* open_log_file(const std::string postfix, VkFormat original_format, int id, const char* mode) {
+static FILE* open_log_file(const std::string postfix, VkFormat original_format, int w, int h, int id, const char* mode) {
     static std::string dir;
     static bool initialized = false;
     if (!initialized) {
@@ -29,7 +29,7 @@ static FILE* open_log_file(const std::string postfix, VkFormat original_format, 
     std::stringstream padded_id;
     padded_id << std::setw(5) << std::setfill('0') << id;
 
-    std::string path = dir + "/" + padded_id.str() + "_fmt" + std::to_string(original_format) + postfix;
+    std::string path = dir + "/" + padded_id.str() + "_fmt" + std::to_string(original_format) + "_" + std::to_string(w) + "x" + std::to_string(h) + postfix;
     return fopen(path.c_str(), mode);
 }
 
@@ -125,8 +125,10 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
         WLOGE("Reference and compute implementations of ValidateBCn(fmt=%d, id=%d) differ.", original_format, decode_id);
     }
 
+    int width = region->imageExtent.width;
+    int height = region->imageExtent.height;
     if (region) {
-        auto fd = open_log_file("_region.txt", original_format, decode_id, "w");
+        auto fd = open_log_file("_region.txt", original_format, width, height, decode_id, "w");
         fprintf(fd, "src: %p\n", srcBuffer);
         vk_print_VkBufferImageCopy(0, 0, fd, "", region);
         fclose(fd);
@@ -139,14 +141,14 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
         int block_rows = (h + 3) / 4;
         int blocks = blocks_stride * block_rows;
         int block_size = get_bc_block_size(original_format);
-        auto fd = open_log_file("_src.dat", original_format, decode_id, "wb");
+        auto fd = open_log_file("_src.dat", original_format, width, height, decode_id, "wb");
         fwrite(srcData, block_size, blocks, fd);
         fclose(fd);
     }
 
     {
         int block_size = get_bc_target_size(device->physical, original_format);
-        auto fd = open_log_file("_dst.dat", original_format, decode_id, "wb");
+        auto fd = open_log_file("_dst.dat", original_format, width, height, decode_id, "wb");
         fwrite(dstData, block_size, region->imageExtent.width * region->imageExtent.height, fd);
         fclose(fd);
         WCHECKV(UnmapMemory((VkDevice) device, dst_wbuf->memory));
@@ -154,7 +156,7 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
 
     if (referenceData) {
         int block_size = get_bc_target_size(device->physical, original_format);
-        auto fd = open_log_file("_ref.dat", original_format, decode_id, "wb");
+        auto fd = open_log_file("_ref.dat", original_format, width, height, decode_id, "wb");
         fwrite(referenceData, block_size, region->imageExtent.width * region->imageExtent.height, fd);
         fclose(fd);
         free(referenceData);
