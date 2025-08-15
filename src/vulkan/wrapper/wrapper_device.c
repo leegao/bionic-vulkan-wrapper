@@ -1661,8 +1661,10 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
          ));
 
          VkBufferImageCopy local_region = *region;
-         // Adjust the bufferOffset to point to the start of the staging buffer
+         // Adjust the bufferOffset to point to the start of the staging buffer and tightly packed src stride
          local_region.bufferOffset = 0;
+         local_region.bufferRowLength = 0;
+         local_region.bufferImageHeight = 0;
          CHECKV(CmdCopyBufferToImage(commandBuffer, stagingBuffer, dstImage, dstImageLayout, 1, &local_region));
       }
 
