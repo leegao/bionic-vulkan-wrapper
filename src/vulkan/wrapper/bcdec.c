@@ -45,7 +45,7 @@ void BCnDecompression(VkFormat format,
     int width = regions->imageExtent.width;
     int dst_stride = texel_size * width;
     int src_stride = block_size * (regions->bufferRowLength ? regions->bufferRowLength : width);
-    if ((width + 3) / 4 * 4 != regions->bufferRowLength) {
+    if (regions->bufferRowLength != 0 && (width + 3) / 4 * 4 != regions->bufferRowLength) {
         WLOGE("Texture (fmt=%d) is not tightly packed, block_size = %d, width = %d, bufferRowLength = %d", format, block_size, width, regions->bufferRowLength);
     }
 
