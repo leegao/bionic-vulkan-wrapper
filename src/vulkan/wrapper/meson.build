@@ -123,6 +123,7 @@ wrapper_files = files(
   'spirv_edit.cpp',
   'graphics_env_hooks.cpp',
   'artifacts.cpp',
+  'bcdec.c',
 )
 
 wrapper_deps = [

@@ -1139,6 +1139,7 @@ wsi_DestroySwapchainKHR(VkDevice _device,
    else
      alloc = &device->alloc;
 
+   WSI_LOGD("Destroying swapchain");
    swapchain->destroy(swapchain, alloc);
 }
 

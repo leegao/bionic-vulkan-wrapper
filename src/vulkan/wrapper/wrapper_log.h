@@ -4,11 +4,12 @@
 extern "C" {
 #endif
 
-#include "wrapper_debug.h"
-
 #include <vulkan/vulkan_core.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
+
+#include "wrapper_debug.h"
 
 extern int __android_log_print(
   int prio,

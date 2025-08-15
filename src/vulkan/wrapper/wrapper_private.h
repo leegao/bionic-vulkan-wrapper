@@ -449,6 +449,11 @@ static void populate_bc6_decoding_constants(Bc6Constants* constants) {
     memcpy(constants->anchor_table2,     BC6_ANCHOR_TABLE2_DATA,     sizeof(BC6_ANCHOR_TABLE2_DATA));
 }
 
+void BCnDecompression(VkFormat format,
+      void* mappedSrcBase,
+      void* mappedDst,
+      const VkBufferImageCopy* regions);
+
 #ifdef __cplusplus
 }
 #endif

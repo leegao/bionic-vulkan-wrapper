@@ -20,8 +20,6 @@
 #include "spirv_edit.h"
 #include "artifacts.h"
 
-#include "bcdec.h"
-
 static const uint32_t s3tc_spv[] = {
 #include "s3tc.spv.h"
 };
@@ -336,7 +334,8 @@ WRAPPER_CreateDevice(VkPhysicalDevice physicalDevice,
                                  device->dispatch_handle);
 
    // Initialize the BCn interceptor states
-   bool dump_artifacts = CHECK_FLAG("DUMP_BCN_ARTIFACTS");
+   bool validate_bcn = CHECK_FLAG("VALIDATE_BCN");
+   bool dump_artifacts = CHECK_FLAG("DUMP_BCN_ARTIFACTS") || validate_bcn;
    bool use_image_view = use_image_view_mode() && !dump_artifacts;
    
    result = InterceptorState_Init(&device->s3tc, 
@@ -431,27 +430,7 @@ WRAPPER_QueueSubmit(VkQueue _queue, uint32_t submitCount,
 WRAPPER_QueueSubmit2(VkQueue _queue, uint32_t submitCount,
                      const VkSubmitInfo2* pSubmits, VkFence fence)
 {
-   #ifdef WRAPPER_DEBUG
-   WLOGD("Inside of wrapper_QueueSubmit2");
-   for (int i = 0; i < submitCount; i++) {
-      WLOGD("+ pSubmits[%d]", i);
-      LOG_STRUCT(VkSubmitInfo2, &pSubmits[i]);
-   }
-   struct temporary_objects temp;
-   list_inithead(&temp.objects);
-   VK_FROM_HANDLE(wrapper_queue, base, _queue);
-   const VkSubmitInfo2* pSubmits__ = pSubmits;
-   pSubmits__ = alloca(submitCount * sizeof(VkSubmitInfo2));
-   for (int i = 0; i < submitCount; i++) {
-      unwrap_VkSubmitInfo2(&temp, base->device, (VkSubmitInfo2 *) &pSubmits__[i], &pSubmits[i]);
-      WLOGD("+ pSubmits__[%d]", i);
-      LOG_STRUCT(VkSubmitInfo2, &pSubmits__[i]);
-   }
-   #endif
-
-   VkResult result = CHECK(QueueSubmit2(_queue, submitCount, pSubmits, fence));
-   // VkResult result = base->device->dispatch_table.QueueSubmit2(base->dispatch_handle, submitCount, pSubmits__, fence);
-   return result;
+   return CHECK(QueueSubmit2(_queue, submitCount, pSubmits, fence));
 }
 
 WRAPPER_CmdExecuteCommands(VkCommandBuffer commandBuffer,
@@ -469,43 +448,6 @@ WRAPPER_CmdExecuteCommands(VkCommandBuffer commandBuffer,
    wcb->device->dispatch_table.CmdExecuteCommands(
       wcb->dispatch_handle, commandBufferCount, command_buffers);
 }
-
-static VkResult
-wrapper_command_buffer_create(struct wrapper_device *device,
-                              VkCommandPool pool,
-                              VkCommandBuffer dispatch_handle,
-                              VkCommandBuffer *pCommandBuffers) {
-   struct wrapper_command_buffer *wcb;
-   wcb = vk_object_zalloc(&device->vk, &device->vk.alloc,
-                          sizeof(struct wrapper_command_buffer),
-                          VK_OBJECT_TYPE_COMMAND_BUFFER);
-   if (!wcb)
-      return vk_error(&device->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
-
-   wcb->device = device;
-   wcb->pool = pool;
-   wcb->dispatch_handle = dispatch_handle;
-   list_inithead(&wcb->staging_resources);
-   simple_mtx_init(&wcb->resource_mutex, mtx_plain);
-
-   static uint32_t obj_id = 0;
-   wcb->obj_id = obj_id++;
-   list_add(&wcb->link, &device->command_buffer_list);
-
-   *pCommandBuffers = wrapper_command_buffer_to_handle(wcb);
-
-   return VK_SUCCESS;
-}
-
-static void
-wrapper_command_buffer_destroy(struct wrapper_device *device,
-                               struct wrapper_command_buffer *wcb) {
-   free_staging_resources_final(device, wcb, &wcb->staging_resources);
-   simple_mtx_destroy(&wcb->resource_mutex);
-   list_del(&wcb->link);
-   vk_object_free(&device->vk, &device->vk.alloc, wcb);
-}
-
 
 WRAPPER_AllocateCommandBuffers(VkDevice _device,
                                const VkCommandBufferAllocateInfo* pAllocateInfo,
@@ -992,8 +934,8 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
    if (result != VK_SUCCESS) return result;
 
    // TEST: run a debug run of the pass of the lowering pass on the compute shader
-   struct SpirvCode spirv_code = { 0 };
-   optimize_spirv_for_size(spv_code, spv_size / sizeof(uint32_t), &spirv_code);
+   // struct SpirvCode spirv_code = { 0 };
+   // optimize_spirv_for_size(spv_code, spv_size / sizeof(uint32_t), &spirv_code);
 
    VkShaderModule computeShaderModule;
    VkShaderModuleCreateInfo shaderModuleCreateInfo = {
@@ -1172,216 +1114,6 @@ static VkResult SubmitOneTimeCommands(
    WCHECKV(DestroyFence(device, fence, NULL));
    WCHECKV(FreeCommandBuffers(device, commandPool, 1, &commandBuffer));
    return VK_SUCCESS;
-}
-
-static void BCnDecompression(VkFormat format,
-      void* mappedSrcBase,
-      void* mappedDst,
-      const VkBufferImageCopy* regions) {
-
-   const uint8_t* compressedData = (const uint8_t*)mappedSrcBase + (regions ? regions->bufferOffset : 0);
-
-   int height = regions->imageExtent.height;
-   int width = regions->imageExtent.width;
-
-   // Determine the block size and decoding function based on the format
-   uint32_t format_id = format - VK_FORMAT_BC1_RGB_UNORM_BLOCK;
-   uint32_t block_size = 16;
-
-   switch (format_id) {
-   case 0:
-   case 1:
-   case 2:
-   case 3:
-      block_size = BCDEC_BC1_BLOCK_SIZE;
-      break;
-   case 4:
-   case 5:
-      block_size = BCDEC_BC2_BLOCK_SIZE;
-      break;
-   case 6:
-   case 7:
-      block_size = BCDEC_BC3_BLOCK_SIZE;
-      break;
-   case 8:
-   case 9:
-      block_size = BCDEC_BC4_BLOCK_SIZE;
-      break;
-   case 10:
-   case 11:
-      block_size = BCDEC_BC5_BLOCK_SIZE;
-      break;
-   case 12:
-   case 13:
-      block_size = BCDEC_BC6H_BLOCK_SIZE;
-      break;
-   case 14:
-   case 15:
-      block_size = BCDEC_BC7_BLOCK_SIZE;
-      break;
-   default:
-      break;
-   }
-
-   int output_pixel_size_bytes;
-   if (format_id == 12 || format_id == 13) { // BC6H_UFLOAT or BC6H_SFLOAT
-       output_pixel_size_bytes = 8; // R16G16B16A16_SFLOAT = 8 bytes per pixel
-   } else {
-       output_pixel_size_bytes = 4; // R8G8B8A8_UNORM/SNORM = 4 bytes per pixel
-   }
-   int pitch = output_pixel_size_bytes * (regions->bufferRowLength ? regions->bufferRowLength : width);
-
-   uint16_t temp_rgb_block[4 * 4 * 4]; // 4x4, 3 channels (rgb) for bc6h, 4 for everyone else
-
-
-   uint32_t unsupportedBitsBc = get_unsupported_bcn_masks();
-   uint32_t watermarkedBitsBc = get_watermarked_bcn_masks();
-   uint32_t watermark_size = get_watermark_size();
-
-   bool is_masked = (unsupportedBitsBc & (1 << format_id)) != 0;
-   bool is_watermarked = (watermarkedBitsBc & (1 << format_id)) != 0;
-
-   // Loop over the image in 4x4 blocks
-   for (int y = 0; y < height; y += 4) {
-      for (int x = 0; x < width; x += 4) {
-         // Calculate pointer to the destination 4x4 block
-         void *dstPixelBlock =
-                  (uint8_t *) mappedDst + (y * pitch) + (x * output_pixel_size_bytes);
-         
-         if (is_masked || (is_watermarked && x < watermark_size && y < watermark_size)) {
-            for (int i = 0; i < 4; ++i) {
-               for (int j = 0; j < 4; ++j) {
-                  #define WATERMARK(r,g,b) { \
-                     uint8_t* dstRow = (uint8_t*)dstPixelBlock + (i * pitch); \
-                     dstRow[j * 4 + 0] = r; \
-                     dstRow[j * 4 + 1] = g; \
-                     dstRow[j * 4 + 2] = b; \
-                     dstRow[j * 4 + 3] = 0xff; \
-                     break; \
-                  }
-
-                  switch (format_id) {
-                     case 0: // BC1_RGB_UNORM_BLOCK
-                        WATERMARK(0x80, 0, 0); // Maroon
-                     case 1: // BC1_RGB_SRGB_BLOCK
-                        WATERMARK(0x9a, 0x63, 0x24); // Brown
-                     case 2: // BC1_RGBA_UNORM_BLOCK
-                        WATERMARK(0x80, 0x80, 0); // Olive
-                     case 3: // BC1_RGBA_SRGB_BLOCK
-                        WATERMARK(0x46, 0x99, 0x90); // Dark Teal
-                     case 4: // BC2_UNORM_BLOCK
-                        WATERMARK(0x00, 0x00, 0x75); // Navy
-                     case 5: // BC2_SRGB_BLOCK
-                        WATERMARK(0xff, 0xfa, 0xc8); // Beige
-                     case 6: // BC3_UNORM_BLOCK
-                        WATERMARK(0xf5, 0x82, 0x31); // Orange
-                     case 7: // BC3_SRGB_BLOCK
-                        WATERMARK(0xff, 0xe1, 0x19); // Yellow
-                     case 8: // BC4_UNORM_BLOCK
-                        WATERMARK(0xbf, 0xef, 0x45); // Lime green
-                     case 9: // BC4_SNORM_BLOCK
-                        WATERMARK(0x3c, 0xb4, 0x4b); // Green
-                     case 10: // BC5_UNORM_BLOCK
-                        WATERMARK(0x42, 0xd4, 0xf4); // Cyan
-                     case 11: // BC5_SNORM_BLOCK
-                        WATERMARK(0x91, 0x1e, 0xb4); // Purple
-                     case 12: // BC6H_UFLOAT
-                        {
-                           // Magenta
-                           uint16_t* dstRow = (uint16_t*)((uint8_t*)dstPixelBlock + (i * pitch));
-                           dstRow[j * 4 + 0] = 0x3c00;
-                           dstRow[j * 4 + 1] = 0x3c00;
-                           dstRow[j * 4 + 2] = 0;
-                           dstRow[j * 4 + 3] = 0x3C00;
-                           break;
-                        }
-                     case 13: // BC6H_SFLOAT
-                        {
-                           // Red
-                           uint16_t* dstRow = (uint16_t*)((uint8_t*)dstPixelBlock + (i * pitch));
-                           dstRow[j * 4 + 0] = 0x3c00;
-                           dstRow[j * 4 + 1] = 0;
-                           dstRow[j * 4 + 2] = 0;
-                           dstRow[j * 4 + 3] = 0x3C00;
-                           break;
-                        }
-                     case 14:
-                        WATERMARK(0xaa, 0xff, 0xc3); // Mint
-                     case 15:
-                        WATERMARK(0xfa, 0xbe, 0xd4); // Pink
-                     default:
-                        // Unknown/unsupported format, do nothing.
-                        WLOGE("ERROR: Unsupported BCn format %d", format);
-                        break;
-                  }
-               }
-            }
-
-            compressedData += block_size;
-            continue;
-         }
-
-         switch (format_id) {
-            case 0: // BC1_RGB_UNORM_BLOCK
-            case 1: // BC1_RGB_SRGB_BLOCK
-            case 2: // BC1_RGBA_UNORM_BLOCK
-            case 3: // BC1_RGBA_SRGB_BLOCK
-                  bcdec_bc1(compressedData, dstPixelBlock, pitch);
-                  break;
-
-            case 4: // BC2_UNORM_BLOCK
-            case 5: // BC2_SRGB_BLOCK
-                  bcdec_bc2(compressedData, dstPixelBlock, pitch);
-                  break;
-
-            case 6: // BC3_UNORM_BLOCK
-            case 7: // BC3_SRGB_BLOCK
-                  bcdec_bc3(compressedData, dstPixelBlock, pitch);
-                  break;
-
-            case 8: // BC4_UNORM_BLOCK
-            case 9: // BC4_SNORM_BLOCK
-                  bcdec_bc4(compressedData, dstPixelBlock,
-                                 pitch, format_id == 9);
-                  break;
-
-            case 10: // BC5_UNORM_BLOCK
-            case 11: // BC5_SNORM_BLOCK
-                  bcdec_bc5(compressedData, dstPixelBlock,
-                                 pitch, format_id == 11);
-                  break;
-            case 12: // BC6H_UFLOAT
-            case 13: // BC6H_SFLOAT
-                  {
-                     bcdec_bc6h_half(compressedData, temp_rgb_block, 4 * 3, format_id==13);
-                     for (int i = 0; i < 4; ++i) {
-                        // Start of the current destination row for the 4x4 block
-                        uint16_t* dstRow = (uint16_t*)((uint8_t*)dstPixelBlock + (i * pitch));
-                        for (int j = 0; j < 4; ++j) {
-                           // Calculate index into the temporary RGB half-float array
-                           int src_pixel_offset = (i * 4 + j) * 3; // 3 channels per texel
-                           dstRow[j * 4 + 0] = temp_rgb_block[src_pixel_offset + 0]; // R
-                           dstRow[j * 4 + 1] = temp_rgb_block[src_pixel_offset + 1]; // G
-                           dstRow[j * 4 + 2] = temp_rgb_block[src_pixel_offset + 2]; // B
-                           dstRow[j * 4 + 3] = 0x3C00; // A
-                        }
-                     }
-                     break;
-                  }
-            case 14:
-            case 15:
-                  bcdec_bc7(compressedData, dstPixelBlock, pitch);
-                  break;
-            default:
-                  // Unknown/unsupported format, do nothing.
-                  WLOGE("ERROR: Unsupported BCn format %d", format);
-                  break;
-         }
-
-         // Advance the source pointer to the next block
-         compressedData += block_size;
-      }
-   }
 }
 
 // Takes in the srcBuffer and decompresses it into a staging buffer
@@ -1804,7 +1536,8 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
    int decode_id = counter++;
    WLOG("Emulating support for format=%d, decode_id=%d", wimg->original_format, decode_id);
 
-   bool dump_artifacts = CHECK_FLAG("DUMP_BCN_ARTIFACTS");
+   bool validate_bcn = CHECK_FLAG("VALIDATE_BCN");
+   bool dump_artifacts = CHECK_FLAG("DUMP_BCN_ARTIFACTS") || validate_bcn;
    bool use_cpu_bcn = (get_host_decoding_bcn_masks() & (1 << (wimg->original_format - 131))) != 0;
    bool use_compute_shader = use_compute_shader_mode() && !use_cpu_bcn;
    bool use_image_view = use_image_view_mode() && !use_cpu_bcn && !dump_artifacts;
@@ -1903,7 +1636,7 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
 
       if (dump_artifacts) {
          // Invariant: srcBuffer contains the BCn blocks, stagingBuffer contains the output
-         RecordBCnArtifacts(_device, wimg->original_format, region, srcBuffer, stagingBuffer, decode_id);
+         RecordBCnArtifacts(_device, wimg->original_format, region, srcBuffer, stagingBuffer, decode_id, validate_bcn);
       }
 
       if (!use_image_view) {
