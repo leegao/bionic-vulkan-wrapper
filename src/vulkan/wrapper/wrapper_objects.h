@@ -159,6 +159,14 @@ wrapper_device_memory_create(struct wrapper_device *device,
 void
 wrapper_device_memory_destroy(struct wrapper_device_memory *mem);
 
+VkResult wrapper_command_buffer_create(struct wrapper_device *device,
+                              VkCommandPool pool,
+                              VkCommandBuffer dispatch_handle,
+                              VkCommandBuffer *pCommandBuffers);
+
+void wrapper_command_buffer_destroy(struct wrapper_device *device,
+                               struct wrapper_command_buffer *wcb);
+
 typedef struct wrapper_staging_resources {
     struct list_head link_in_parent;
     VkObjectType type;

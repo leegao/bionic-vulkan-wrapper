@@ -145,3 +145,37 @@ void free_staging_resources_if_ready(
     if (cleaned_up)
         WLOGD("Released %d staging resources for handle %p", cleaned_up, handle);
 }
+
+VkResult wrapper_command_buffer_create(struct wrapper_device *device,
+                              VkCommandPool pool,
+                              VkCommandBuffer dispatch_handle,
+                              VkCommandBuffer *pCommandBuffers) {
+   struct wrapper_command_buffer *wcb;
+   wcb = vk_object_zalloc(&device->vk, &device->vk.alloc,
+                          sizeof(struct wrapper_command_buffer),
+                          VK_OBJECT_TYPE_COMMAND_BUFFER);
+   if (!wcb)
+      return vk_error(&device->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
+
+   wcb->device = device;
+   wcb->pool = pool;
+   wcb->dispatch_handle = dispatch_handle;
+   list_inithead(&wcb->staging_resources);
+   simple_mtx_init(&wcb->resource_mutex, mtx_plain);
+
+   static uint32_t obj_id = 0;
+   wcb->obj_id = obj_id++;
+   list_add(&wcb->link, &device->command_buffer_list);
+
+   *pCommandBuffers = wrapper_command_buffer_to_handle(wcb);
+
+   return VK_SUCCESS;
+}
+
+void wrapper_command_buffer_destroy(struct wrapper_device *device,
+                               struct wrapper_command_buffer *wcb) {
+   free_staging_resources_final(device, wcb, &wcb->staging_resources);
+   simple_mtx_destroy(&wcb->resource_mutex);
+   list_del(&wcb->link);
+   vk_object_free(&device->vk, &device->vk.alloc, wcb);
+}
