@@ -20,6 +20,10 @@ uint32_t get_host_decoding_bcn_masks(void);
 
 uint32_t get_disabled_bcn_masks(void);
 
+uint32_t get_dump_bcn_masks(void);
+
+uint32_t get_validate_bcn_masks(void);
+
 uint32_t get_watermark_size(void);
 
 void initialize_cmd_print_masks(void);

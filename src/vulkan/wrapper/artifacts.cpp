@@ -91,16 +91,6 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
         WLOGE("dstBuffer not bound, skipping (decode_id=%d)", decode_id);
     }
     // Invalidate the memory to be visible to the host in case this was decoded via the compute shader
-    VkMappedMemoryRange flushRange = {
-        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
-        .memory = dst_wbuf->memory,
-        .offset = 0,
-        .size = VK_WHOLE_SIZE,
-    };
-    result = WCHECK(InvalidateMappedMemoryRanges((VkDevice) device, 1, &flushRange));
-    if (result != VK_SUCCESS) {
-        WLOGE("Failed to flush dstBuffer memory: %d", result);
-    }
     VkMemoryMapInfoKHR mapInfoDst = {
         .sType = VK_STRUCTURE_TYPE_MEMORY_MAP_INFO_KHR,
         .memory = dst_wbuf->memory,
@@ -111,6 +101,16 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
     if (result != VK_SUCCESS) {
         WLOGE("Failed to map dstBuffer memory: %d", result);
         return;
+    }
+    VkMappedMemoryRange flushRange = {
+        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+        .memory = dst_wbuf->memory,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
+    };
+    result = WCHECK(InvalidateMappedMemoryRanges((VkDevice) device, 1, &flushRange));
+    if (result != VK_SUCCESS) {
+        WLOGE("Failed to flush dstBuffer memory: %d", result);
     }
 
     void* referenceData = NULL;
@@ -142,7 +142,7 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
         int blocks = blocks_stride * block_rows;
         int block_size = get_bc_block_size(original_format);
         auto fd = open_log_file("_src.dat", original_format, width, height, decode_id, "wb");
-        fwrite(srcData, block_size, blocks, fd);
+        fwrite((uint8_t*) srcData + region->bufferOffset, block_size, blocks, fd);
         fclose(fd);
     }
 

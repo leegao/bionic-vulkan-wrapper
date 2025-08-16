@@ -334,8 +334,8 @@ WRAPPER_CreateDevice(VkPhysicalDevice physicalDevice,
                                  device->dispatch_handle);
 
    // Initialize the BCn interceptor states
-   bool validate_bcn = CHECK_FLAG("VALIDATE_BCN");
-   bool dump_artifacts = CHECK_FLAG("DUMP_BCN_ARTIFACTS") || validate_bcn;
+   bool validate_bcn = get_validate_bcn_masks() > 0;
+   bool dump_artifacts = (get_dump_bcn_masks() > 0) || validate_bcn;
    bool use_image_view = use_image_view_mode() && !dump_artifacts;
    
    result = InterceptorState_Init(&device->s3tc, 
@@ -1536,12 +1536,11 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
    int decode_id = counter++;
    WLOG("Emulating support for format=%d, decode_id=%d", wimg->original_format, decode_id);
 
-   bool validate_bcn = CHECK_FLAG("VALIDATE_BCN");
-   bool dump_artifacts = CHECK_FLAG("DUMP_BCN_ARTIFACTS") || validate_bcn;
+   bool validate_bcn = (get_validate_bcn_masks() & (1 << (wimg->original_format - 131))) != 0;
+   bool dump_artifacts = ((get_dump_bcn_masks() & (1 << (wimg->original_format - 131))) != 0) || validate_bcn;
    bool use_cpu_bcn = (get_host_decoding_bcn_masks() & (1 << (wimg->original_format - 131))) != 0;
    bool use_compute_shader = use_compute_shader_mode() && !use_cpu_bcn;
-   bool use_image_view = use_image_view_mode() && !use_cpu_bcn && !dump_artifacts;
-   
+   bool use_image_view = use_image_view_mode() && !use_cpu_bcn && get_validate_bcn_masks() == 0 && get_dump_bcn_masks() == 0;
    // Check if the queues are the same
    struct wrapper_command_pool *pool = get_wrapper_command_pool(_device, wcb->pool);
    if (!pool) {
