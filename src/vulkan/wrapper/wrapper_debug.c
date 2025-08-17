@@ -298,6 +298,43 @@ void initialize_cmd_print_masks() {
         CMD(GetBufferMemoryRequirements2);
     }
 
+    if (strstr(mask_bcn, "bcn")) {
+        CMD(QueueSubmit);
+        CMD(CreateFence);
+        CMD(DestroyFence);
+        CMD(ResetFences);
+        CMD(WaitForFences);
+        CMD(CreateBuffer);
+        CMD(CreateBufferView);
+        CMD(CreateImageView);
+        // CMD(CreateShaderModule);
+        CMD(CreateComputePipelines);
+        CMD(CreateGraphicsPipelines);
+        CMD(CreatePipelineLayout);
+        CMD(CreateDescriptorSetLayout);
+        CMD(UpdateDescriptorSets);
+        CMD(ResetCommandPool);
+        CMD(AllocateCommandBuffers);
+        CMD(BeginCommandBuffer);
+        CMD(EndCommandBuffer);
+        CMD(CmdBindPipeline);
+        CMD(CmdBindDescriptorSets);
+        CMD(CmdDispatch);
+        CMD(CmdCopyBuffer);
+        CMD(CmdCopyImage);
+        CMD(CmdCopyBufferToImage);
+        CMD(CmdPipelineBarrier);
+        CMD(CmdPushConstants);
+        CMD(BindBufferMemory);
+        CMD(BindBufferMemory2);
+        CMD(BindImageMemory);
+        CMD(BindImageMemory2);
+        CMD(GetBufferMemoryRequirements2);
+        CMD(GetBufferMemoryRequirements);
+        CMD(AllocateMemory);
+        CMD(MapMemory2KHR);
+        CMD(UnmapMemory);
+    }
 
 // #define CHECK_CMD_MASK(cmd) \
 //     if (strstr(mask_bcn, #cmd)) SET_VK_ID_##cmd##_ON(wrapper_printer_masks);

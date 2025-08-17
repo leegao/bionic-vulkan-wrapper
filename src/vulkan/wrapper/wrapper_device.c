@@ -934,8 +934,12 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
    if (result != VK_SUCCESS) return result;
 
    // TEST: run a debug run of the pass of the lowering pass on the compute shader
-   // struct SpirvCode spirv_code = { 0 };
-   // optimize_spirv_for_size(spv_code, spv_size / sizeof(uint32_t), &spirv_code);
+   if (CHECK_FLAG("OPT_SHADERS")) {
+      struct SpirvCode spirv_code = { 0 };
+      optimize_spirv_for_size(spv_code, spv_size / sizeof(uint32_t), &spirv_code);
+      spv_size = spirv_code.spirv_word_count * 4;
+      spv_code = spirv_code.spirv_code;
+   }
 
    VkShaderModule computeShaderModule;
    VkShaderModuleCreateInfo shaderModuleCreateInfo = {
@@ -1535,6 +1539,7 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
    _Atomic static int counter = 0;
    int decode_id = counter++;
    WLOG("Emulating support for format=%d, decode_id=%d", wimg->original_format, decode_id);
+   VK_CMD_LOG("\nEmulating BCn for format=%d, decode_id=%d", wimg->original_format, decode_id);
 
    bool validate_bcn = (get_validate_bcn_masks() & (1 << (wimg->original_format - 131))) != 0;
    bool dump_artifacts = ((get_dump_bcn_masks() & (1 << (wimg->original_format - 131))) != 0) || validate_bcn;
