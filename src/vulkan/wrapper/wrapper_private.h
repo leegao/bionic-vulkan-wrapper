@@ -452,7 +452,10 @@ static void populate_bc6_decoding_constants(Bc6Constants* constants) {
 void BCnDecompression(VkFormat format,
       void* mappedSrcBase,
       void* mappedDst,
-      const VkBufferImageCopy* regions);
+      const VkBufferImageCopy* regions,
+      bool is_striped);
+
+bool is_striped(VkFormat format, void* mappedSrcBase, const VkBufferImageCopy* regions);
 
 #ifdef __cplusplus
 }

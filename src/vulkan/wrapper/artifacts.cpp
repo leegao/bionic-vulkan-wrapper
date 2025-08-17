@@ -43,7 +43,7 @@ static bool ValidateBCn(struct wrapper_device* device, VkFormat original_format,
     int block_cols = (region->imageExtent.height + 3) / 4;
     void* stagingData = malloc(block_rows * block_cols * 16 * block_size);
     WLOGD("Decoding for validation, fmt=%d, size=%d", original_format,  data_size);
-    BCnDecompression(original_format, srcData, stagingData, region);
+    BCnDecompression(original_format, srcData, stagingData, region, false);
 
     WLOGD("Calculating h1 for stagingData, fmt=%d, size=%d", original_format,  data_size);
     auto h1 = XXH32(stagingData, data_size, 0);
@@ -127,26 +127,25 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
 
     int width = region->imageExtent.width;
     int height = region->imageExtent.height;
-    if (region) {
-        auto fd = open_log_file("_region.txt", original_format, width, height, decode_id, "w");
+    FILE* fd;
+    if (region && (fd = open_log_file("_region.txt", original_format, width, height, decode_id, "w"))) {
         fprintf(fd, "src: %p\n", srcBuffer);
         vk_print_VkBufferImageCopy(0, 0, fd, "", region);
         fclose(fd);
     }
 
-    {
+    if ((fd = open_log_file("_src.dat", original_format, width, height, decode_id, "wb"))) {
         int w = region->bufferRowLength ? region->bufferRowLength : region->imageExtent.width;
         int h = region->bufferImageHeight ? region->bufferImageHeight : region->imageExtent.height;
         int blocks_stride = (w + 3) / 4;
         int block_rows = (h + 3) / 4;
         int blocks = blocks_stride * block_rows;
         int block_size = get_bc_block_size(original_format);
-        auto fd = open_log_file("_src.dat", original_format, width, height, decode_id, "wb");
         fwrite((uint8_t*) srcData + region->bufferOffset, block_size, blocks, fd);
         fclose(fd);
     }
 
-    {
+    if ((fd = open_log_file("_dst.dat", original_format, width, height, decode_id, "wb"))) {
         int block_size = get_bc_target_size(device->physical, original_format);
         auto fd = open_log_file("_dst.dat", original_format, width, height, decode_id, "wb");
         fwrite(dstData, block_size, region->imageExtent.width * region->imageExtent.height, fd);
@@ -154,11 +153,54 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
         WCHECKV(UnmapMemory((VkDevice) device, dst_wbuf->memory));
     }
 
-    if (referenceData) {
+    if (referenceData && (fd = open_log_file("_ref.dat", original_format, width, height, decode_id, "wb"))) {
         int block_size = get_bc_target_size(device->physical, original_format);
-        auto fd = open_log_file("_ref.dat", original_format, width, height, decode_id, "wb");
         fwrite(referenceData, block_size, region->imageExtent.width * region->imageExtent.height, fd);
         fclose(fd);
         free(referenceData);
+    }
+}
+
+
+extern "C"
+void RecordBCnSrcArtifacts(struct wrapper_device* device, VkFormat original_format,
+    const VkBufferImageCopy* region, VkBuffer srcBuffer, int decode_id) {
+    void *srcData;
+    VkResult result;
+
+    struct wrapper_buffer* src_wbuf = get_wrapper_buffer(device, srcBuffer);
+    if (!src_wbuf) {
+        WLOGE("srcBuffer not tracked, skipping (decode_id=%d)", decode_id);
+        return;
+    } else if (src_wbuf->memory == VK_NULL_HANDLE) {
+        WLOGE("srcBuffer not bound, skipping (decode_id=%d)", decode_id);
+        return;
+    }
+    VkMemoryMapInfoKHR mapInfoSrc = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_MAP_INFO_KHR,
+        .memory = src_wbuf->memory,
+        .offset = src_wbuf->memoryOffset,
+        .size = VK_WHOLE_SIZE,
+    };
+    result = WCHECK(MapMemory2KHR((VkDevice) device, &mapInfoSrc, &srcData));
+    if (result != VK_SUCCESS) {
+        WLOGE("Failed to map srcBuffer memory: %d", result);
+        return;
+    }
+
+    int width = region->imageExtent.width;
+    int height = region->imageExtent.height;
+
+    FILE* fd;
+    if (region && (fd = open_log_file("_sregion.txt", original_format, width, height, decode_id, "w"))) {
+        fprintf(fd, "src: %p\n", srcBuffer);
+        fprintf(fd, "src_id: %d\n", src_wbuf->obj_id);
+        vk_print_VkBufferImageCopy(0, 0, fd, "", region);
+        fclose(fd);
+    }
+
+    if ((fd = open_log_file("_sbuf.dat", VK_FORMAT_BC1_RGBA_UNORM_BLOCK, src_wbuf->vk.size, 1, src_wbuf->obj_id, "wb"))) {
+        fwrite((uint8_t*) srcData, 1, src_wbuf->vk.size, fd);
+        fclose(fd);
     }
 }
