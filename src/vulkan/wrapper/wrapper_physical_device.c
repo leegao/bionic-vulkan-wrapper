@@ -212,11 +212,36 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       const char *app_name = instance->vk.app_info.app_name
          ? instance->vk.app_info.app_name : "wrapper";
 
+      bool is_dxvk = (instance->vk.app_info.engine_name != NULL) && (strcmp(instance->vk.app_info.engine_name, "DXVK") == 0);
+      if (!is_dxvk) WLOGE("WARNING: this wrapper may not be compatible for non-dxvk game engines, use at your own risks");
+
+#define DXVK(a, b, c) (a * 0x400000 + b * 0x1000 + c);
+      bool is_dxvk_2_plus = is_dxvk && instance->vk.app_info.engine_version >= DXVK(2, 0, 0);
+      bool is_dxvk_1_10_3 = is_dxvk && instance->vk.app_info.engine_version == DXVK(1, 10, 3);
+
+      WLOGD("AppInfo: app_name = %s, engine_name = %s, engine_version = %x",
+         instance->vk.app_info.app_name ? instance->vk.app_info.app_name : "(unknown)",
+         instance->vk.app_info.engine_name ? instance->vk.app_info.engine_name : "(unknown)",
+         instance->vk.app_info.engine_version);
+      WLOGD("DriverInfo: driver_id = %d, driver_name = %s, driver_info = %s",
+         pdevice->driver_properties.driverID,
+         pdevice->driver_properties.driverName,
+         pdevice->driver_properties.driverInfo);
+
       if (pdevice->driver_properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY &&
           pdevice->properties2.properties.driverVersion > VK_MAKE_VERSION(512, 744, 0) &&
           strstr(app_name, "clvk")) {
          /* HACK: Fixed clvk not working on qualcomm proprietary driver. */
          supported_features->globalPriorityQuery = false;
+      }
+
+      if (pdevice->driver_properties.driverID == VK_DRIVER_ID_ARM_PROPRIETARY
+            && pdevice->vk.supported_extensions.EXT_extended_dynamic_state
+            && !is_dxvk_2_plus) {
+         WLOG("Disabling VK_EXT_extended_dynamic_state on Mali drivers");
+         pdevice->vk.supported_extensions.EXT_extended_dynamic_state = false;
+         pdevice->vk.supported_extensions.EXT_extended_dynamic_state2 = false;
+         pdevice->vk.supported_extensions.EXT_extended_dynamic_state3 = false;
       }
 
       pdevice->dma_heap_fd = open("/dev/dma_heap/system", O_RDONLY);
