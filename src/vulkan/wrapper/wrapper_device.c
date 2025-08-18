@@ -288,7 +288,8 @@ WRAPPER_CreateDevice(VkPhysicalDevice physicalDevice,
    if (pdf2 && pdf2->features.feature) { \
       pdf2->features.feature &= physical_device->base_supported_features.feature; \
    }
-   
+
+   DISABLE_FEATURE(geometryShader);
    DISABLE_FEATURE(textureCompressionBC);
    DISABLE_FEATURE(multiViewport);
    DISABLE_FEATURE(depthClamp);
