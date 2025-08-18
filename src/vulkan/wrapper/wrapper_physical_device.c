@@ -149,6 +149,8 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
 
       struct vk_features *supported_features = &pdevice->vk.supported_features;
       pdevice->base_supported_features = *supported_features;
+
+      supported_features->geometryShader = true;
       supported_features->presentId = true;
       supported_features->multiViewport = true;
       supported_features->depthClamp = true;
