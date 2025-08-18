@@ -238,10 +238,15 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       if (pdevice->driver_properties.driverID == VK_DRIVER_ID_ARM_PROPRIETARY
             && pdevice->vk.supported_extensions.EXT_extended_dynamic_state
             && !is_dxvk_2_plus) {
-         WLOG("Disabling VK_EXT_extended_dynamic_state on Mali drivers");
+         WLOG("Disabling VK_EXT_extended_dynamic_state on Mali proprietary drivers");
          pdevice->vk.supported_extensions.EXT_extended_dynamic_state = false;
          pdevice->vk.supported_extensions.EXT_extended_dynamic_state2 = false;
          pdevice->vk.supported_extensions.EXT_extended_dynamic_state3 = false;
+      }
+
+      if (pdevice->driver_properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY) {
+         WLOG("Disabling VK_KHR_shader_float_controls on Qualcom proprietary drivers");
+         pdevice->vk.supported_extensions.KHR_shader_float_controls = false;
       }
 
       pdevice->dma_heap_fd = open("/dev/dma_heap/system", O_RDONLY);

@@ -73,7 +73,7 @@ const struct vk_device_extension_table wrapper_filter_extensions =
 {
    .EXT_hdr_metadata = true,
    .GOOGLE_display_timing = true,
-   .KHR_shader_float_controls = true,
+   // .KHR_shader_float_controls = true, // per @bylaws, this only affects Qualcomm
    .KHR_shared_presentable_image = true,
    .EXT_image_compression_control_swapchain = true,
 };
