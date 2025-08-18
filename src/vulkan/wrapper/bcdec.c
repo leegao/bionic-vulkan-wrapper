@@ -178,12 +178,47 @@ void BCnDecompression(VkFormat format,
 
             case 8: // BC4_UNORM_BLOCK
             case 9: // BC4_SNORM_BLOCK
-                    bcdec_bc4(srcDataBlock, dstPixelBlock, dst_stride, format_id == 9);
+                    bcdec__bc4_block(srcDataBlock, dstPixelBlock, dst_stride, 4, format_id == 9);
+                    {
+                        // Fill the remaining GBA channels with G=R, B=R, and A=255
+                        unsigned char* block = (unsigned char*) dstPixelBlock;
+                        for (int i = 0; i < 4; i++) {
+                            for (int j = 0; j < 4; j++) {
+                                block[j * 4 + 1] = block[j * 4];
+                                block[j * 4 + 2] = block[j * 4];
+                                if (format_id == 8) {
+                                    block[j * 4 + 3] = 255;
+                                } else {
+                                    ((signed char*) block)[j * 4 + 3] = (signed char) 127;
+                                }
+                            }
+                            block += dst_stride;
+                        }
+                    }
                     break;
 
             case 10: // BC5_UNORM_BLOCK
             case 11: // BC5_SNORM_BLOCK
-                    bcdec_bc5(srcDataBlock, dstPixelBlock, dst_stride, format_id == 11);
+                    bcdec__bc4_block(srcDataBlock, dstPixelBlock, dst_stride, 4, format_id == 11);
+                    bcdec__bc4_block(((char*)srcDataBlock) + 8, ((char*)dstPixelBlock) + 1, dst_stride, 4, format_id == 11);
+                    {
+                        // Fill the remaining BA channel with B=0 and A=255
+                        unsigned char* block = (unsigned char*) dstPixelBlock;
+                        for (int i = 0; i < 4; i++) {
+                            for (int j = 0; j < 4; j++) {
+                                block[j * 4 + 2] = 0;
+                                block[j * 4 + 3] = 255;
+                                if (format_id == 10) {
+                                    block[j * 4 + 2] = 0;
+                                    block[j * 4 + 3] = 255;
+                                } else {
+                                    ((signed char*) block)[j * 4 + 2] = (signed char) 0;
+                                    ((signed char*) block)[j * 4 + 3] = (signed char) 127;
+                                }
+                            }
+                            block += dst_stride;
+                        }
+                    }
                     break;
             case 12: // BC6H_UFLOAT
             case 13: // BC6H_SFLOAT
