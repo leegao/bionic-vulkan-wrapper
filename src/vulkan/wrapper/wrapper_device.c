@@ -934,8 +934,12 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
    if (result != VK_SUCCESS) return result;
 
    // TEST: run a debug run of the pass of the lowering pass on the compute shader
-   // struct SpirvCode spirv_code = { 0 };
-   // optimize_spirv_for_size(spv_code, spv_size / sizeof(uint32_t), &spirv_code);
+   if (CHECK_FLAG("OPT_SHADERS")) {
+      struct SpirvCode spirv_code = { 0 };
+      optimize_spirv_for_size(spv_code, spv_size / sizeof(uint32_t), &spirv_code);
+      spv_size = spirv_code.spirv_word_count * 4;
+      spv_code = spirv_code.spirv_code;
+   }
 
    VkShaderModule computeShaderModule;
    VkShaderModuleCreateInfo shaderModuleCreateInfo = {
@@ -1124,7 +1128,8 @@ static VkResult HostSideDecompression(
       wrapper_buffer* srcBuffer,
       VkDeviceMemory dstMemory,
       const VkBufferImageCopy* region,
-      VkFormat in_format
+      VkFormat in_format,
+      bool is_striped
 ) {
    // Map the source buffer
    void* srcData;
@@ -1158,7 +1163,8 @@ static VkResult HostSideDecompression(
       in_format,
       srcData,
       dstData,
-      region
+      region,
+      is_striped
    );
 
    // Upload a magenta color for debugging
@@ -1524,6 +1530,15 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
       return;
    }
 
+   _Atomic static int counter = 0;
+   int decode_id = counter++;
+
+   bool dump_src_bcn = (get_dump_src_bcn_masks() & (1 << (wimg->original_format - 131))) != 0;
+   if (dump_src_bcn) {
+      WLOGD("Dumping bcn src artifacts for format=%d, decode_id=%d", wimg->original_format, decode_id);
+      RecordBCnSrcArtifacts(_device, wimg->original_format, pRegions, srcBuffer, decode_id);
+   }
+
    if (!wimg->is_bcn_emulated) {
       // If no BCn emulation needed, just fall-through
       CHECKV(CmdCopyBufferToImage(commandBuffer, srcBuffer, dstImage,
@@ -1532,15 +1547,15 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
    }
 
    // --- Decompression Path ---
-   _Atomic static int counter = 0;
-   int decode_id = counter++;
    WLOG("Emulating support for format=%d, decode_id=%d", wimg->original_format, decode_id);
+   VK_CMD_LOG("\nEmulating BCn for format=%d, decode_id=%d", wimg->original_format, decode_id);
 
    bool validate_bcn = (get_validate_bcn_masks() & (1 << (wimg->original_format - 131))) != 0;
    bool dump_artifacts = ((get_dump_bcn_masks() & (1 << (wimg->original_format - 131))) != 0) || validate_bcn;
    bool use_cpu_bcn = (get_host_decoding_bcn_masks() & (1 << (wimg->original_format - 131))) != 0;
    bool use_compute_shader = use_compute_shader_mode() && !use_cpu_bcn;
    bool use_image_view = use_image_view_mode() && !use_cpu_bcn && get_validate_bcn_masks() == 0 && get_dump_bcn_masks() == 0;
+   bool check_for_striping = CHECK_FLAG("CHECK_FOR_STRIPING");
    // Check if the queues are the same
    struct wrapper_command_pool *pool = get_wrapper_command_pool(_device, wcb->pool);
    if (!pool) {
@@ -1554,8 +1569,6 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
       wcb->bcnCommands++;
    }
 
-   WLOGD("  + use_compute_shader=%d, use_image_view=%d", use_compute_shader, use_image_view);
-
    struct wrapper_buffer* wbuf = get_wrapper_buffer(_device, srcBuffer);
    if (!wbuf) {
       WLOG("wrapper_CmdCopyBufferToImage: srcBuffer not tracked");
@@ -1563,6 +1576,42 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
 
    for (uint32_t i = 0; i < regionCount; ++i) {
       const VkBufferImageCopy* region = &pRegions[i];
+      bool striped = false;
+      if (check_for_striping) {
+         if (!wbuf) {
+            WLOGE("srcBuffer not tracked, skipping (decode_id=%d)", decode_id);
+            return;
+         } else if (wbuf->memory == VK_NULL_HANDLE) {
+            WLOGE("srcBuffer not bound, skipping (decode_id=%d)", decode_id);
+            return;
+         }
+         VkMemoryMapInfoKHR mapInfoSrc = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_MAP_INFO_KHR,
+            .memory = wbuf->memory,
+            .offset = wbuf->memoryOffset,
+            .size = VK_WHOLE_SIZE,
+         };
+         void* srcData;
+         result = WCHECK(MapMemory2KHR((VkDevice) _device, &mapInfoSrc, &srcData));
+         if (result != VK_SUCCESS) {
+            WLOGE("Failed to map srcBuffer memory: %d", result);
+            return;
+         }
+         // Check if we have enough space
+         int block_size = get_bc_block_size(wimg->original_format);
+         int buffer_size = block_size * ((region->imageExtent.width + 3) / 4) * ((region->imageExtent.height + 3) / 4);
+         // TODO: figure out the right boundary size
+         striped = is_striped(wimg->original_format, srcData, region) && wbuf->vk.size >= 4 * buffer_size;
+         if (striped) {
+            WLOG("WARN: BCn Buffer %p (fmt=%d) is striped (decode_id=%d)", srcBuffer, wimg->original_format, decode_id);
+            // TODO: Compute shader de-striping not supported
+            use_compute_shader = false;
+            use_image_view = false;
+         }
+         // TODO: cleanup memory mapping when wrapper_device_memory is virtualized
+      }
+
+      WLOGD("use_compute_shader=%d, use_image_view=%d", use_compute_shader, use_image_view);
 
       VkBuffer stagingBuffer;
       VkDeviceMemory stagingBufferMemory;
@@ -1626,7 +1675,7 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             CmdComputeShaderForDecompression(wcb, &args);
          }
       } else {
-         result = HostSideDecompression(_device, wbuf, stagingBufferMemory, region, wimg->original_format);
+         result = HostSideDecompression(_device, wbuf, stagingBufferMemory, region, wimg->original_format, striped);
          if (result != VK_SUCCESS) {
             WLOGE("Host BCn decompression failed, expect visual glitches.");
             return;
