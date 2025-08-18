@@ -1757,6 +1757,28 @@ WRAPPER_CreateShaderModule(VkDevice device,
    return CHECK(CreateShaderModule(device, &newCreateInfo, pAllocator, pShaderModule));
 }
 
+#define TEMP_ALLOC(wdev, temp, type, size) ({ \
+   type* __output = wdev ? \
+      ((type *) vk_zalloc(&wdev->vk.alloc, size, alignof(type), VK_SYSTEM_ALLOCATION_SCOPE_OBJECT)) : \
+      ((type *) malloc(size)); \
+   if (__output) { \
+      struct temp_object_node *node = wdev ? \
+         vk_alloc(&wdev->vk.alloc, sizeof(struct temp_object_node), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT) : \
+         malloc(sizeof(struct temp_object_node)); \
+      node->ptr = __output; \
+      node->device = wdev; \
+      list_addtail(&node->link, &(temp)->objects); \
+   } \
+   __output; })
+
+#define TEMP_ARRAY(wdev, temp, type, len, orig) ({ \
+      type* __output2 = TEMP_ALLOC(wdev, temp, type, (sizeof(type) * len)); \
+      for (int _i = 0; _i < len; _i++) { \
+         __output2[_i] = (orig)[_i]; \
+      } \
+      __output2; \
+   })
+
 WRAPPER_CreateGraphicsPipelines(
     VkDevice device,
     VkPipelineCache pipelineCache,
@@ -1765,22 +1787,51 @@ WRAPPER_CreateGraphicsPipelines(
     const VkAllocationCallbacks* pAllocator,
     VkPipeline* pPipelines) {
    VK_FROM_HANDLE(wrapper_device, wdev, device);
+   struct temporary_objects temp;
+   list_inithead(&temp.objects);
+   VkGraphicsPipelineCreateInfo* create_infos = TEMP_ARRAY(wdev, &temp, VkGraphicsPipelineCreateInfo, createInfoCount, pCreateInfos);
+
    // Check for fillModeNonSolid support
    if (!wdev->physical->base_supported_features.fillModeNonSolid) {
-      _Atomic static int counter = 0;
       for (int i = 0; i < createInfoCount; i++) {
-         if (!pCreateInfos[i].pRasterizationState || pCreateInfos[i].pRasterizationState->polygonMode != VK_POLYGON_MODE_LINE) {
+         if (!create_infos[i].pRasterizationState || create_infos[i].pRasterizationState->polygonMode != VK_POLYGON_MODE_LINE) {
             continue;
          }
-         int id = counter++;
-         if (id < 10) {
-            WLOGE("VK_POLYGON_MODE_LINE requested, but fillModeNonSolid is not supported on this device");
-         } else if (id == 10) {
-            WLOGE("VK_POLYGON_MODE_LINE requested, but fillModeNonSolid is not supported on this device");
-            WLOGE("(this message has been shown 10 times, not reporting again)")
-         }
+         WLOG("VK_POLYGON_MODE_LINE requested, but fillModeNonSolid is not supported on this device, using VK_POLYGON_MODE_FILL instead");
+         ((VkPipelineRasterizationStateCreateInfo*) create_infos[i].pRasterizationState)->polygonMode = VK_POLYGON_MODE_FILL;
       }
    }
 
-   return CHECK(CreateGraphicsPipelines(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines));
+   // Check for geometryShader support, needed for PVR GPUs
+   // See https://gist.github.com/leegao/e24afbb5f55fe678139197d703d7f600#file-gistfile1-txt-L69
+   if (!wdev->physical->base_supported_features.geometryShader) {
+      for (int i = 0; i < createInfoCount; i++) {
+         VkGraphicsPipelineCreateInfo* ci = &create_infos[i];
+         // Get the number of non-geometryShader stages
+         int stageCount = 0;
+         for (int j = 0; j < ci->stageCount; j++) {
+            if ((ci->pStages[j].stage & VK_SHADER_STAGE_GEOMETRY_BIT) == 0) {
+               stageCount++;
+            }
+         }
+         if (stageCount != ci->stageCount) {
+            continue;
+         }
+         int idx = 0;
+         VkPipelineShaderStageCreateInfo* stages = TEMP_ALLOC(
+            wdev, &temp, VkPipelineShaderStageCreateInfo, sizeof(VkPipelineShaderStageCreateInfo) * stageCount);
+         for (int j = 0; j < ci->stageCount; j++) {
+            if ((ci->pStages[j].stage & VK_SHADER_STAGE_GEOMETRY_BIT) == 0) {
+               stages[idx++] = ci->pStages[j];
+            }
+         }
+         WLOG("A VK_SHADER_STAGE_GEOMETRY stage requested, but geometryShader not supported, disabling it instead.");
+         ci->stageCount = stageCount;
+         ci->pStages = stages;
+      }
+   }
+
+   VkResult result = CHECK(CreateGraphicsPipelines(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines));
+   free_temp_objects(&temp);
+   return result;
 }
