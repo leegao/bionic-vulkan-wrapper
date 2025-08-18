@@ -9,7 +9,7 @@ extern "C" {
 #include "wrapper_debug.h"
 }
 
-#define PATH "/data/data/com.winlator.cmod/files/imagefs/usr/lib"
+#define PATH "/data/data/com.winlator.cmod/files/imagefs/usr/lib:/data/data/com.micewine.emu/files/usr/lib:/data/local/tmp"
 
 extern "C"
 bool set_layer_paths() {
