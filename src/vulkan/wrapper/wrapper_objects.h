@@ -17,6 +17,7 @@
 #include "vulkan/wsi/wsi_common.h"
 
 #include "wrapper_trampolines.h"
+#include "wrapper_debug.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -104,9 +105,15 @@ struct wrapper_device {
 
    VkCommandPool computePool;
 
+   // BCn decoding
    InterceptorState s3tc;
    InterceptorState bc6;
    InterceptorState bc7;
+
+   // depth-stencil resolution reduction
+   enum DepthFormatOverrideMode depth_override_mode;
+   bool supports_d16_unorm_s8_uint;
+   bool supports_d16_unorm;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_device, vk.base, VkDevice,
@@ -213,7 +220,9 @@ struct wrapper_image {
    COMMON_FIELDS(VkImage);
 
    bool is_bcn_emulated;
+   bool is_depth_stencil_reduced;
    VkFormat original_format;
+   VkFormat format;
 };
 
 MAKE_PROTOTYPES(wrapper_image, VkImage);

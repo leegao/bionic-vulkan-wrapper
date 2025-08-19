@@ -8,6 +8,7 @@
 #include "vk_util.h"
 #include "vk_printers.h"
 #include "wrapper_trampolines.h"
+#include "wrapper_checks.h"
 
 #if DETECT_OS_LINUX || DETECT_OS_BSD
 #include <drm-uapi/drm_fourcc.h>
@@ -27,24 +28,67 @@ WRAPPER_CreateImage(VkDevice _device,
       emulate_bcn = false;
    }
 
-   VkImageCreateInfo create_info = *pCreateInfo;
+   struct temporary_objects temp;
+   list_inithead(&temp.objects);
+
+   VkImageCreateInfo *create_info = TEMP_OBJECT(device, &temp, VkImageCreateInfo, pCreateInfo);
+   bool is_depth_stencil_reduced = false;
+   VkFormat original_format = pCreateInfo->format;
+   VkFormat new_format = pCreateInfo->format;
    VkResult result;
 
-   if (emulate_bcn) {
-      WLOGD("Calling CreateImage (%dx%d) with bcn texture: %d", pCreateInfo->extent.width, pCreateInfo->extent.height, pCreateInfo->format);
-      create_info.format = unwrap_vk_format(device, pCreateInfo->format); // Done within the next layer
-      create_info.usage |=  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
-      create_info.flags &= 0xffffff7f;
-      create_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+   if (device->depth_override_mode != OVERRIDE_NONE &&
+       (create_info->usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)) {
 
-      vk_foreach_struct_const(pnext, create_info.pNext) {
+      if (device->depth_override_mode == OVERRIDE_DISABLE) {
+         WLOGE("Depth override: Blocking creation of depth image.");
+         free_temp_objects(&temp);
+         return VK_ERROR_FORMAT_NOT_SUPPORTED;
+      }
+
+
+      switch (device->depth_override_mode) {
+         case OVERRIDE_D16S8:
+            if (device->supports_d16_unorm_s8_uint &&
+                (original_format == VK_FORMAT_D24_UNORM_S8_UINT ||
+                 original_format == VK_FORMAT_D32_SFLOAT_S8_UINT)) {
+               new_format = VK_FORMAT_D16_UNORM_S8_UINT;
+            }
+            break;
+         case OVERRIDE_D16:
+            if (device->supports_d16_unorm &&
+                (original_format == VK_FORMAT_D32_SFLOAT ||
+                 original_format == VK_FORMAT_D24_UNORM_S8_UINT ||
+                 original_format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+                 original_format == VK_FORMAT_D16_UNORM_S8_UINT)) {
+               new_format = VK_FORMAT_D16_UNORM;
+            }
+            break;
+         case OVERRIDE_DISABLE:
+         case OVERRIDE_NONE:
+            break;
+      }
+
+      if (new_format != original_format) {
+         WLOGD("Depth override: Changing image format from %d to %d", original_format, new_format);
+         create_info->format = new_format;
+         is_depth_stencil_reduced = true;
+      }
+   } else if (emulate_bcn) {
+      WLOGD("Calling CreateImage (%dx%d) with bcn texture: %d", pCreateInfo->extent.width, pCreateInfo->extent.height, original_format);
+      create_info->format = (new_format = unwrap_vk_format(device, original_format)); // Done within the next layer
+      create_info->usage |=  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+      create_info->flags &= 0xffffff7f;
+      create_info->flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+
+      vk_foreach_struct_const(pnext, create_info->pNext) {
          switch ((int32_t)pnext->sType) {
          case VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO:
             {            
                VkImageFormatListCreateInfo *ext = (VkImageFormatListCreateInfo *) pnext;
                if (ext->pViewFormats) {
                   ext->viewFormatCount = 1;
-                  ((VkFormat*)ext->pViewFormats)[0] = unwrap_vk_format(device, pCreateInfo->format);
+                  ((VkFormat*)ext->pViewFormats)[0] = new_format;
                }
             }
             break;
@@ -54,20 +98,28 @@ WRAPPER_CreateImage(VkDevice _device,
       }
    }
 
-   result = CHECK(CreateImage(_device, &create_info, pAllocator, pImage));
+   result = CHECK(CreateImage(_device, create_info, pAllocator, pImage));
    if (result != VK_SUCCESS) {
+      if (is_depth_stencil_reduced) {
+         WLOGE("CreateImage failed with modified depth format (%d -> %d), try turning it off", original_format, new_format);
+      }
+      free_temp_objects(&temp);
       return result;
    }
 
-   struct wrapper_image *wimg = wrapper_image_create(device, &create_info, *pImage);
+   struct wrapper_image *wimg = wrapper_image_create(device, create_info, *pImage);
    if (!wimg) {
+      free_temp_objects(&temp);
       return vk_error(&device->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
    }
 
    // Track data about this image
-   wimg->original_format = pCreateInfo->format;
+   wimg->original_format = original_format;
+   wimg->format = new_format;
    wimg->is_bcn_emulated = emulate_bcn;
+   wimg->is_depth_stencil_reduced = is_depth_stencil_reduced;
 
+   free_temp_objects(&temp);
    return result;
 }
 
@@ -76,7 +128,7 @@ WRAPPER_DestroyImage(VkDevice _device,
                      const VkAllocationCallbacks* pAllocator)
 {
    VK_FROM_HANDLE(wrapper_device, device, _device);
-   wrapper_device_trampolines.DestroyImage(_device, _image, pAllocator);
+   CHECKV(DestroyImage(_device, _image, pAllocator));
 
    struct wrapper_image* wimg = get_wrapper_image(device, _image);
    if (!wimg) {
@@ -95,7 +147,13 @@ WRAPPER_CreateImageView(
     VkImageView* pView)
 {
     VK_FROM_HANDLE(wrapper_device, base, device);
-    VkImageViewCreateInfo _pCreateInfo = *pCreateInfo;
-    _pCreateInfo.format = unwrap_vk_format(base, pCreateInfo->format);
-    return wrapper_device_trampolines.CreateImageView(device, &_pCreateInfo, pAllocator, pView);
+    VkImageViewCreateInfo ci = *pCreateInfo;
+    struct wrapper_image* wimg = get_wrapper_image(base, pCreateInfo->image);
+    if (wimg) {
+      if ((wimg->is_bcn_emulated || wimg->is_depth_stencil_reduced) && (wimg->format != wimg->original_format)) {
+         WLOGD("Patching ImageView format for tracked image from %d to %d (original img format: %d)", ci.format, wimg->format, wimg->original_format);
+         ci.format = wimg->format;
+      }
+    }
+    return CHECK(CreateImageView(device, &ci, pAllocator, pView));
 }

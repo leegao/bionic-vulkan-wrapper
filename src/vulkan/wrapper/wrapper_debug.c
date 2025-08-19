@@ -396,3 +396,25 @@ bool use_wrapper_trace() {
 bool should_log_memory_debug() {
     return CHECK_FLAG("DEBUG_MEMORY");
 }
+
+enum DepthFormatOverrideMode get_depth_format_override_mode(void) {
+    static enum DepthFormatOverrideMode mode = OVERRIDE_NONE;
+    static bool initialized = false;
+    if (initialized) return mode;
+    initialized = true;
+
+    const char* value = getenv("WRAPPER_FORCE_DEPTH_FORMAT");
+    if (!value) return mode;
+
+    if (strcmp(value, "D16S8") == 0) {
+        mode = OVERRIDE_D16S8;
+        WLOG("Depth Format Override: Forcing D16_UNORM_S8_UINT");
+    } else if (strcmp(value, "D16") == 0) {
+        mode = OVERRIDE_D16;
+        WLOG("Depth Format Override: Forcing D16_UNORM (discarding stencil)");
+    } else if (strcmp(value, "DISABLE") == 0) {
+        mode = OVERRIDE_DISABLE;
+        WLOGE("Depth Format Override: Disabling depth/stencil images for debugging, expect errors");
+    }
+    return mode;
+}
