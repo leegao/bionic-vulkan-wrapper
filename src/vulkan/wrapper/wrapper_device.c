@@ -19,6 +19,7 @@
 #include "vk_printers.h"
 #include "spirv_edit.h"
 #include "artifacts.h"
+#include "wrapper_checks.h"
 
 static const uint32_t s3tc_spv[] = {
 #include "s3tc.spv.h"
@@ -1746,28 +1747,52 @@ WRAPPER_CreateShaderModule(VkDevice device,
     const VkAllocationCallbacks* pAllocator,
     VkShaderModule* pShaderModule) {
    VK_FROM_HANDLE(wrapper_device, wdev, device);
-   bool needs_emulation = !wdev->physical->base_supported_features.shaderClipDistance && !CHECK_FLAG("DISABLE_CLIP_DISTANCE");
-
+   bool needs_clip_distance_emulation = !wdev->physical->base_supported_features.shaderClipDistance
+                                        && !CHECK_FLAG("DISABLE_CLIP_DISTANCE");
+   bool needs_spec_composite_constants_emulation = wdev->physical->driver_properties.driverID == VK_DRIVER_ID_ARM_PROPRIETARY
+                                                   && !CHECK_FLAG("DISABLE_SPEC_COMPOSITE_CONSTANTS");
    if (CHECK_FLAG("FORCE_CLIP_DISTANCE")) {
-      needs_emulation = true;
+      needs_clip_distance_emulation = true;
+   }
+   if (CHECK_FLAG("FORCE_SPEC_COMPOSITE_CONSTANTS")) {
+      needs_spec_composite_constants_emulation = true;
    }
 
-   if (!needs_emulation) {
-      return CHECK(CreateShaderModule(device, pCreateInfo, pAllocator, pShaderModule));
+   VkShaderModuleCreateInfo ci = *pCreateInfo;
+   void* spirv1 = NULL;
+   if (needs_spec_composite_constants_emulation) {
+      const size_t orig_size = ci.codeSize;
+      const uint32_t* orig_code = ci.pCode;
+      struct SpirvCode lowered_spirv = { 0 };
+      if (fix_mali_spec_composite_constants(orig_code, orig_size / 4, &lowered_spirv)) {
+         WLOGE("fix_mali_spec_composite_constants failed");
+      } else {
+         ci.codeSize = lowered_spirv.spirv_word_count * 4;
+         ci.pCode = lowered_spirv.spirv_code;
+         spirv1 = lowered_spirv.spirv_code;
+      }
    }
 
-   size_t orig_size = pCreateInfo->codeSize;
-   const uint32_t* orig_code = pCreateInfo->pCode;
-   struct SpirvCode lowered = { 0 };
-   if (lower_eliminate_clip_distance(orig_code, orig_size / 4, &lowered)) {
-      WLOGE("lower_eliminate_clip_distance failed");
-      return CHECK(CreateShaderModule(device, pCreateInfo, pAllocator, pShaderModule));
+   void* spirv2 = NULL;
+   if (needs_clip_distance_emulation) {
+      const size_t orig_size = ci.codeSize;
+      const uint32_t* orig_code = ci.pCode;
+      struct SpirvCode lowered_spirv = { 0 };
+      if (lower_eliminate_clip_distance(orig_code, orig_size / 4, &lowered_spirv)) {
+         WLOGE("lower_eliminate_clip_distance failed");
+      } else {
+         ci.codeSize = lowered_spirv.spirv_word_count * 4;
+         ci.pCode = lowered_spirv.spirv_code;
+         spirv2 = lowered_spirv.spirv_code;
+      }
    }
 
-   VkShaderModuleCreateInfo newCreateInfo = *pCreateInfo;
-   newCreateInfo.codeSize = lowered.spirv_word_count * 4;
-   newCreateInfo.pCode = lowered.spirv_code;
-   return CHECK(CreateShaderModule(device, &newCreateInfo, pAllocator, pShaderModule));
+   VkResult result = CHECK(CreateShaderModule(device, &ci, pAllocator, pShaderModule));
+
+   if (spirv1) free(spirv1);
+   if (spirv2) free(spirv2);
+
+   return result;
 }
 
 WRAPPER_CreateGraphicsPipelines(

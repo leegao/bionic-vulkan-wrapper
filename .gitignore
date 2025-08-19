@@ -7,3 +7,4 @@
 .venv/
 s3tc2.comp
 src/vulkan/wrapper/lib/
+.idea
