@@ -1833,8 +1833,9 @@ WRAPPER_CreateRenderPass(VkDevice device,
                          VkRenderPass* pRenderPass)
 {
    VK_FROM_HANDLE(wrapper_device, wdev, device);
-   if (wdev->depth_override_mode == OVERRIDE_NONE)
+   if (wdev->depth_override_mode == OVERRIDE_NONE) {
       return CHECK(CreateRenderPass(device, pCreateInfo, pAllocator, pRenderPass));
+   }
 
    struct temporary_objects temp;
    list_inithead(&temp.objects);
@@ -1846,33 +1847,7 @@ WRAPPER_CreateRenderPass(VkDevice device,
 
    for (uint32_t i = 0; i < pCreateInfo->attachmentCount; i++) {
       VkFormat original_format = attachments[i].format;
-      VkFormat new_format = attachments[i].format;
-
-      // Patch up the formats:
-      // OVERRIDE_D16S8: -> VK_FORMAT_D16_UNORM_S8_UINT
-      // OVERRIDE_D16: -> VK_FORMAT_D16_UNORM
-      switch (wdev->depth_override_mode) {
-         case OVERRIDE_D16S8:
-            if (wdev->supports_d16_unorm_s8_uint &&
-                (original_format == VK_FORMAT_D24_UNORM_S8_UINT ||
-                 original_format == VK_FORMAT_D32_SFLOAT_S8_UINT)) {
-               new_format = VK_FORMAT_D16_UNORM_S8_UINT;
-            }
-            break;
-         case OVERRIDE_D16:
-            if (wdev->supports_d16_unorm &&
-                (original_format == VK_FORMAT_D32_SFLOAT ||
-                 original_format == VK_FORMAT_D24_UNORM_S8_UINT ||
-                 original_format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
-                 original_format == VK_FORMAT_D16_UNORM_S8_UINT)) {
-               new_format = VK_FORMAT_D16_UNORM;
-            }
-            break;
-         case OVERRIDE_DISABLE:
-         case OVERRIDE_NONE:
-            break;
-      }
-
+      VkFormat new_format = get_depth_stencil_vk_format(wdev, original_format);
       if (new_format != original_format) {
          WLOGD("Patching RenderPass attachment[%d] from %d to %d", i, original_format, new_format);
          attachments[i].format = new_format;

@@ -403,18 +403,18 @@ enum DepthFormatOverrideMode get_depth_format_override_mode(void) {
     if (initialized) return mode;
     initialized = true;
 
-    const char* value = getenv("WRAPPER_FORCE_DEPTH_FORMAT");
+    const char* value = getenv("WRAPPER_REDUCE_DEPTH_FORMAT");
     if (!value) return mode;
 
-    if (strcmp(value, "D16S8") == 0) {
-        mode = OVERRIDE_D16S8;
-        WLOG("Depth Format Override: Forcing D16_UNORM_S8_UINT");
-    } else if (strcmp(value, "D16") == 0) {
-        mode = OVERRIDE_D16;
-        WLOG("Depth Format Override: Forcing D16_UNORM (discarding stencil)");
-    } else if (strcmp(value, "DISABLE") == 0) {
-        mode = OVERRIDE_DISABLE;
-        WLOGE("Depth Format Override: Disabling depth/stencil images for debugging, expect errors");
+    if (strcmp(value, "safe") == 0 || strcmp(value, "SAFE") == 0) {
+        mode = OVERRIDE_SAFE;
+        WLOG("Depth Override: reducing to D16_UNORM/D16_UNORM_S8_UINT");
+    } else if (strcmp(value, "aggressive") == 0 || strcmp(value, "AGGRESSIVE") == 0) {
+        mode = OVERRIDE_AGGRESSIVE;
+        WLOG("Depth Override: reducing to D16_UNORM (discarding stencil)");
+    } else if (strcmp(value, "disabled") == 0 || strcmp(value, "DISABLED") == 0) {
+        mode = OVERRIDE_DISABLED;
+        WLOGE("Depth Override: Disabling depth/stencil images for debugging, expect errors");
     }
     return mode;
 }

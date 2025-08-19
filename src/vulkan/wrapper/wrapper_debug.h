@@ -44,9 +44,9 @@ bool should_log_memory_debug(void);
 
 enum DepthFormatOverrideMode {
    OVERRIDE_NONE,
-   OVERRIDE_D16S8, /* Force D16_UNORM_S8_UINT */
-   OVERRIDE_D16,   /* Force D16_UNORM, discard stencil */
-   OVERRIDE_DISABLE, /* Disable depth/stencil creation */
+   OVERRIDE_SAFE, /* Force Drop DXX_SY to D16_UNORM_S8_UINT, DXX to D16_UNORM */
+   OVERRIDE_AGGRESSIVE, /* Force D16_UNORM, discard stencil */
+   OVERRIDE_DISABLED, /* Disable depth/stencil creation */
 };
 
 enum DepthFormatOverrideMode get_depth_format_override_mode(void);

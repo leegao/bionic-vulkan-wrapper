@@ -40,43 +40,21 @@ WRAPPER_CreateImage(VkDevice _device,
    if (device->depth_override_mode != OVERRIDE_NONE &&
        (create_info->usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)) {
 
-      if (device->depth_override_mode == OVERRIDE_DISABLE) {
+      if (device->depth_override_mode == OVERRIDE_DISABLED) {
          WLOGE("Depth override: Blocking creation of depth image.");
          free_temp_objects(&temp);
          return VK_ERROR_FORMAT_NOT_SUPPORTED;
       }
-
-
-      switch (device->depth_override_mode) {
-         case OVERRIDE_D16S8:
-            if (device->supports_d16_unorm_s8_uint &&
-                (original_format == VK_FORMAT_D24_UNORM_S8_UINT ||
-                 original_format == VK_FORMAT_D32_SFLOAT_S8_UINT)) {
-               new_format = VK_FORMAT_D16_UNORM_S8_UINT;
-            }
-            break;
-         case OVERRIDE_D16:
-            if (device->supports_d16_unorm &&
-                (original_format == VK_FORMAT_D32_SFLOAT ||
-                 original_format == VK_FORMAT_D24_UNORM_S8_UINT ||
-                 original_format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
-                 original_format == VK_FORMAT_D16_UNORM_S8_UINT)) {
-               new_format = VK_FORMAT_D16_UNORM;
-            }
-            break;
-         case OVERRIDE_DISABLE:
-         case OVERRIDE_NONE:
-            break;
-      }
-
+      new_format = get_depth_stencil_vk_format(device, original_format);
       if (new_format != original_format) {
          WLOGD("Depth override: Changing image format from %d to %d", original_format, new_format);
          create_info->format = new_format;
          is_depth_stencil_reduced = true;
       }
    } else if (emulate_bcn) {
-      WLOGD("Calling CreateImage (%dx%d) with bcn texture: %d", pCreateInfo->extent.width, pCreateInfo->extent.height, original_format);
       create_info->format = (new_format = unwrap_vk_format(device, original_format)); // Done within the next layer
+      WLOGD("Emulate BCn: Changing image (%dx%d) format from bcn texture: %d to %d", 
+         pCreateInfo->extent.width, pCreateInfo->extent.height, original_format, new_format);
       create_info->usage |=  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
       create_info->flags &= 0xffffff7f;
       create_info->flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
@@ -101,7 +79,7 @@ WRAPPER_CreateImage(VkDevice _device,
    result = CHECK(CreateImage(_device, create_info, pAllocator, pImage));
    if (result != VK_SUCCESS) {
       if (is_depth_stencil_reduced) {
-         WLOGE("CreateImage failed with modified depth format (%d -> %d), try turning it off", original_format, new_format);
+         WLOGE("CreateImage failed with modified depth format (%d -> %d), try unsetting WRAPPER_REDUCE_DEPTH_FORMAT", original_format, new_format);
       }
       free_temp_objects(&temp);
       return result;
@@ -138,7 +116,6 @@ WRAPPER_DestroyImage(VkDevice _device,
 
    wrapper_image_destroy(device, wimg);
 }
-
 
 WRAPPER_CreateImageView(
     VkDevice device,
