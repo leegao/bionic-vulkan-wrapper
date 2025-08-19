@@ -31,3 +31,31 @@
 #define __WRAP(call) return call
 
 #define __WRAPV(call) call
+
+#define TEMP_ALLOC(wdev, temp, type, size) ({ \
+   type* __output = wdev ? \
+      ((type *) vk_zalloc(&wdev->vk.alloc, size, alignof(type), VK_SYSTEM_ALLOCATION_SCOPE_OBJECT)) : \
+      ((type *) malloc(size)); \
+   if (__output) { \
+      struct temp_object_node *node = wdev ? \
+         vk_alloc(&wdev->vk.alloc, sizeof(struct temp_object_node), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT) : \
+         malloc(sizeof(struct temp_object_node)); \
+      node->ptr = __output; \
+      node->device = wdev; \
+      list_addtail(&node->link, &(temp)->objects); \
+   } \
+   __output; })
+
+#define TEMP_ARRAY(wdev, temp, type, len, orig) ({ \
+      type* __output2 = TEMP_ALLOC(wdev, temp, type, (sizeof(type) * len)); \
+      for (int _i = 0; _i < len; _i++) { \
+         __output2[_i] = (orig)[_i]; \
+      } \
+      __output2; \
+   })
+
+#define TEMP_OBJECT(wdev, temp, type, orig) ({ \
+      type* __output2 = TEMP_ALLOC(wdev, temp, type, sizeof(type)); \
+      *__output2 = *orig; \
+      __output2; \
+   })

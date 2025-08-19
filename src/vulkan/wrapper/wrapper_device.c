@@ -210,10 +210,22 @@ WRAPPER_CreateDevice(VkPhysicalDevice physicalDevice,
    list_inithead(&device->command_buffer_list);
    list_inithead(&device->device_memory_list);
 
+   // Depth Stencil overrid
+   device->depth_override_mode = get_depth_format_override_mode();
+   if (device->depth_override_mode != OVERRIDE_NONE) {
+      VkFormatProperties props;
+      WPCHECKV(GetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_D16_UNORM_S8_UINT, &props));
+      device->supports_d16_unorm_s8_uint =
+         (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
+      WPCHECKV(GetPhysicalDeviceFormatProperties(physicalDevice, VK_FORMAT_D16_UNORM, &props));
+      device->supports_d16_unorm =
+         (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
+      WLOGD("Depth Override Support: D16_S8=%d, D16=%d", device->supports_d16_unorm_s8_uint, device->supports_d16_unorm);
+   }
+
    device->image_map = _mesa_hash_table_u64_create(NULL);
    device->buffer_map = _mesa_hash_table_u64_create(NULL);
    device->command_pool_map = _mesa_hash_table_u64_create(NULL);
-   
 
    simple_mtx_init(&device->resource_mutex, mtx_plain);
    device->physical = physical_device;
@@ -1758,28 +1770,6 @@ WRAPPER_CreateShaderModule(VkDevice device,
    return CHECK(CreateShaderModule(device, &newCreateInfo, pAllocator, pShaderModule));
 }
 
-#define TEMP_ALLOC(wdev, temp, type, size) ({ \
-   type* __output = wdev ? \
-      ((type *) vk_zalloc(&wdev->vk.alloc, size, alignof(type), VK_SYSTEM_ALLOCATION_SCOPE_OBJECT)) : \
-      ((type *) malloc(size)); \
-   if (__output) { \
-      struct temp_object_node *node = wdev ? \
-         vk_alloc(&wdev->vk.alloc, sizeof(struct temp_object_node), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT) : \
-         malloc(sizeof(struct temp_object_node)); \
-      node->ptr = __output; \
-      node->device = wdev; \
-      list_addtail(&node->link, &(temp)->objects); \
-   } \
-   __output; })
-
-#define TEMP_ARRAY(wdev, temp, type, len, orig) ({ \
-      type* __output2 = TEMP_ALLOC(wdev, temp, type, (sizeof(type) * len)); \
-      for (int _i = 0; _i < len; _i++) { \
-         __output2[_i] = (orig)[_i]; \
-      } \
-      __output2; \
-   })
-
 WRAPPER_CreateGraphicsPipelines(
     VkDevice device,
     VkPipelineCache pipelineCache,
@@ -1833,6 +1823,58 @@ WRAPPER_CreateGraphicsPipelines(
    }
 
    VkResult result = CHECK(CreateGraphicsPipelines(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines));
+   free_temp_objects(&temp);
+   return result;
+}
+
+WRAPPER_CreateRenderPass(VkDevice device,
+                         const VkRenderPassCreateInfo* pCreateInfo,
+                         const VkAllocationCallbacks* pAllocator,
+                         VkRenderPass* pRenderPass)
+{
+   VK_FROM_HANDLE(wrapper_device, wdev, device);
+   if (wdev->depth_override_mode == OVERRIDE_NONE) {
+      return CHECK(CreateRenderPass(device, pCreateInfo, pAllocator, pRenderPass));
+   }
+
+   struct temporary_objects temp;
+   list_inithead(&temp.objects);
+
+   VkRenderPassCreateInfo *ci = TEMP_OBJECT(wdev, &temp, VkRenderPassCreateInfo, pCreateInfo);
+   VkAttachmentDescription *attachments = TEMP_ARRAY(wdev, &temp, VkAttachmentDescription,
+                                                     pCreateInfo->attachmentCount, pCreateInfo->pAttachments);
+   ci->pAttachments = attachments;
+
+   for (uint32_t i = 0; i < pCreateInfo->attachmentCount; i++) {
+      VkFormat original_format = attachments[i].format;
+      VkFormat new_format = get_depth_stencil_vk_format(wdev, original_format);
+      if (new_format != original_format) {
+         WLOGD("Patching RenderPass attachment[%d] from %d to %d", i, original_format, new_format);
+         attachments[i].format = new_format;
+
+         // Remove the stencil layout for OVERRIDE_D16
+         bool had_stencil = (original_format == VK_FORMAT_D24_UNORM_S8_UINT ||
+                             original_format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+                             original_format == VK_FORMAT_D16_UNORM_S8_UINT);
+         bool has_stencil = (new_format == VK_FORMAT_D24_UNORM_S8_UINT ||
+                             new_format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+                             new_format == VK_FORMAT_D16_UNORM_S8_UINT);
+
+         if (had_stencil && !has_stencil) {
+            WLOGD(" + Patching RenderPass attachment[%d] layout due to stencil removal", i);
+            if (attachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+               attachments[i].initialLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            if (attachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+               attachments[i].finalLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            if (attachments[i].initialLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL)
+               attachments[i].initialLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+            if (attachments[i].finalLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL)
+               attachments[i].finalLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+         }
+      }
+   }
+
+   VkResult result = CHECK(CreateRenderPass(device, ci, pAllocator, pRenderPass));
    free_temp_objects(&temp);
    return result;
 }

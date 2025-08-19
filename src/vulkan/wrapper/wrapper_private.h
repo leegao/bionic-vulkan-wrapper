@@ -214,6 +214,34 @@ static VkFormat unwrap_vk_format(struct wrapper_device* device, VkFormat in_form
    return unwrap_vk_format_physical_device(device->physical, in_format);
 }
 
+static VkFormat get_depth_stencil_vk_format(struct wrapper_device* device, VkFormat original_format) {
+    switch (device->depth_override_mode) {
+    case OVERRIDE_SAFE:
+        if (device->supports_d16_unorm_s8_uint &&
+            (original_format == VK_FORMAT_D24_UNORM_S8_UINT ||
+                original_format == VK_FORMAT_D32_SFLOAT_S8_UINT)) {
+            return VK_FORMAT_D16_UNORM_S8_UINT;
+        } else if (device->supports_d16_unorm && original_format == VK_FORMAT_D32_SFLOAT) {
+            return VK_FORMAT_D16_UNORM;
+        }
+        break;
+    case OVERRIDE_AGGRESSIVE:
+        if (device->supports_d16_unorm &&
+            (original_format == VK_FORMAT_D32_SFLOAT ||
+                original_format == VK_FORMAT_D24_UNORM_S8_UINT ||
+                original_format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+                original_format == VK_FORMAT_D16_UNORM_S8_UINT)) {
+            return VK_FORMAT_D16_UNORM;
+        }
+        break;
+    case OVERRIDE_DISABLED:
+    case OVERRIDE_NONE:
+        break;
+    }
+
+    return original_format;
+}
+
 static inline uint32_t get_bc_target_size(struct wrapper_physical_device* pdevice, VkFormat in_format) {
     VkFormat out_format = unwrap_vk_format_physical_device(pdevice, in_format);
     switch (out_format) {

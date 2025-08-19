@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 bool check_flag(const char* env, bool default_value);
 
 #define CHECK_FLAG(name) ({ \
@@ -37,3 +41,16 @@ bool use_compute_shader_mode(void);
 bool use_wrapper_trace(void);
 
 bool should_log_memory_debug(void);
+
+enum DepthFormatOverrideMode {
+   OVERRIDE_NONE,
+   OVERRIDE_SAFE, /* Force Drop DXX_SY to D16_UNORM_S8_UINT, DXX to D16_UNORM */
+   OVERRIDE_AGGRESSIVE, /* Force D16_UNORM, discard stencil */
+   OVERRIDE_DISABLED, /* Disable depth/stencil creation */
+};
+
+enum DepthFormatOverrideMode get_depth_format_override_mode(void);
+
+#ifdef __cplusplus
+}
+#endif
