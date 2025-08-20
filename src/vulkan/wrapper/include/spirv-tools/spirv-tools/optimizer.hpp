@@ -1037,6 +1037,8 @@ Optimizer::PassToken CreateCanonicalizeIdsPass();
 Optimizer::PassToken CreateRemoveClipCullDistPass();
 
 Optimizer::PassToken CreateFixMaliSpecConstantCompositePass();
+
+Optimizer::PassToken CreateMaliOptimizationBarrierPass();
 }  // namespace spvtools
 
 #endif  // INCLUDE_SPIRV_TOOLS_OPTIMIZER_HPP_
