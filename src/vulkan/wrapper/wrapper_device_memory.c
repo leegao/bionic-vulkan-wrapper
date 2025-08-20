@@ -8,6 +8,7 @@
 #include "util/os_file.h"
 #include "vk_util.h"
 #include "vk_printers.h"
+#include "wrapper_checks.h"
 
 #include <android/hardware_buffer.h>
 #include <vndk/hardware_buffer.h>
@@ -205,21 +206,21 @@ wrapper_allocate_memory_ahardware_buffer(struct wrapper_device *device,
    allocate_info = *pAllocateInfo;
    allocate_info.pNext = &export_memory_info;
 
-   result = device->dispatch_table.AllocateMemory(device->dispatch_handle,
+   result = CHECK(AllocateMemory((VkDevice) device,
                                                   &allocate_info,
                                                   pAllocator,
-                                                  pMemory);
+                                                  pMemory));
    if (result != VK_SUCCESS)
       return result;
 
-   result = device->dispatch_table.GetMemoryAndroidHardwareBufferANDROID(
-      device->dispatch_handle,
+   result = CHECK(GetMemoryAndroidHardwareBufferANDROID(
+      (VkDevice) device,
       &(VkMemoryGetAndroidHardwareBufferInfoANDROID) {
          .sType =
             VK_STRUCTURE_TYPE_MEMORY_GET_ANDROID_HARDWARE_BUFFER_INFO_ANDROID,
          .memory = *pMemory,
       },
-      pAHardwareBuffer);
+      pAHardwareBuffer));
 
    if (result != VK_SUCCESS)
       return result;
