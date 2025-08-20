@@ -63,13 +63,16 @@ void OptimizerMessageConsumer(spv_message_level_t level, const char* source,
     case SPV_MSG_FATAL:
     case SPV_MSG_INTERNAL_ERROR:
     case SPV_MSG_ERROR:
-        WLOGE("SPIRV Error: " MSG)
+        WLOGE(".spv E: " MSG)
         break;
     case SPV_MSG_WARNING:
-        WLOGE("SPIRV Warning: " MSG)
+        WLOGE(".spv W: " MSG)
         break;
     case SPV_MSG_INFO:
-        WLOG("SPIRV Info: " MSG)
+        WLOG(".spv I: " MSG)
+        break;
+    case SPV_MSG_DEBUG:
+        WLOGD(".spv D: " MSG)
         break;
     default:
         break;
