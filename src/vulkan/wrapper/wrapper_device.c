@@ -1751,20 +1751,24 @@ WRAPPER_CreateShaderModule(VkDevice device,
                                         && !CHECK_FLAG("DISABLE_CLIP_DISTANCE");
    bool needs_spec_composite_constants_emulation = wdev->physical->driver_properties.driverID == VK_DRIVER_ID_ARM_PROPRIETARY
                                                    && !CHECK_FLAG("DISABLE_SPEC_COMPOSITE_CONSTANTS");
+   bool needs_optimization_barriers = (wdev->physical->driver_properties.driverID == VK_DRIVER_ID_ARM_PROPRIETARY
+                                       || wdev->physical->driver_properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY)
+                                          && !CHECK_FLAG("DISABLE_OPTIMIZATION_BARRIERS");
    if (CHECK_FLAG("FORCE_CLIP_DISTANCE")) {
       needs_clip_distance_emulation = true;
    }
    if (CHECK_FLAG("FORCE_SPEC_COMPOSITE_CONSTANTS")) {
       needs_spec_composite_constants_emulation = true;
    }
+   if (CHECK_FLAG("FORCE_OPTIMIZATION_BARRIERS")) {
+      needs_optimization_barriers = true;
+   }
 
    VkShaderModuleCreateInfo ci = *pCreateInfo;
    void* spirv1 = NULL;
    if (needs_spec_composite_constants_emulation) {
-      const size_t orig_size = ci.codeSize;
-      const uint32_t* orig_code = ci.pCode;
-      struct SpirvCode lowered_spirv = { 0 };
-      if (fix_mali_spec_composite_constants(orig_code, orig_size / 4, &lowered_spirv)) {
+      SpirvCode lowered_spirv = { 0 };
+      if (fix_mali_spec_composite_constants(ci.pCode, ci.codeSize / 4, &lowered_spirv)) {
          WLOGE("fix_mali_spec_composite_constants failed");
       } else {
          ci.codeSize = lowered_spirv.spirv_word_count * 4;
@@ -1774,12 +1778,10 @@ WRAPPER_CreateShaderModule(VkDevice device,
    }
 
    void* spirv2 = NULL;
-   if (needs_clip_distance_emulation) {
-      const size_t orig_size = ci.codeSize;
-      const uint32_t* orig_code = ci.pCode;
-      struct SpirvCode lowered_spirv = { 0 };
-      if (lower_eliminate_clip_distance(orig_code, orig_size / 4, &lowered_spirv)) {
-         WLOGE("lower_eliminate_clip_distance failed");
+   if (needs_optimization_barriers) {
+      SpirvCode lowered_spirv = { 0 };
+      if (add_optimization_barriers(ci.pCode, ci.codeSize / 4, &lowered_spirv)) {
+         WLOGE("add_optimization_barriers failed");
       } else {
          ci.codeSize = lowered_spirv.spirv_word_count * 4;
          ci.pCode = lowered_spirv.spirv_code;
@@ -1787,10 +1789,23 @@ WRAPPER_CreateShaderModule(VkDevice device,
       }
    }
 
-   VkResult result = CHECK(CreateShaderModule(device, &ci, pAllocator, pShaderModule));
+   void* spirv3 = NULL;
+   if (needs_clip_distance_emulation) {
+      SpirvCode lowered_spirv = { 0 };
+      if (lower_eliminate_clip_distance(ci.pCode, ci.codeSize / 4, &lowered_spirv)) {
+         WLOGE("lower_eliminate_clip_distance failed");
+      } else {
+         ci.codeSize = lowered_spirv.spirv_word_count * 4;
+         ci.pCode = lowered_spirv.spirv_code;
+         spirv3 = lowered_spirv.spirv_code;
+      }
+   }
+
+   const VkResult result = CHECK(CreateShaderModule(device, &ci, pAllocator, pShaderModule));
 
    if (spirv1) free(spirv1);
    if (spirv2) free(spirv2);
+   if (spirv3) free(spirv3);
 
    return result;
 }
