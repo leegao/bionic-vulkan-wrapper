@@ -25,8 +25,8 @@ ColumnLimit: 0
 PenaltyBreakBeforeFirstCallParameter: 1
 PenaltyExcessCharacter: 100
 
-ContinuationIndentWidth: 3
-IndentWidth: 3
+ContinuationIndentWidth: 4
+IndentWidth: 4
 UseTab: Never
 
 Cpp11BracedListStyle: true

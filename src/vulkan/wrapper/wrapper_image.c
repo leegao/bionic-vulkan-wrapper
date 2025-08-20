@@ -127,10 +127,40 @@ WRAPPER_CreateImageView(
     VkImageViewCreateInfo ci = *pCreateInfo;
     struct wrapper_image* wimg = get_wrapper_image(base, pCreateInfo->image);
     if (wimg) {
-      if ((wimg->is_bcn_emulated || wimg->is_depth_stencil_reduced) && (wimg->format != wimg->original_format)) {
-         WLOGD("Patching ImageView format for tracked image from %d to %d (original img format: %d)", ci.format, wimg->format, wimg->original_format);
-         ci.format = wimg->format;
-      }
+        if ((wimg->is_bcn_emulated || wimg->is_depth_stencil_reduced) && (wimg->format != wimg->original_format)) {
+            WLOGD("Patching ImageView format for tracked image from %d to %d (original img format: %d)", ci.format, wimg->format, wimg->original_format);
+            ci.format = wimg->format;
+            // VUID-VkImageViewCreateInfo-subresourceRange-09594
+            if (!HAS_STENCIL(wimg->format) && (ci.subresourceRange.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) != 0) {
+                ci.subresourceRange.aspectMask &= ~VK_IMAGE_ASPECT_STENCIL_BIT;
+            }
+        }
     }
     return CHECK(CreateImageView(device, &ci, pAllocator, pView));
+}
+
+WRAPPER_CmdClearDepthStencilImage(
+    VkCommandBuffer commandBuffer,
+    VkImage image,
+    VkImageLayout imageLayout,
+    const VkClearDepthStencilValue* pDepthStencil,
+    uint32_t rangeCount,
+    const VkImageSubresourceRange* pRanges)
+{
+    VK_FROM_HANDLE(wrapper_command_buffer, base, commandBuffer);
+    struct temporary_objects temp;
+    list_inithead(&temp.objects);
+    VkImageSubresourceRange* ranges = TEMP_ARRAY(base->device, &temp, VkImageSubresourceRange, rangeCount, pRanges);
+    struct wrapper_image* wimg = get_wrapper_image(base->device, image);
+    if (wimg) {
+        for (int i = 0; i < rangeCount; i++) {
+            // VUID-vkCmdClearDepthStencilImage-image-02825
+            if (!HAS_STENCIL(wimg->format) && (pRanges[i].aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) != 0) {
+                ranges[i].aspectMask &= ~VK_IMAGE_ASPECT_STENCIL_BIT;
+            }
+        }
+    }
+
+    CHECKV(CmdClearDepthStencilImage(commandBuffer, image, imageLayout, pDepthStencil, rangeCount, ranges));
+    free_temp_objects(&temp);
 }

@@ -485,6 +485,10 @@ void BCnDecompression(VkFormat format,
 
 bool is_striped(VkFormat format, void* mappedSrcBase, const VkBufferImageCopy* regions);
 
+#define HAS_STENCIL(format) (format == VK_FORMAT_D24_UNORM_S8_UINT || \
+   format == VK_FORMAT_D32_SFLOAT_S8_UINT || \
+   format == VK_FORMAT_D16_UNORM_S8_UINT)
+
 #ifdef __cplusplus
 }
 #endif

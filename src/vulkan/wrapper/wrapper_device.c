@@ -107,27 +107,28 @@ wrapper_append_required_extensions(const struct vk_device *device,
                                   uint32_t *count,
                                   const char **exts) {
 #define REQUIRED_EXTENSION(name) \
-   if (!device->enabled_extensions.name && device->physical->supported_extensions.name) { \
-      exts[(*count)++] = "VK_" #name; \
-   }
-   REQUIRED_EXTENSION(KHR_external_fence);
-   REQUIRED_EXTENSION(KHR_external_semaphore);
-   REQUIRED_EXTENSION(KHR_external_memory);
-   REQUIRED_EXTENSION(KHR_external_fence_fd);
-   REQUIRED_EXTENSION(KHR_external_semaphore_fd);
-   REQUIRED_EXTENSION(KHR_external_memory_fd);
-   REQUIRED_EXTENSION(KHR_dedicated_allocation);
-   REQUIRED_EXTENSION(EXT_queue_family_foreign);
-   REQUIRED_EXTENSION(KHR_maintenance1)
-   REQUIRED_EXTENSION(KHR_maintenance2)
-   REQUIRED_EXTENSION(KHR_image_format_list)
-   REQUIRED_EXTENSION(KHR_timeline_semaphore);
-   REQUIRED_EXTENSION(EXT_external_memory_host);
-   REQUIRED_EXTENSION(EXT_external_memory_dma_buf);
-   REQUIRED_EXTENSION(EXT_image_drm_format_modifier);
-   REQUIRED_EXTENSION(ANDROID_external_memory_android_hardware_buffer);
-   REQUIRED_EXTENSION(EXT_device_fault); // for fault reporting, if available
-   // REQUIRED_EXTENSION(KHR_uniform_buffer_standard_layout); // for std430 UBOs
+    if (!device->enabled_extensions.name && device->physical->supported_extensions.name) { \
+        exts[(*count)++] = "VK_" #name; \
+    }
+    REQUIRED_EXTENSION(KHR_external_fence);
+    REQUIRED_EXTENSION(KHR_external_semaphore);
+    REQUIRED_EXTENSION(KHR_external_memory);
+    REQUIRED_EXTENSION(KHR_external_fence_fd);
+    REQUIRED_EXTENSION(KHR_external_semaphore_fd);
+    REQUIRED_EXTENSION(KHR_external_memory_fd);
+    REQUIRED_EXTENSION(KHR_dedicated_allocation);
+    REQUIRED_EXTENSION(EXT_queue_family_foreign);
+    REQUIRED_EXTENSION(KHR_maintenance1)
+    REQUIRED_EXTENSION(KHR_maintenance2)
+    REQUIRED_EXTENSION(KHR_image_format_list)
+    REQUIRED_EXTENSION(KHR_timeline_semaphore);
+    REQUIRED_EXTENSION(EXT_external_memory_host);
+    REQUIRED_EXTENSION(EXT_external_memory_dma_buf);
+    REQUIRED_EXTENSION(EXT_image_drm_format_modifier);
+    REQUIRED_EXTENSION(ANDROID_external_memory_android_hardware_buffer);
+    REQUIRED_EXTENSION(EXT_device_fault); // for fault reporting, if available
+    REQUIRED_EXTENSION(KHR_separate_depth_stencil_layouts);
+    // REQUIRED_EXTENSION(KHR_uniform_buffer_standard_layout); // for std430 UBOs
 #undef REQUIRED_EXTENSION
 }
 
@@ -1893,12 +1894,8 @@ WRAPPER_CreateRenderPass(VkDevice device,
          attachments[i].format = new_format;
 
          // Remove the stencil layout for OVERRIDE_D16
-         bool had_stencil = (original_format == VK_FORMAT_D24_UNORM_S8_UINT ||
-                             original_format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
-                             original_format == VK_FORMAT_D16_UNORM_S8_UINT);
-         bool has_stencil = (new_format == VK_FORMAT_D24_UNORM_S8_UINT ||
-                             new_format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
-                             new_format == VK_FORMAT_D16_UNORM_S8_UINT);
+         bool had_stencil = HAS_STENCIL(original_format);
+         bool has_stencil = HAS_STENCIL(new_format);
 
          if (had_stencil && !has_stencil) {
             WLOGD(" + Patching RenderPass attachment[%d] layout due to stencil removal", i);
@@ -1917,4 +1914,37 @@ WRAPPER_CreateRenderPass(VkDevice device,
    VkResult result = CHECK(CreateRenderPass(device, ci, pAllocator, pRenderPass));
    free_temp_objects(&temp);
    return result;
+}
+
+WRAPPER_CmdPipelineBarrier(
+    VkCommandBuffer commandBuffer,
+    VkPipelineStageFlags srcStageMask,
+    VkPipelineStageFlags dstStageMask,
+    VkDependencyFlags dependencyFlags,
+    uint32_t memoryBarrierCount,
+    const VkMemoryBarrier* pMemoryBarriers,
+    uint32_t bufferMemoryBarrierCount,
+    const VkBufferMemoryBarrier* pBufferMemoryBarriers,
+    uint32_t imageMemoryBarrierCount,
+    const VkImageMemoryBarrier* pImageMemoryBarriers)
+{
+    VK_FROM_HANDLE(wrapper_command_buffer, base, commandBuffer);
+    VkImageMemoryBarrier* barriers = (VkImageMemoryBarrier*) pImageMemoryBarriers;
+    struct temporary_objects temp;
+    list_inithead(&temp.objects);
+    if (imageMemoryBarrierCount > 0) {
+        barriers = TEMP_ARRAY(base->device, &temp, VkImageMemoryBarrier, imageMemoryBarrierCount, pImageMemoryBarriers);
+        for (int i = 0; i < imageMemoryBarrierCount; i++) {
+            struct wrapper_image* wimg = get_wrapper_image(base->device, barriers[i].image);
+            // VUID-VkImageMemoryBarrier-subresourceRange-09601
+            if (!HAS_STENCIL(wimg->format) && (barriers[i].subresourceRange.aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) != 0) {
+                barriers[i].subresourceRange.aspectMask &= ~VK_IMAGE_ASPECT_STENCIL_BIT;
+            }
+        }
+    }
+    CHECKV(CmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, dependencyFlags,
+        memoryBarrierCount, pMemoryBarriers,
+        bufferMemoryBarrierCount, pBufferMemoryBarriers,
+        imageMemoryBarrierCount, pImageMemoryBarriers));
+    free_temp_objects(&temp);
 }
