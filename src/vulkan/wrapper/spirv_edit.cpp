@@ -80,7 +80,7 @@ void OptimizerMessageConsumer(spv_message_level_t level, const char* source,
 }
 
 extern "C"
-int optimize_spirv_for_size(const uint32_t* spirv_binary, size_t spirv_word_count, struct SpirvCode* out) {
+int optimize_spirv_for_size(const uint32_t* spirv_binary, size_t spirv_word_count, SpirvCode* out) {
     spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_1_SPIRV_1_4);
 
     optimizer.SetMessageConsumer([&](spv_message_level_t level, const char* source, const spv_position_t& position, const char* message) {
@@ -120,7 +120,7 @@ int optimize_spirv_for_size(const uint32_t* spirv_binary, size_t spirv_word_coun
 }
 
 extern "C"
-int lower_eliminate_clip_distance(const uint32_t* spirv_binary, size_t spirv_word_count, struct SpirvCode* out) {
+int lower_eliminate_clip_distance(const uint32_t* spirv_binary, size_t spirv_word_count, SpirvCode* out) {
     _Atomic static int counter = 0;
     int id = counter++;
     spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_1_SPIRV_1_4);
@@ -137,10 +137,8 @@ int lower_eliminate_clip_distance(const uint32_t* spirv_binary, size_t spirv_wor
     }
 
     std::vector<uint32_t> optimized_binary;
-    bool success = optimizer.Run(spirv_binary, spirv_word_count, &optimized_binary);
-
-    if (!success) {
-        WLOGE("SPIRV editing failed");
+    if (!optimizer.Run(spirv_binary, spirv_word_count, &optimized_binary)) {
+        WLOGE("RemoveClipDistancePass failed");
         return 1;
     }
 
@@ -163,7 +161,7 @@ int lower_eliminate_clip_distance(const uint32_t* spirv_binary, size_t spirv_wor
 
 // TODO: redesign the spirv passes to avoid calling two separate passes
 extern "C"
-int fix_mali_spec_composite_constants(const uint32_t* spirv_binary, size_t spirv_word_count, struct SpirvCode* out) {
+int fix_mali_spec_composite_constants(const uint32_t* spirv_binary, size_t spirv_word_count, SpirvCode* out) {
    _Atomic static int counter = 0;
    int id = counter++;
    spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_1_SPIRV_1_4);
@@ -176,10 +174,41 @@ int fix_mali_spec_composite_constants(const uint32_t* spirv_binary, size_t spirv
    optimizer.RegisterPass(spvtools::CreateFixMaliSpecConstantCompositePass());
 
    std::vector<uint32_t> optimized_binary;
-   bool success = optimizer.Run(spirv_binary, spirv_word_count, &optimized_binary);
+   if (!optimizer.Run(spirv_binary, spirv_word_count, &optimized_binary)) {
+      WLOGE("FixMaliSpecConstantCompositePass failed");
+      return 1;
+   }
 
-   if (!success) {
-      WLOGE("SPIRV editing failed");
+   if (optimized_binary.size() != spirv_word_count) {
+      LogDisassembly("Lowered", optimized_binary, id);
+   }
+
+   out->spirv_word_count = optimized_binary.size();
+   out->spirv_code = static_cast<uint32_t*>(malloc(optimized_binary.size() * 4));
+   if (!out->spirv_code) {
+      WLOGE("Failed to allocate memory for optimized SPIR-V (id=%d)", id);
+      return 1;
+   }
+   std::memcpy(out->spirv_code, optimized_binary.data(), optimized_binary.size() * 4);
+
+   return 0;
+}
+
+extern "C"
+int add_optimization_barriers(const uint32_t* spirv_binary, size_t spirv_word_count, SpirvCode* out) {
+   _Atomic static int counter = 0;
+   int id = counter++;
+   spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_1_SPIRV_1_4);
+
+   optimizer.SetMessageConsumer([&](spv_message_level_t level, const char* source, const spv_position_t& position, const char* message) {
+       OptimizerMessageConsumer(level, source, position, message, id);
+   });
+
+   optimizer.RegisterPass(spvtools::CreateMaliOptimizationBarrierPass());
+
+   std::vector<uint32_t> optimized_binary;
+   if (!optimizer.Run(spirv_binary, spirv_word_count, &optimized_binary)) {
+      WLOGE("AddOptimizationBarrierPass failed");
       return 1;
    }
 
