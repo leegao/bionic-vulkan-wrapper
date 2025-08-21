@@ -84,36 +84,36 @@ typedef struct InterceptorState {
 } InterceptorState;
 
 struct wrapper_device {
-   struct vk_device vk;
+    struct vk_device vk;
 
-   VkDevice dispatch_handle;
-   simple_mtx_t resource_mutex;
-   struct list_head command_buffer_list;
-   struct list_head device_memory_list;
+    VkDevice dispatch_handle;
+    simple_mtx_t resource_mutex;
+    struct list_head command_buffer_list;
+    struct list_head device_memory_list;
 
-   struct hash_table_u64* image_map;
-   struct hash_table_u64* buffer_map;
-   struct hash_table_u64* command_pool_map;
+    struct hash_table_u64* image_map;
+    struct hash_table_u64* buffer_map;
+    struct hash_table_u64* command_pool_map;
 
-   struct wrapper_physical_device *physical;
-   struct vk_device_dispatch_table dispatch_table;
+    struct wrapper_physical_device *physical;
+    struct vk_device_dispatch_table dispatch_table;
 
-   uint32_t queueCount;
-   struct wrapper_queue **queues;
-   struct wrapper_queue *graphics_queue;
-   uint32_t graphics_queue_idx;
+    uint32_t queueCount;
+    struct wrapper_queue **queues;
+    struct wrapper_queue *graphics_queue;
+    uint32_t graphics_queue_idx;
 
-   VkCommandPool computePool;
+    VkCommandPool computePool;
 
-   // BCn decoding
-   InterceptorState s3tc;
-   InterceptorState bc6;
-   InterceptorState bc7;
+    // BCn decoding
+    InterceptorState s3tc;
+    InterceptorState bc6;
+    InterceptorState bc7;
 
-   // depth-stencil resolution reduction
-   enum DepthFormatOverrideMode depth_override_mode;
-   bool supports_d16_unorm_s8_uint;
-   bool supports_d16_unorm;
+    // depth-stencil resolution reduction
+    enum DepthFormatOverrideMode depth_override_mode;
+    bool supports_d16_unorm_s8_uint;
+    bool supports_d16_unorm;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_device, vk.base, VkDevice,
