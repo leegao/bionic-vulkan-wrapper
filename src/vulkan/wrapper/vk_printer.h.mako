@@ -22,6 +22,11 @@ extern "C" {
 % if s.name not in blacklisted_vk_types or s.name == 'VkShaderModuleCreateInfo':
 void vk_print_${s.name}(int can_log_level, int log_level, FILE*, const char* prefix, const ${s.name} *in_info);
 #define VK_PRINT_${s.name}(prefix, in_info) vk_print_${s.name}(VK_CMD_CAN_LOG_LEVEL, VK_CMD_ALL, VK_CMD_FD, prefix, in_info)
+#define VK_LOG_${s.name}(prefix, obj) if (should_log() >= LOG_LEVEL_DEBUG) { \
+   FILE* log_fd = LOG_FD; \
+   vk_print_${s.name}(should_log(), LOG_LEVEL_DEBUG, log_fd, prefix, obj); \
+   fflush(log_fd); \
+}
 % endif
 % endfor
 

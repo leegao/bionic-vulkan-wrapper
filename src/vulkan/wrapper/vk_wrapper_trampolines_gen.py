@@ -87,6 +87,9 @@ static RETURN_${e.name} __wrapper_${e.name}(__VA_ARGS__); \\\\\n
 WRAPPED_${e.name} \\\\\n
 static RETURN_${e.name} __wrapper_${e.name}(__VA_ARGS__)
 
+void print_input_params_${e.name}(${e.decl_params()}, int cmd_id);
+void print_output_params_${e.name}(${e.decl_params()},${' VkResult result,' if e.return_type == 'VkResult' else ''} int cmd_id);
+
 % if e.guard is not None:
 #else
 #define TRY_${e.name}(TRUE, FALSE) FALSE
@@ -132,6 +135,12 @@ _Atomic int __wrapper_commands = 0;
 #define VK_PRINT_VkCuLaunchInfoNVX(...)
 #define VK_PRINT_VkMicromapBuildInfoEXT(...)
 #define VK_PRINT_VkMicromapVersionInfoEXT(...)
+
+#define VK_LOG_VkAccelerationStructureVersionInfoKHR(...)
+#define VK_LOG_VkAccelerationStructureBuildGeometryInfoKHR(...)
+#define VK_LOG_VkCuLaunchInfoNVX(...)
+#define VK_LOG_VkMicromapBuildInfoEXT(...)
+#define VK_LOG_VkMicromapVersionInfoEXT(...)
                       
 % for e in entrypoints:
   % if not e.is_physical_device_entrypoint() or e.alias:
@@ -141,6 +150,8 @@ _Atomic int __wrapper_commands = 0;
 #ifdef ${e.guard}
   % endif
 ${e.trampoline()}
+${e.print_input_function()}
+${e.print_output_function()}
   % if e.guard is not None:
 #endif
   % endif
@@ -169,6 +180,8 @@ struct vk_physical_device_entrypoint_table wrapper_physical_device_trampolines =
 #ifdef ${e.guard}
   % endif
 ${e.trampoline()}
+${e.print_input_function()}
+${e.print_output_function()}
   % if e.guard is not None:
 #endif
   % endif

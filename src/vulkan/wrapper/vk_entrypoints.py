@@ -78,11 +78,11 @@ COMMAND_BLACKLIST = [
     'CmdSetFragmentShadingRateEnumNV',
 ]
 
-def print_param(command, param, mode='input'):
+def print_param(command, param, mode='input', log='VK_CMD_LOG_UNCONDITIONAL', vk_print='VK_PRINT_', flush='VK_CMD_FLUSH()'):
     if param == 'result':
         return [
-            f"        VK_CMD_LOG_UNCONDITIONAL(\"  out: result: VkResult = %ld (id=%d)\", (int64_t) result, cmd_id);",
-            f"        VK_CMD_FLUSH();",
+            f"        {log}(\"  out: result: VkResult = %ld (id=%d)\", (int64_t) result, cmd_id);",
+            f"        {flush};",
         ]
     is_input = param.num_pointers == 0 or param.is_const
     if mode == 'input' and not is_input:
@@ -97,28 +97,28 @@ def print_param(command, param, mode='input'):
     token = 'in' if is_input else 'out'
     output = []
     if is_wrapped:
-        output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type} (handle) = %p (id=%d)\", {param.name}, cmd_id);");
+        output.append(f"        {log}(\"  {token}: {param.name}: {param.type} (handle) = %p (id=%d)\", {param.name}, cmd_id);");
     elif is_struct:
         if not param.num_pointers: # Impossible
             output.append(f"#error: Impossible case struct+non-ptr {command.name} {param}")
         elif is_array and is_ptr1:
             # VkObject[10]
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}[]: {param.type} (id=%d)\", cmd_id);");
+            output.append(f"        {log}(\"  {token}: {param.name}[]: {param.type} (id=%d)\", cmd_id);");
             output.append(f"        for (uint32_t i = 0; i < {param.len if is_input else (f"*{param.len}" if param.len != "1" else "1")}; i++) {{")
-            output.append(f"            VK_CMD_LOG_UNCONDITIONAL(\"    {param.name}[%d]: {param.type} (id=%d)\", i, cmd_id);");
-            output.append(f"            VK_PRINT_{param.type}(\"      \", &{param.name}[i]);")
+            output.append(f"            {log}(\"    {param.name}[%d]: {param.type} (id=%d)\", i, cmd_id);");
+            output.append(f"            {vk_print}{param.type}(\"      \", &{param.name}[i]);")
             output.append(f"        }}")
         elif is_ptr1:
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type}* (id=%d)\", cmd_id);");
-            output.append(f"        VK_PRINT_{param.type}(\"    \", {param.name});")
+            output.append(f"        {log}(\"  {token}: {param.name}: {param.type}* (id=%d)\", cmd_id);");
+            output.append(f"        {vk_print}{param.type}(\"    \", {param.name});")
         else:
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type}** = %p (id=%d)\", {param.name}, cmd_id);");
+            output.append(f"        {log}(\"  {token}: {param.name}: {param.type}** = %p (id=%d)\", {param.name}, cmd_id);");
     else:
         if not param.num_pointers:
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type} = %lx (id=%d)\", (int64_t){param.name}, cmd_id);")
+            output.append(f"        {log}(\"  {token}: {param.name}: {param.type} = %lx (id=%d)\", (int64_t){param.name}, cmd_id);")
         elif is_array and is_ptr1:
             # VkObject[10]
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}[]: {param.type} = %p (id=%d)\", {param.name}, cmd_id);");
+            output.append(f"        {log}(\"  {token}: {param.name}[]: {param.type} = %p (id=%d)\", {param.name}, cmd_id);");
             count = param.len
             deref = f"{param.name}[i]"
             if param.len == 'null-terminated' or (param.type == 'void' and is_ptr1):
@@ -130,14 +130,14 @@ def print_param(command, param, mode='input'):
             elif param.len.startswith('p') and not is_input:
                 count = '*' + count
             output.append(f"        for (uint32_t i = 0; i < {count}; i++) {{")
-            output.append(f"            VK_CMD_LOG_UNCONDITIONAL(\"    {param.name}[%d]: {param.type} = %lx (id=%d)\", i, (int64_t){param.name}[i], cmd_id);");
+            output.append(f"            {log}(\"    {param.name}[%d]: {param.type} = %lx (id=%d)\", i, (int64_t){param.name}[i], cmd_id);");
             output.append(f"        }}")
         elif param.num_pointers and not is_input and param.type not in ("void", "Display", "xcb_connection_t"):
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: *{param.name}: {param.type} = %lx (id=%d)\", (int64_t)*{param.name}, cmd_id);")
+            output.append(f"        {log}(\"  {token}: *{param.name}: {param.type} = %lx (id=%d)\", (int64_t)*{param.name}, cmd_id);")
         elif param.num_pointers:
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type}{'*' * param.num_pointers} = %lx (id=%d)\", (int64_t){param.name}, cmd_id);")
+            output.append(f"        {log}(\"  {token}: {param.name}: {param.type}{'*' * param.num_pointers} = %lx (id=%d)\", (int64_t){param.name}, cmd_id);")
         else:
-            output.append(f"        VK_CMD_LOG_UNCONDITIONAL(\"  {token}: {param.name}: {param.type} = %lx (id=%d)\", (int64_t){param.name}, cmd_id);");
+            output.append(f"        {log}(\"  {token}: {param.name}: {param.type} = %lx (id=%d)\", (int64_t){param.name}, cmd_id);");
             pass
     # output.append(f"    }}")
     # output.append(f"#endif")
@@ -538,6 +538,58 @@ class Entrypoint(EntrypointBase):
             return_fmt='result,' if self.return_type != 'void' else '',
             PRINT_PRE="\n".join(pre_print),
             PRINT_POST="\n".join(post_print),
+        )
+
+    def print_input_function(self):
+        PRINT_TEMPLATE = string.Template("""
+void print_input_params_$name($decl_params, int cmd_id) {
+$PRINT_PRE
+}""")
+        if self.alias:
+            return ""
+
+        pre_print = []
+        pre_print.append(f"    WLOGT(\"wrapper_{self.name} (id=%d)\", cmd_id);")
+        for param in self.params:
+            if self.name in COMMAND_BLACKLIST:
+                continue
+            is_input = param.num_pointers == 0 or param.is_const
+            if not is_input:
+                continue
+            pre_print += print_param(self, param, mode='input', log='WLOGD', vk_print='VK_LOG_', flush='')
+
+        return PRINT_TEMPLATE.substitute(
+            return_type=self.return_type,
+            name=self.name,
+            decl_params=self.decl_params(),
+            PRINT_PRE="\n".join(pre_print),
+        )
+
+    def print_output_function(self):
+        PRINT_TEMPLATE = string.Template("""
+void print_output_params_$name($decl_params,$result int cmd_id) {
+$PRINT_PRE
+}""")
+        if self.alias:
+            return ""
+
+        pre_print = []
+        if self.return_type == 'VkResult':
+            pre_print += print_param(self, 'result', mode='output')
+        for param in self.params:
+            if self.name in COMMAND_BLACKLIST:
+                continue
+            is_input = param.num_pointers == 0 or param.is_const
+            if is_input:
+                continue
+            pre_print += print_param(self, param, mode='output', log='WLOGD', vk_print='VK_LOG_', flush='')
+
+        return PRINT_TEMPLATE.substitute(
+            return_type=self.return_type,
+            name=self.name,
+            decl_params=self.decl_params(),
+            result=' VkResult result,' if self.return_type == 'VkResult' else '',
+            PRINT_PRE="\n".join(pre_print),
         )
 
 class EntrypointAlias(EntrypointBase):

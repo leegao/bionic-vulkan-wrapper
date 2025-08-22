@@ -403,7 +403,7 @@ void main() {
     ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + coord;
 
     // Check if this invocation is out of bounds for the destination image
-    if (final_dst_coord.x >= push_constants.dst_width || final_dst_coord.y >= push_constants.dst_height) {
+    if (coord.x >= push_constants.dst_width || coord.y >= push_constants.dst_height) {
         return;
     }
 
@@ -412,8 +412,15 @@ void main() {
     bool is_watermarked = ((push_constants.watercoloredBitsBc & (1 << (push_constants.srcFormat - 131))) != 0)
         && coord.x < push_constants.watermarkerSize && coord.y < push_constants.watermarkerSize;
     if (is_masked || is_watermarked) {
-#define RETURN(r,g,b) imageStore(dstImage, final_dst_coord, vec4(r/256.0, g/256.0, b/256.0, 1.0)); break
 #ifdef USE_IMAGE_VIEW_OUTPUT
+#define RETURN(r,g,b) imageStore(dstImage, final_dst_coord, vec4(r/255.0, g/255.0, b/255.0, 1.0)); break
+#else
+#define RETURN(r,g,b) { \
+        int dst_index = int(coord.y * push_constants.dst_width + coord.x); \
+        dstBuffer.data[dst_index] = packUnorm4x8(vec4(r/255.0, g/255.0, b/255.0, 1.0)); \
+        break; \
+    }
+#endif
         switch (push_constants.srcFormat) {
         // See https://sashamaps.net/docs/resources/20-colors/
         case 145:
@@ -423,7 +430,6 @@ void main() {
         default:
             RETURN(0xff, 0xff, 0xff); // White
         }
-#endif
         return;
     }
 
