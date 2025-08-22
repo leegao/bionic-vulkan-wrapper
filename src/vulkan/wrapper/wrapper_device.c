@@ -1556,14 +1556,14 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
 
    if (!wimg->is_bcn_emulated) {
       // If no BCn emulation needed, just fall-through
-      CHECKV(CmdCopyBufferToImage(commandBuffer, srcBuffer, dstImage,
-                                                      dstImageLayout, 1, pRegions));
+      CHECKV(CmdCopyBufferToImage(commandBuffer, srcBuffer, dstImage, dstImageLayout, regionCount, pRegions));
       return;
    }
 
    // --- Decompression Path ---
    WLOG("Emulating support for format=%d, decode_id=%d", wimg->original_format, decode_id);
    VK_CMD_LOG("\nEmulating BCn for format=%d, decode_id=%d", wimg->original_format, decode_id);
+   print_input_params_CmdCopyBufferToImage(commandBuffer, srcBuffer, dstImage, dstImageLayout, regionCount, pRegions, decode_id);
 
    bool validate_bcn = (get_validate_bcn_masks() & (1 << (wimg->original_format - 131))) != 0;
    bool dump_artifacts = ((get_dump_bcn_masks() & (1 << (wimg->original_format - 131))) != 0) || validate_bcn;

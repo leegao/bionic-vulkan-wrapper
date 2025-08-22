@@ -109,9 +109,9 @@ wrapper_allocate_memory_dmaheap(struct wrapper_device *device,
       .sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR,
       .pNext = NULL,
    };
-   result = CHECK(GetMemoryFdPropertiesKHR(
+   result = wrapper_device_trampolines.GetMemoryFdPropertiesKHR(
       (VkDevice) device, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
-         *out_fd, &memory_fd_props));
+         *out_fd, &memory_fd_props);
 
    if (result != VK_SUCCESS)
       return VK_ERROR_INVALID_EXTERNAL_HANDLE;
@@ -131,7 +131,7 @@ wrapper_allocate_memory_dmaheap(struct wrapper_device *device,
          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
          memory_fd_props.memoryTypeBits);
 
-   result = CHECK(AllocateMemory((VkDevice) device, &allocate_info, pAllocator, pMemory));
+   result = wrapper_device_trampolines.AllocateMemory((VkDevice) device, &allocate_info, pAllocator, pMemory);
 
    if (result != VK_SUCCESS && import_fd_info.fd != -1)
       close(import_fd_info.fd);
@@ -157,11 +157,11 @@ wrapper_allocate_memory_dmabuf(struct wrapper_device *device,
    allocate_info = *pAllocateInfo;
    allocate_info.pNext = &export_memory_info;
 
-   result = CHECK(AllocateMemory((VkDevice) device, &allocate_info, pAllocator, pMemory));
+   result = wrapper_device_trampolines.AllocateMemory((VkDevice) device, &allocate_info, pAllocator, pMemory);
    if (result != VK_SUCCESS)
       return result;
 
-   result = CHECK(GetMemoryFdKHR(
+   result = wrapper_device_trampolines.GetMemoryFdKHR(
       (VkDevice) device,
       &(VkMemoryGetFdInfoKHR) {
          .sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
@@ -169,7 +169,7 @@ wrapper_allocate_memory_dmabuf(struct wrapper_device *device,
          .handleType =
             VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
       },
-      out_fd));
+      out_fd);
 
    if (result != VK_SUCCESS)
       return result;
@@ -201,21 +201,21 @@ wrapper_allocate_memory_ahardware_buffer(struct wrapper_device *device,
    allocate_info = *pAllocateInfo;
    allocate_info.pNext = &export_memory_info;
 
-   result = CHECK(AllocateMemory((VkDevice) device,
+   result = wrapper_device_trampolines.AllocateMemory((VkDevice) device,
                   &allocate_info,
                   pAllocator,
-                  pMemory));
+                  pMemory);
    if (result != VK_SUCCESS)
       return result;
 
-   result = CHECK(GetMemoryAndroidHardwareBufferANDROID(
+   result = wrapper_device_trampolines.GetMemoryAndroidHardwareBufferANDROID(
       (VkDevice) device,
       &(VkMemoryGetAndroidHardwareBufferInfoANDROID) {
          .sType =
             VK_STRUCTURE_TYPE_MEMORY_GET_ANDROID_HARDWARE_BUFFER_INFO_ANDROID,
          .memory = *pMemory,
       },
-      pAHardwareBuffer));
+      pAHardwareBuffer);
 
    if (result != VK_SUCCESS)
       return result;
