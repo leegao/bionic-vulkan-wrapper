@@ -416,7 +416,7 @@ void main() {
 #define RETURN(r,g,b) imageStore(dstImage, final_dst_coord, vec4(r/255.0, g/255.0, b/255.0, 1.0)); break
 #else
 #define RETURN(r,g,b) { \
-        int dst_index = int(pixel_coord.y * push_constants.dst_width + pixel_coord.x); \
+        int dst_index = int(coord.y * push_constants.dst_width + coord.x); \
         dstBuffer.data[dst_index] = packUnorm4x8(vec4(r/255.0, g/255.0, b/255.0, 1.0)); \
         break; \
     }

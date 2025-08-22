@@ -384,8 +384,12 @@ tracking:
             allocated_memory[allocate_info.memoryTypeIndex] += allocate_info.allocationSize;
         }
     }
-    if (debug) {
-        WLOGD("Allocated %ld bytes to memory %d", allocate_info.allocationSize, allocate_info.memoryTypeIndex);
+    if (debug || result != VK_SUCCESS) {
+        if (result == VK_SUCCESS) {
+            WLOGD("Allocated %ld bytes to memory %d", allocate_info.allocationSize, allocate_info.memoryTypeIndex);
+        } else {
+            WLOGD("Tried to allocated %ld bytes to memory %d", allocate_info.allocationSize, allocate_info.memoryTypeIndex);
+        }
         WLOGD("Total allocations: %d / %d", allocations, device->physical->properties2.properties.limits.maxMemoryAllocationCount);
         for (int i = 0; i < 64; i++) {
             if (allocated_memory[i]) {
