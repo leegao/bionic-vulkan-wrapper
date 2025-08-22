@@ -57,12 +57,17 @@ static bool ValidateBCn(struct wrapper_device* device, VkFormat original_format,
 }
 
 extern "C"
-void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
+void RecordBCnArtifacts(struct wrapper_device* device, struct wrapper_image* wimg,
                         const VkBufferImageCopy* region, VkBuffer srcBuffer, VkBuffer stagingBuffer,
                         int decode_id, bool validate_bcn) {
     void *srcData;
     void *dstData;
     VkResult result;
+    if (!wimg) {
+        WLOGE("dstImage not tracked, skipping (decode_id=%d)", decode_id);
+        return;
+    }
+    VkFormat original_format = wimg->original_format;
 
     struct wrapper_buffer* src_wbuf = get_wrapper_buffer(device, srcBuffer);
     if (!src_wbuf) {
@@ -130,6 +135,7 @@ void RecordBCnArtifacts(struct wrapper_device* device, VkFormat original_format,
     FILE* fd;
     if (region && (fd = open_log_file("_region.txt", original_format, width, height, decode_id, "w"))) {
         fprintf(fd, "src: %p\n", srcBuffer);
+        fprintf(fd, "extent: %d x %d\n", wimg->vk.extent.width, wimg->vk.extent.height);
         vk_print_VkBufferImageCopy(0, 0, fd, "", region);
         fclose(fd);
     }

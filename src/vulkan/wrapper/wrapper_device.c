@@ -1699,7 +1699,7 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
 
       if (dump_artifacts) {
          // Invariant: srcBuffer contains the BCn blocks, stagingBuffer contains the output
-         RecordBCnArtifacts(_device, wimg->original_format, region, srcBuffer, stagingBuffer, decode_id, validate_bcn);
+         RecordBCnArtifacts(_device, wimg, region, srcBuffer, stagingBuffer, decode_id, validate_bcn);
       }
 
       if (!use_image_view) {

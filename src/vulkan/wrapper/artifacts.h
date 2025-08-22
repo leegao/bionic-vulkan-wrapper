@@ -7,7 +7,7 @@ extern "C" {
 #include <vulkan/vulkan_core.h>
 
 void RecordBCnArtifacts(
-    struct wrapper_device* device, VkFormat original_format,
+    struct wrapper_device* device, struct wrapper_image* wimg,
     const VkBufferImageCopy* region, VkBuffer srcBuffer,
     VkBuffer stagingBuffer, int decode_id, bool validate_bcn);
 

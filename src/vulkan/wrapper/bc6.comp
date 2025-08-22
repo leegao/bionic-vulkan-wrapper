@@ -678,7 +678,7 @@ void main() {
     ivec2 final_dst_coord = ivec2(push_constants.offsetx, push_constants.offsety) + coord;
 
     // Check if this invocation is out of bounds for the destination image
-    if (final_dst_coord.x >= push_constants.dst_width || final_dst_coord.y >= push_constants.dst_height) {
+    if (coord.x >= push_constants.dst_width || coord.y >= push_constants.dst_height) {
         return;
     }
 
