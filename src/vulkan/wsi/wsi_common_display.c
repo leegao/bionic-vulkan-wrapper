@@ -453,7 +453,7 @@ wsi_GetPhysicalDeviceDisplayPropertiesKHR(VkPhysicalDevice physicalDevice,
                                           uint32_t *pPropertyCount,
                                           VkDisplayPropertiesKHR *pProperties)
 {
-   LOG_A("Inside of wsi_GetPhysicalDeviceDisplayPropertiesKHR");
+   WSI_LOGD("Inside of wsi_GetPhysicalDeviceDisplayPropertiesKHR");
    VK_FROM_HANDLE(vk_physical_device, pdevice, physicalDevice);
    struct wsi_device *wsi_device = pdevice->wsi_device;
    struct wsi_display *wsi =

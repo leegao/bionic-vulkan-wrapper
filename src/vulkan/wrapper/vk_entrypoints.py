@@ -130,7 +130,7 @@ def print_param(command, param, mode='input', log='VK_CMD_LOG_UNCONDITIONAL', vk
             elif param.len.startswith('p') and not is_input:
                 count = '*' + count
             output.append(f"        for (uint32_t i = 0; i < {count}; i++) {{")
-            output.append(f"            {log}(\"    {param.name}[%d]: {param.type} = %lx (id=%d)\", i, (int64_t){param.name}[i], cmd_id);");
+            output.append(f"            if ({param.name}) {log}(\"    {param.name}[%d]: {param.type} = %lx (id=%d)\", i, (int64_t){param.name}[i], cmd_id);");
             output.append(f"        }}")
         elif param.num_pointers and not is_input and param.type not in ("void", "Display", "xcb_connection_t"):
             output.append(f"        {log}(\"  {token}: *{param.name}: {param.type} = %lx (id=%d)\", (int64_t)*{param.name}, cmd_id);")
@@ -373,8 +373,11 @@ def _generate_trampoline(command, dispatch_table="device->dispatch_table"):
     assign_block = "" if command.return_type == 'void' else f"{command.return_type} result = "
     
     if command.name not in SPAMMY_COMMANDS:
-        handle_unwrap_logic[idx] = f"    WLOGA(\"dispatch->{command.name}({', '.join(types)}) (id=%d)\", {', '.join([p.name for p in params])}, cmd_id);"
+        handle_unwrap_logic[idx] = f"    INC_MSG;"
+        handle_unwrap_logic[idx] += f"    WLOGA(\"dispatch->{command.name}({', '.join(types)}) (id=%d)\", {', '.join([p.name for p in params])}, cmd_id);"
         handle_wrap_logic.append(f"    WLOGA(\"dispatch->{command.name} {'returned %d' if command.return_type != 'void' else 'finished'} (id=%d)\"{', result' if command.return_type != 'void' else ''}, cmd_id);")
+
+        handle_wrap_logic.append(f"    DEC_MSG;")
 
     if params[0].type == 'VkQueue':
         handle_unwrap_logic.append("    simple_mtx_lock(&base->resource_mutex);")
@@ -411,11 +414,13 @@ class EntrypointBase:
 WRAP_TEMPLATE = string.Template("""
 VKAPI_ATTR $return_type VKAPI_CALL wrapper_$name($decl_params) {
     int cmd_id = __wrapper_commands++;
+    INC_MSG;
     WLOGT("wrapper->$name($type_params) (id=%d)", $call_params, cmd_id);
     bool should_print = VK_CMD_CAN_TRACE;
 $PRINT_PRE
     $assign __wrapper_$name($call_params);
     WLOGT("wrapper->$name $return_str (id=%d)", $return_fmt cmd_id);
+    DEC_MSG;
 $PRINT_POST
     return $result;
 }""")
@@ -575,7 +580,7 @@ $PRINT_PRE
 
         pre_print = []
         if self.return_type == 'VkResult':
-            pre_print += print_param(self, 'result', mode='output')
+            pre_print += print_param(self, 'result', mode='output', log='WLOGD', vk_print='VK_LOG_', flush='')
         for param in self.params:
             if self.name in COMMAND_BLACKLIST:
                 continue

@@ -2,9 +2,20 @@
 #include "wsi_common_private.h"
 #include "vk_log.h"
 #include <android/hardware_buffer.h>
+
+#define WRAP(name) wrapped__##name
+#define print_input_params_DestroySurfaceKHR(...)
+#define print_output_params_DestroySurfaceKHR(...)
+#define print_output_params_GetPhysicalDeviceSurfaceFormatsKHR(...)
+#define print_input_params_CreateXcbSurfaceKHR(...)
+#define print_output_params_CreateXcbSurfaceKHR(...)
+#define print_input_params_CreateXlibSurfaceKHR(...)
+#define print_output_params_CreateXlibSurfaceKHR(...)
+#include "wsi_common_ahardware_buffer_wrappers.h"
+
 #define AHARDWAREBUFFER_FORMAT_B8G8R8A8_UNORM 5
 enum wsi_swapchain_blit_type
-wsi_get_ahardware_buffer_blit_type(const struct wsi_device *wsi,
+WRAP(wsi_get_ahardware_buffer_blit_type)(const struct wsi_device *wsi,
                       const struct wsi_base_image_params *params,
                                    VkDevice device)
 {
@@ -71,11 +82,11 @@ wsi_get_ahardware_buffer_blit_type(const struct wsi_device *wsi,
 }
 
 static VkResult
-wsi_create_ahardware_buffer_image_mem(const struct wsi_swapchain *chain,
+WRAP(wsi_create_ahardware_buffer_image_mem)(const struct wsi_swapchain *chain,
                                       const struct wsi_image_info *info,
                                       struct wsi_image *image)
 {
-   WSI_LOGT("not blitting");
+   WSI_LOGD("not blitting");
    const struct wsi_device *wsi = chain->wsi;
    VkImage old_image = image->image;
    VkResult result;
@@ -129,7 +140,7 @@ wsi_create_ahardware_buffer_image_mem(const struct wsi_swapchain *chain,
    };
    result = wsi->AllocateMemory(chain->device, &memory_info,
                                 &chain->alloc, &image->memory);
-   WSI_LOGT("wsi->AllocateMemory: %d", result);
+   WSI_LOGD("wsi->AllocateMemory: %d", result);
    if (result != VK_SUCCESS)
       return vk_errorf(NULL, result, "Failed to allocate memory");
    image->num_planes = 1;
@@ -138,18 +149,18 @@ wsi_create_ahardware_buffer_image_mem(const struct wsi_swapchain *chain,
 }
 
 static VkResult
-wsi_create_ahardware_buffer_blit_context(const struct wsi_swapchain *chain,
+WRAP(wsi_create_ahardware_buffer_blit_context)(const struct wsi_swapchain *chain,
                                          const struct wsi_image_info *info,
                                          struct wsi_image *image)
 {
-   WSI_LOGT("blitting");
+   WSI_LOGD("blitting");
    assert(chain->blit.type == WSI_SWAPCHAIN_IMAGE_BLIT);
    const struct wsi_device *wsi = chain->wsi;
    VkResult result;
    const VkExternalMemoryHandleTypeFlags handle_types =
       VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
-   if (AHardwareBuffer_allocate(info->ahardware_buffer_desc,
-                                &image->ahardware_buffer) != 0)
+   if (WSI_CHECK(AHardwareBuffer_allocate(info->ahardware_buffer_desc,
+                                &image->ahardware_buffer) != 0))
       return vk_errorf(NULL, VK_ERROR_OUT_OF_HOST_MEMORY,
                        "Failed to allocate ahardware_buffer");
    VkAndroidHardwareBufferFormatPropertiesANDROID ahardware_buffer_format_props = {
@@ -160,8 +171,8 @@ wsi_create_ahardware_buffer_blit_context(const struct wsi_swapchain *chain,
       .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID,
       .pNext = &ahardware_buffer_format_props,
    };
-   result = wsi->GetAndroidHardwareBufferPropertiesANDROID(
-      chain->device, image->ahardware_buffer, &ahardware_buffer_props);
+   result = WSI_CHECK(wsi->GetAndroidHardwareBufferPropertiesANDROID(
+      chain->device, image->ahardware_buffer, &ahardware_buffer_props));
    if (result != VK_SUCCESS)
       return result;
    const VkExternalFormatANDROID external_format = {
@@ -206,8 +217,8 @@ wsi_create_ahardware_buffer_blit_context(const struct wsi_swapchain *chain,
       image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
    }
 
-   result = wsi->CreateImage(chain->device, &image_info,
-                             &chain->alloc, &image->blit.image);
+   result = WSI_CHECK(wsi->CreateImage(chain->device, &image_info,
+                             &chain->alloc, &image->blit.image));
    if (result != VK_SUCCESS)
       return vk_errorf(NULL, result, "Failed create blit image");
    VkMemoryDedicatedAllocateInfo blit_mem_dedicated_info = {
@@ -229,16 +240,16 @@ wsi_create_ahardware_buffer_blit_context(const struct wsi_swapchain *chain,
          wsi_select_device_memory_type(
          wsi, ahardware_buffer_props.memoryTypeBits),
    };
-   result = wsi->AllocateMemory(chain->device, &blit_mem_info,
-                                &chain->alloc, &image->blit.memory);
+   result = WSI_CHECK(wsi->AllocateMemory(chain->device, &blit_mem_info,
+                                &chain->alloc, &image->blit.memory));
    if (result != VK_SUCCESS)
       return vk_errorf(NULL, result, "Failed to allocate blit memory");
-   result = wsi->BindImageMemory(chain->device, image->blit.image,
-                                 image->blit.memory, 0);
+   result = WSI_CHECK(wsi->BindImageMemory(chain->device, image->blit.image,
+                                 image->blit.memory, 0));
    if (result != VK_SUCCESS)
       return result;
    VkMemoryRequirements reqs;
-   wsi->GetImageMemoryRequirements(chain->device, image->image, &reqs);
+   WSI_CHECKV(wsi->GetImageMemoryRequirements(chain->device, image->image, &reqs));
    const VkMemoryDedicatedAllocateInfo memory_dedicated_info = {
       .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
       .image = image->image,
@@ -250,8 +261,8 @@ wsi_create_ahardware_buffer_blit_context(const struct wsi_swapchain *chain,
       .memoryTypeIndex =
          wsi_select_device_memory_type(wsi, reqs.memoryTypeBits),
    };
-   result = wsi->AllocateMemory(chain->device, &memory_info,
-                                &chain->alloc, &image->memory);
+   result = WSI_CHECK(wsi->AllocateMemory(chain->device, &memory_info,
+                                &chain->alloc, &image->memory));
    if (result != VK_SUCCESS)
       return result;
    image->num_planes = 1;
@@ -260,7 +271,7 @@ wsi_create_ahardware_buffer_blit_context(const struct wsi_swapchain *chain,
 }
 
 inline static uint32_t
-to_ahardware_buffer_format(VkFormat format) {
+WRAP(to_ahardware_buffer_format)(VkFormat format) {
    switch (format) {
    case VK_FORMAT_B8G8R8A8_SRGB:
    case VK_FORMAT_B8G8R8A8_UNORM:
@@ -275,7 +286,7 @@ to_ahardware_buffer_format(VkFormat format) {
 }
 
 VkResult
-wsi_configure_ahardware_buffer_image(
+WRAP(wsi_configure_ahardware_buffer_image)(
    const struct wsi_swapchain *chain,
    const VkSwapchainCreateInfoKHR *pCreateInfo,
    const struct wsi_base_image_params *params,
@@ -349,6 +360,3 @@ wsi_configure_ahardware_buffer_image(
    }
    return VK_SUCCESS;
 }
-
-
-

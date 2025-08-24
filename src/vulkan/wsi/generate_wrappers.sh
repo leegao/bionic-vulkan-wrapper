@@ -1,0 +1,3 @@
+python generate_wrappers.py wsi_common_wrappers.in > wsi_common_wrappers.h
+python generate_wrappers.py wsi_common_x11_wrappers.in > wsi_common_x11_wrappers.h
+python generate_wrappers.py wsi_common_ahardware_buffer_wrappers.in > wsi_common_ahardware_buffer_wrappers.h

@@ -1,0 +1,5 @@
+enum wsi_swapchain_blit_type wsi_get_ahardware_buffer_blit_type(const struct wsi_device *wsi, const struct wsi_base_image_params *params, VkDevice device);
+static VkResult wsi_create_ahardware_buffer_image_mem(const struct wsi_swapchain *chain, const struct wsi_image_info *info, struct wsi_image *image);
+static VkResult wsi_create_ahardware_buffer_blit_context(const struct wsi_swapchain *chain, const struct wsi_image_info *info, struct wsi_image *image);
+inline static uint32_t to_ahardware_buffer_format(VkFormat format);
+VkResult wsi_configure_ahardware_buffer_image(const struct wsi_swapchain *chain, const VkSwapchainCreateInfoKHR *pCreateInfo, const struct wsi_base_image_params *params, struct wsi_image_info *info);

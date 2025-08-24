@@ -388,25 +388,81 @@ int __android_log_print(
   ...
 );
 
-int should_log(void);
+bool check_flag(const char* env, bool default_value);
 
-void wlog(const char* fmt, ...);
+#define CHECK_FLAG(name) ({ \
+    static bool __value; \
+    static bool __initialized; \
+    if (!__initialized) \
+        __value = check_flag(name, false); \
+    __value; \
+})
 
-#define LOG_A(...) __android_log_print(6, "VkWrapper", __VA_ARGS__)
+extern __thread int msg_level;
+
+int should_log_wsi(void);
+FILE* get_wrapper_log_fd(void);
+
+void wlog_wsi(const char* fmt, ...);
+
+#define LOG_ANDROID(...) __android_log_print(6, "VkWrapper", __VA_ARGS__)
 
 #define W_WFORMAT(fmt, ...) fmt " \t (%s:%d)", ## __VA_ARGS__, __FUNCTION__, __LINE__
 
 #define W___WLOG__(LEVEL, fmt, ...) \
-    if (should_log() >= LEVEL) { \
-        wlog(W_WFORMAT(fmt, ## __VA_ARGS__)); \
-        LOG_A(W_WFORMAT(fmt, ## __VA_ARGS__)); \
+    if (should_log_wsi() >= LEVEL) { \
+        wlog_wsi(W_WFORMAT(fmt, ## __VA_ARGS__)); \
+        LOG_ANDROID(W_WFORMAT(fmt, ## __VA_ARGS__)); \
     }
 
-#define WSI_LOGT(fmt, ...) W___WLOG__(4, "" fmt, ## __VA_ARGS__)
 #define WSI_LOGA(fmt, ...) W___WLOG__(5, "! " fmt, ## __VA_ARGS__)
-#define WSI_LOGD(fmt, ...) W___WLOG__(3, fmt, ## __VA_ARGS__)
+#define WSI_LOGD(fmt, ...) W___WLOG__(3, "D " fmt, ## __VA_ARGS__)
 #define WSI_LOG(fmt, ...)  W___WLOG__(2, fmt, ## __VA_ARGS__)
 #define WSI_LOGE(fmt, ...) W___WLOG__(1, "[ERROR] " fmt, ## __VA_ARGS__)
+#define WSI_CAN_LOGD(block) if (should_log_wsi() >= 3) block
+#define WSI_CAN_LOGA(block) if (should_log_wsi() >= 5) block
+
+void vk_print_VkSwapchainCreateInfoKHR(int can_log_level, int log_level, FILE*, const char* prefix, const VkSwapchainCreateInfoKHR *in_info);
+void vk_print_VkPhysicalDeviceMemoryProperties(int can_log_level, int log_level, FILE*, const char* prefix, const VkPhysicalDeviceMemoryProperties *in_info);
+void vk_print_VkPhysicalDeviceDrmPropertiesEXT(int can_log_level, int log_level, FILE*, const char* prefix, const VkPhysicalDeviceDrmPropertiesEXT *in_info);
+void vk_print_VkPhysicalDevicePCIBusInfoPropertiesEXT(int can_log_level, int log_level, FILE*, const char* prefix, const VkPhysicalDevicePCIBusInfoPropertiesEXT *in_info);
+
+#define WSI_LOG_STRUCT(st, obj) { \
+   FILE* log_fd = get_wrapper_log_fd(); \
+   char buffer[65]; \
+   int level = (msg_level + 5) * 2; \
+   level = level < 65 ? level : 64; \
+   memset(buffer, ' ', level); \
+   buffer[level] = 0; \
+   vk_print_##st(should_log_wsi(), 3, log_fd, buffer, obj); \
+   fflush(log_fd); \
+}
+
+#define INC_MSGA WSI_CAN_LOGA({msg_level++;})
+#define DEC_MSGA WSI_CAN_LOGA({msg_level--;})
+#define INC_MSGD WSI_CAN_LOGD({msg_level++;})
+#define DEC_MSGD WSI_CAN_LOGD({msg_level--;})
+
+#define WSI_CHECK(call) ({ \
+      INC_MSGA; \
+      WSI_LOGA("Calling " #call); \
+      VkResult __result = call; \
+      if (__result != VK_SUCCESS) { \
+         WSI_LOGE(#call " failed, result=%d", __result); \
+      } else { \
+         WSI_LOGA(#call " succeeded"); \
+      } \
+      DEC_MSGA; \
+      __result; \
+   })
+
+#define WSI_CHECKV(call) { \
+      INC_MSGA; \
+      WSI_LOGA("Calling " #call); \
+      call; \
+      WSI_LOGA(#call " succeeded"); \
+      DEC_MSGA; \
+   }
 
 #ifdef __cplusplus
 }

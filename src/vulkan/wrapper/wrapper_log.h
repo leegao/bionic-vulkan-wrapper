@@ -93,7 +93,20 @@ int should_log(void);
 
 int should_log_cmd(void);
 
+int should_log_wsi(void);
+
+extern __thread int msg_level;
+
+#define INC_MSG if(CAN_LOG(LOG_LEVEL_TRACE)) msg_level++
+#define DEC_MSG if(CAN_LOG(LOG_LEVEL_TRACE)) msg_level--
+
+
+#define WLOGD_OPEN(fmt, ...) if(CAN_LOG(LOG_LEVEL_DEBUG)) { __WLOG__(LOG_LEVEL_DEBUG, fmt, ## __VA_ARGS__); msg_level++; }
+#define WLOGD_CLOSE(fmt, ...) if(CAN_LOG(LOG_LEVEL_DEBUG)) { msg_level--; __WLOG__(LOG_LEVEL_DEBUG, fmt, ## __VA_ARGS__); }
+
 void wlog(const char* fmt, ...);
+
+void wlog_wsi(const char* fmt, ...);
 
 VKAPI_ATTR VkBool32 VKAPI_CALL
 wrapper_debug_callback(

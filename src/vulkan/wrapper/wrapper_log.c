@@ -68,7 +68,8 @@ int should_log_cmd() {
     __cmd_log_initialized = true;
 
     const char *log_level = getenv("WRAPPER_CMD_LOG_LEVEL");
-    LOG("Logging cmds at %s", log_level);
+    if (log_level)
+        LOG("Logging cmds at %s", log_level);
     if (!log_level) {
         __cmd_log_level = VK_CMD_NONE;
     } else if (strcmp(log_level, "all") == 0) {
@@ -103,7 +104,8 @@ int should_log() {
     __start_ms = get_current_seconds();
 
     const char *log_level = getenv("WRAPPER_LOG_LEVEL");
-    LOG("Logging logs at %s", log_level);
+    if (log_level)
+        LOG("Logging logs at %s", log_level);
     if (!log_level) {
         __log_level = LOG_LEVEL_ERROR;
     } else if (strcmp(log_level, "all") == 0) {
@@ -134,12 +136,66 @@ int should_log() {
     return __log_level;
 }
 
+__thread int msg_level;
+
+int should_log_wsi() {
+    static bool log_initialized;
+    static int log_level = LOG_LEVEL_ERROR;
+    if (log_initialized) {
+        return log_level;
+    }
+    log_initialized = true;
+    should_log();
+    const char *wsi_log_level = getenv("WRAPPER_WSI_LOG_LEVEL");
+    if (wsi_log_level)
+        WLOGD("Logging WSI logs at %s", wsi_log_level);
+    if (!wsi_log_level) {
+        log_level = LOG_LEVEL_ERROR;
+    } else if (strcmp(wsi_log_level, "all") == 0) {
+        log_level = LOG_LEVEL_ALL;
+    } else if (strcmp(wsi_log_level, "debug") == 0) {
+        log_level = LOG_LEVEL_DEBUG;
+    } else if (strcmp(wsi_log_level, "verbose") == 0) {
+        log_level = LOG_LEVEL_VERBOSE;
+    } else if (strcmp(wsi_log_level, "error") == 0) {
+        log_level = LOG_LEVEL_ERROR;
+    } else {
+        log_level = LOG_LEVEL_NONE;
+    }
+
+    return log_level;
+}
+
 void wlog(const char* fmt, ...) {
     FILE* fd = __log_fd;
     if (!fd) {
         return;
     }
-    fprintf(fd, "[%06.2f] ", (get_current_seconds() - __start_ms));
+    int level = msg_level * 2;
+    level = level < 65 ? level : 64;
+    char buffer[65];
+    memset(buffer, ' ', level);
+    buffer[level] = 0;
+    fprintf(fd, "[%06.2f] %s", (get_current_seconds() - __start_ms), buffer);
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(fd, fmt, args);
+    va_end(args);
+    fprintf(fd, "\n");
+    fflush(fd);
+}
+
+void wlog_wsi(const char* fmt, ...) {
+    FILE* fd = __log_fd;
+    if (!fd) {
+        return;
+    }
+    int level = msg_level * 2;
+    level = level < 65 ? level : 64;
+    char buffer[65];
+    memset(buffer, ' ', level);
+    buffer[level] = 0;
+    fprintf(fd, "[%06.2f] %s", (get_current_seconds() - __start_ms), buffer);
     va_list args;
     va_start(args, fmt);
     vfprintf(fd, fmt, args);

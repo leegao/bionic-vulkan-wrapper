@@ -54,6 +54,13 @@
 #include <android/hardware_buffer.h>
 #endif
 
+#define WRAP(name) wrapped__##name
+#define print_input_params_DestroySurfaceKHR(...)
+#define print_output_params_DestroySurfaceKHR(...)
+#define print_output_params_GetPhysicalDeviceSurfaceFormatsKHR(...)
+
+#include "wsi_common_wrappers.h"
+
 uint64_t WSI_DEBUG;
 
 static const struct debug_control debug_control[] = {
@@ -69,7 +76,7 @@ static const struct debug_control debug_control[] = {
 
 #if defined(HAVE_PTHREAD) && !defined(_WIN32)
 bool
-wsi_init_pthread_cond_monotonic(pthread_cond_t* cond){
+WRAP(wsi_init_pthread_cond_monotonic)(pthread_cond_t* cond){
    pthread_condattr_t condattr;
    bool ret = false;
 
@@ -93,12 +100,12 @@ wsi_init_pthread_cond_monotonic(pthread_cond_t* cond){
 #endif
 
 
-static bool present_false(VkPhysicalDevice pdevice, int fd) {
+static bool WRAP(present_false)(VkPhysicalDevice pdevice, int fd) {
    return false;
 }
 
 VkResult
-wsi_device_init(struct wsi_device *wsi,
+WRAP(wsi_device_init)(struct wsi_device *wsi,
                 VkPhysicalDevice pdevice,
                 WSI_FN_GetPhysicalDeviceProcAddr proc_addr,
                 const VkAllocationCallbacks *alloc,
@@ -145,7 +152,7 @@ wsi_device_init(struct wsi_device *wsi,
    };
    GetPhysicalDeviceProperties2(pdevice, &pdp2);
 
-   if (pddp.driverID == VK_DRIVER_ID_ARM_PROPRIETARY)
+   if (pddp.driverID == VK_DRIVER_ID_ARM_PROPRIETARY && !CHECK_FLAG("DISABLE_MALI_BLIT"))
       wsi->needs_blit = true;
 
    wsi->maxImageDimension2D = pdp2.properties.limits.maxImageDimension2D;
@@ -338,6 +345,89 @@ wsi_device_init(struct wsi_device *wsi,
    wsi->can_present_on_device = present_false;
 #endif
 
+#define PRINT_BOOL(val) WSI_LOGD(#val ": bool = %d", val)
+#define PRINT_INT32(val) WSI_LOGD(#val ": int = %d", val)
+#define PRINT_UINT32(val) WSI_LOGD(#val ": uint = %d", val)
+#define PRINT_FLAG(val, type) WSI_LOGD(#val ": " #type " = %x", (uint64_t) val)
+
+   // Print the following
+   // VkPhysicalDeviceMemoryProperties memory_props;
+   WSI_LOGD("wsi->memory_props: VkPhysicalDeviceMemoryProperties")
+   WSI_CAN_LOGD({
+      WSI_LOG_STRUCT(VkPhysicalDeviceMemoryProperties, &wsi->memory_props);
+   });
+
+   // uint32_t queue_family_count;
+   PRINT_UINT32(wsi->queue_family_count);
+   // uint64_t queue_supports_blit;
+   PRINT_UINT32(wsi->queue_supports_blit);
+
+   // VkPhysicalDeviceDrmPropertiesEXT drm_info;
+   WSI_LOGD("wsi->drm_info: VkPhysicalDeviceDrmPropertiesEXT")
+   WSI_CAN_LOGD({
+      WSI_LOG_STRUCT(VkPhysicalDeviceDrmPropertiesEXT, &wsi->drm_info);
+   });
+   // VkPhysicalDevicePCIBusInfoPropertiesEXT pci_bus_info;
+   WSI_LOGD("wsi->pci_bus_info: VkPhysicalDevicePCIBusInfoPropertiesEXT")
+   WSI_CAN_LOGD({
+      WSI_LOG_STRUCT(VkPhysicalDevicePCIBusInfoPropertiesEXT, &wsi->pci_bus_info);
+   });
+
+   // VkExternalSemaphoreHandleTypeFlags semaphore_export_handle_types;
+   PRINT_FLAG(wsi->semaphore_export_handle_types, VkExternalSemaphoreHandleTypeFlags);
+   // VkExternalSemaphoreHandleTypeFlags timeline_semaphore_export_handle_types;
+   PRINT_FLAG(wsi->timeline_semaphore_export_handle_types, VkExternalSemaphoreHandleTypeFlags);
+   // bool has_import_memory_host;
+   PRINT_BOOL(wsi->has_import_memory_host);
+   // bool has_timeline_semaphore;
+   PRINT_BOOL(wsi->has_timeline_semaphore);
+   // bool supports_scanout;
+   PRINT_BOOL(wsi->supports_scanout);
+   // bool supports_modifiers;
+   PRINT_BOOL(wsi->supports_modifiers);
+   // uint32_t maxImageDimension2D;
+   PRINT_UINT32(wsi->maxImageDimension2D);
+   // uint32_t optimalBufferCopyRowPitchAlignment;
+   PRINT_UINT32(wsi->optimalBufferCopyRowPitchAlignment);
+   // VkPresentModeKHR override_present_mode;
+   PRINT_FLAG(wsi->override_present_mode, VkPresentModeKHR);
+   // bool force_bgra8_unorm_first;
+   PRINT_BOOL(wsi->force_bgra8_unorm_first);
+   // bool enable_adaptive_sync;
+   PRINT_BOOL(wsi->enable_adaptive_sync);
+   // bool force_headless_swapchain;
+   PRINT_BOOL(wsi->force_headless_swapchain);
+   // bool force_swapchain_to_currentExtent;
+   PRINT_BOOL(wsi->force_swapchain_to_currentExtent);
+   // struct {
+   //    uint32_t override_minImageCount;
+   PRINT_UINT32(wsi->x11.override_minImageCount);
+   //    bool strict_imageCount;
+   PRINT_BOOL(wsi->x11.strict_imageCount);
+   //    bool ensure_minImageCount;
+   PRINT_BOOL(wsi->x11.ensure_minImageCount);
+   //    bool xwaylandWaitReady;
+   PRINT_BOOL(wsi->x11.xwaylandWaitReady);
+   //    bool extra_xwayland_image;
+   PRINT_BOOL(wsi->x11.extra_xwayland_image);
+   //    bool ignore_suboptimal;
+   PRINT_BOOL(wsi->x11.ignore_suboptimal);
+   // } x11;
+   // bool sw;
+   PRINT_BOOL(wsi->sw);
+   // bool wants_ahardware_buffer;
+   PRINT_BOOL(wsi->wants_ahardware_buffer);
+   // bool needs_blit;
+   PRINT_BOOL(wsi->needs_blit);
+   // bool wants_linear;
+   PRINT_BOOL(wsi->wants_linear);
+   // bool signal_semaphore_with_memory;
+   PRINT_BOOL(wsi->signal_semaphore_with_memory);
+   // bool signal_fence_with_memory;
+   PRINT_BOOL(wsi->signal_fence_with_memory);
+   // bool khr_present_wait;
+   PRINT_BOOL(wsi->khr_present_wait);
+
    return VK_SUCCESS;
 fail:
    wsi_device_finish(wsi, alloc);
@@ -345,7 +435,7 @@ fail:
 }
 
 void
-wsi_device_finish(struct wsi_device *wsi,
+WRAP(wsi_device_finish)(struct wsi_device *wsi,
                   const VkAllocationCallbacks *alloc)
 {
 #ifndef VK_USE_PLATFORM_WIN32_KHR
@@ -366,7 +456,7 @@ wsi_device_finish(struct wsi_device *wsi,
 }
 
 VKAPI_ATTR void VKAPI_CALL
-wsi_DestroySurfaceKHR(VkInstance _instance,
+WRAP(wsi_DestroySurfaceKHR)(VkInstance _instance,
                       VkSurfaceKHR _surface,
                       const VkAllocationCallbacks *pAllocator)
 {
@@ -393,7 +483,7 @@ wsi_DestroySurfaceKHR(VkInstance _instance,
 }
 
 void
-wsi_device_setup_syncobj_fd(struct wsi_device *wsi_device,
+WRAP(wsi_device_setup_syncobj_fd)(struct wsi_device *wsi_device,
                             int fd)
 {
 #ifdef VK_USE_PLATFORM_DISPLAY_KHR
@@ -402,7 +492,7 @@ wsi_device_setup_syncobj_fd(struct wsi_device *wsi_device,
 }
 
 static enum wsi_swapchain_blit_type
-get_blit_type(const struct wsi_device *wsi,
+WRAP(get_blit_type)(const struct wsi_device *wsi,
               const struct wsi_base_image_params *params,
               VkDevice device)
 {
@@ -439,7 +529,7 @@ get_blit_type(const struct wsi_device *wsi,
 }
 
 static VkResult
-configure_image(const struct wsi_swapchain *chain,
+WRAP(configure_image)(const struct wsi_swapchain *chain,
                 const VkSwapchainCreateInfoKHR *pCreateInfo,
                 const struct wsi_base_image_params *params,
                 struct wsi_image_info *info)
@@ -476,7 +566,7 @@ configure_image(const struct wsi_swapchain *chain,
 }
 
 VkResult
-wsi_swapchain_init(const struct wsi_device *wsi,
+WRAP(wsi_swapchain_init)(const struct wsi_device *wsi,
                    struct wsi_swapchain *chain,
                    VkDevice _device,
                    const VkSwapchainCreateInfoKHR *pCreateInfo,
@@ -546,44 +636,44 @@ fail:
 }
 
 static bool
-wsi_swapchain_is_present_mode_supported(struct wsi_device *wsi,
+WRAP(wsi_swapchain_is_present_mode_supported)(struct wsi_device *wsi,
                                         const VkSwapchainCreateInfoKHR *pCreateInfo,
                                         VkPresentModeKHR mode)
 {
-      ICD_FROM_HANDLE(VkIcdSurfaceBase, surface, pCreateInfo->surface);
-      struct wsi_interface *iface = wsi->wsi[surface->platform];
-      VkPresentModeKHR *present_modes;
-      uint32_t present_mode_count;
-      bool supported = false;
-      VkResult result;
+   ICD_FROM_HANDLE(VkIcdSurfaceBase, surface, pCreateInfo->surface);
+   struct wsi_interface *iface = wsi->wsi[surface->platform];
+   VkPresentModeKHR *present_modes;
+   uint32_t present_mode_count;
+   bool supported = false;
+   VkResult result;
 
-      result = iface->get_present_modes(surface, wsi, &present_mode_count, NULL);
-      if (result != VK_SUCCESS)
-         return supported;
+   result = iface->get_present_modes(surface, wsi, &present_mode_count, NULL);
+   if (result != VK_SUCCESS)
+      return supported;
 
-      present_modes = malloc(present_mode_count * sizeof(*present_modes));
-      if (!present_modes)
-         return supported;
+   present_modes = malloc(present_mode_count * sizeof(*present_modes));
+   if (!present_modes)
+      return supported;
 
-      result = iface->get_present_modes(surface, wsi, &present_mode_count,
-                                        present_modes);
-      if (result != VK_SUCCESS)
-         goto fail;
+   result = iface->get_present_modes(surface, wsi, &present_mode_count,
+                                       present_modes);
+   if (result != VK_SUCCESS)
+      goto fail;
 
-      for (uint32_t i = 0; i < present_mode_count; i++) {
-         if (present_modes[i] == mode) {
-            supported = true;
-            break;
-         }
+   for (uint32_t i = 0; i < present_mode_count; i++) {
+      if (present_modes[i] == mode) {
+         supported = true;
+         break;
       }
+   }
 
 fail:
-      free(present_modes);
-      return supported;
+   free(present_modes);
+   return supported;
 }
 
 enum VkPresentModeKHR
-wsi_swapchain_get_present_mode(struct wsi_device *wsi,
+WRAP(wsi_swapchain_get_present_mode)(struct wsi_device *wsi,
                                const VkSwapchainCreateInfoKHR *pCreateInfo)
 {
    if (wsi->override_present_mode == VK_PRESENT_MODE_MAX_ENUM_KHR)
@@ -599,7 +689,7 @@ wsi_swapchain_get_present_mode(struct wsi_device *wsi,
 }
 
 void
-wsi_swapchain_finish(struct wsi_swapchain *chain)
+WRAP(wsi_swapchain_finish)(struct wsi_swapchain *chain)
 {
    wsi_destroy_image_info(chain, &chain->image_info);
 
@@ -634,7 +724,7 @@ wsi_swapchain_finish(struct wsi_swapchain *chain)
 }
 
 VkResult
-wsi_configure_image(const struct wsi_swapchain *chain,
+WRAP(wsi_configure_image)(const struct wsi_swapchain *chain,
                     const VkSwapchainCreateInfoKHR *pCreateInfo,
                     VkExternalMemoryHandleTypeFlags handle_types,
                     struct wsi_image_info *info)
@@ -736,7 +826,7 @@ err_oom:
 }
 
 void
-wsi_destroy_image_info(const struct wsi_swapchain *chain,
+WRAP(wsi_destroy_image_info)(const struct wsi_swapchain *chain,
                        struct wsi_image_info *info)
 {
    if (info->create.pQueueFamilyIndices != NULL) {
@@ -764,11 +854,10 @@ wsi_destroy_image_info(const struct wsi_swapchain *chain,
 }
 
 VkResult
-wsi_create_image(const struct wsi_swapchain *chain,
+WRAP(wsi_create_image)(const struct wsi_swapchain *chain,
                  const struct wsi_image_info *info,
                  struct wsi_image *image)
 {
-   LOG_A("In wsi_create_image");
    const struct wsi_device *wsi = chain->wsi;
    VkResult result;
 
@@ -780,23 +869,20 @@ wsi_create_image(const struct wsi_swapchain *chain,
       image->explicit_sync[i].fd = -1;
 #endif
 
-   result = wsi->CreateImage(chain->device, &info->create,
-                             &chain->alloc, &image->image);
+   result = WSI_CHECK(wsi->CreateImage(chain->device, &info->create, &chain->alloc, &image->image));
    if (result != VK_SUCCESS)
       goto fail;
 
-   result = info->create_mem(chain, info, image);
-   LOG_A("info->create_mem: %d", result);
+   result = WSI_CHECK(info->create_mem(chain, info, image));
    if (result != VK_SUCCESS)
       goto fail;
 
-   result = wsi->BindImageMemory(chain->device, image->image,
-                                 image->memory, 0);
+   result = WSI_CHECK(wsi->BindImageMemory(chain->device, image->image, image->memory, 0));
    if (result != VK_SUCCESS)
       goto fail;
 
    if (info->finish_create) {
-      result = info->finish_create(chain, info, image);
+      result = WSI_CHECK(info->finish_create(chain, info, image));
       if (result != VK_SUCCESS)
          goto fail;
    }
@@ -820,7 +906,7 @@ fail:
 }
 
 void
-wsi_destroy_image(const struct wsi_swapchain *chain,
+WRAP(wsi_destroy_image)(const struct wsi_swapchain *chain,
                   struct wsi_image *image)
 {
    const struct wsi_device *wsi = chain->wsi;
@@ -867,7 +953,7 @@ wsi_destroy_image(const struct wsi_swapchain *chain,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_GetPhysicalDeviceSurfaceSupportKHR(VkPhysicalDevice physicalDevice,
+WRAP(wsi_GetPhysicalDeviceSurfaceSupportKHR)(VkPhysicalDevice physicalDevice,
                                        uint32_t queueFamilyIndex,
                                        VkSurfaceKHR _surface,
                                        VkBool32 *pSupported)
@@ -888,7 +974,7 @@ wsi_GetPhysicalDeviceSurfaceSupportKHR(VkPhysicalDevice physicalDevice,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_GetPhysicalDeviceSurfaceCapabilitiesKHR(
+WRAP(wsi_GetPhysicalDeviceSurfaceCapabilitiesKHR)(
    VkPhysicalDevice physicalDevice,
    VkSurfaceKHR _surface,
    VkSurfaceCapabilitiesKHR *pSurfaceCapabilities)
@@ -911,7 +997,7 @@ wsi_GetPhysicalDeviceSurfaceCapabilitiesKHR(
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_GetPhysicalDeviceSurfaceCapabilities2KHR(
+WRAP(wsi_GetPhysicalDeviceSurfaceCapabilities2KHR)(
    VkPhysicalDevice physicalDevice,
    const VkPhysicalDeviceSurfaceInfo2KHR *pSurfaceInfo,
    VkSurfaceCapabilities2KHR *pSurfaceCapabilities)
@@ -926,7 +1012,7 @@ wsi_GetPhysicalDeviceSurfaceCapabilities2KHR(
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_GetPhysicalDeviceSurfaceCapabilities2EXT(
+WRAP(wsi_GetPhysicalDeviceSurfaceCapabilities2EXT)(
    VkPhysicalDevice physicalDevice,
    VkSurfaceKHR _surface,
    VkSurfaceCapabilities2EXT *pSurfaceCapabilities)
@@ -973,7 +1059,7 @@ wsi_GetPhysicalDeviceSurfaceCapabilities2EXT(
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_GetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice physicalDevice,
+WRAP(wsi_GetPhysicalDeviceSurfaceFormatsKHR)(VkPhysicalDevice physicalDevice,
                                        VkSurfaceKHR _surface,
                                        uint32_t *pSurfaceFormatCount,
                                        VkSurfaceFormatKHR *pSurfaceFormats)
@@ -988,7 +1074,7 @@ wsi_GetPhysicalDeviceSurfaceFormatsKHR(VkPhysicalDevice physicalDevice,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_GetPhysicalDeviceSurfaceFormats2KHR(VkPhysicalDevice physicalDevice,
+WRAP(wsi_GetPhysicalDeviceSurfaceFormats2KHR)(VkPhysicalDevice physicalDevice,
                                         const VkPhysicalDeviceSurfaceInfo2KHR * pSurfaceInfo,
                                         uint32_t *pSurfaceFormatCount,
                                         VkSurfaceFormat2KHR *pSurfaceFormats)
@@ -1003,7 +1089,7 @@ wsi_GetPhysicalDeviceSurfaceFormats2KHR(VkPhysicalDevice physicalDevice,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_GetPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice physicalDevice,
+WRAP(wsi_GetPhysicalDeviceSurfacePresentModesKHR)(VkPhysicalDevice physicalDevice,
                                             VkSurfaceKHR _surface,
                                             uint32_t *pPresentModeCount,
                                             VkPresentModeKHR *pPresentModes)
@@ -1018,7 +1104,7 @@ wsi_GetPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice physicalDevice,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_GetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice physicalDevice,
+WRAP(wsi_GetPhysicalDevicePresentRectanglesKHR)(VkPhysicalDevice physicalDevice,
                                           VkSurfaceKHR _surface,
                                           uint32_t *pRectCount,
                                           VkRect2D *pRects)
@@ -1033,12 +1119,14 @@ wsi_GetPhysicalDevicePresentRectanglesKHR(VkPhysicalDevice physicalDevice,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_CreateSwapchainKHR(VkDevice _device,
+WRAP(wsi_CreateSwapchainKHR)(VkDevice _device,
                        const VkSwapchainCreateInfoKHR *pCreateInfo,
                        const VkAllocationCallbacks *pAllocator,
                        VkSwapchainKHR *pSwapchain)
 {
-   LOG_A("Inside of wsi_CreateSwapchainKHR");
+   WSI_CAN_LOGD({
+      WSI_LOG_STRUCT(VkSwapchainCreateInfoKHR, pCreateInfo);
+   });
    MESA_TRACE_FUNC();
    VK_FROM_HANDLE(vk_device, device, _device);
    ICD_FROM_HANDLE(VkIcdSurfaceBase, surface, pCreateInfo->surface);
@@ -1068,10 +1156,14 @@ wsi_CreateSwapchainKHR(VkDevice _device,
     * bool deferred_allocation = pCreateInfo->flags & VK_SWAPCHAIN_CREATE_DEFERRED_MEMORY_ALLOCATION_BIT_EXT;
     */
 
+   WSI_LOGD("Dispatching to iface->create_swapchain");
+   WSI_CAN_LOGD({
+      WSI_LOG_STRUCT(VkSwapchainCreateInfoKHR, &info);
+   });
    VkResult result = iface->create_swapchain(surface, _device, wsi_device,
                                              &info, alloc,
                                              &swapchain);
-   LOG_A("iface->create_swapchain: %d", result);
+   WSI_LOGD("iface->create_swapchain returned: %d", result);
    if (result != VK_SUCCESS)
       return result;
 
@@ -1080,11 +1172,13 @@ wsi_CreateSwapchainKHR(VkDevice _device,
                                  sizeof (*swapchain->fences),
                                  VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
    if (!swapchain->fences) {
+      WSI_LOGE("Failed to create fences list");
       swapchain->destroy(swapchain, alloc);
       return VK_ERROR_OUT_OF_HOST_MEMORY;
    }
 
-   if (wsi_device->khr_present_wait && false) {
+   if (wsi_device->khr_present_wait) {
+      WSI_LOGD("Using khr_present_wait and VK_KHR_timeline_semaphore");
       const VkSemaphoreTypeCreateInfo type_info = {
          .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
          .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
@@ -1099,6 +1193,7 @@ wsi_CreateSwapchainKHR(VkDevice _device,
       /* We assume here that a driver exposing present_wait also exposes VK_KHR_timeline_semaphore. */
       result = wsi_device->CreateSemaphore(_device, &sem_info, alloc, &swapchain->present_id_timeline);
       if (result != VK_SUCCESS) {
+         WSI_LOGE("Failed to create timeline semaphores");
          swapchain->destroy(swapchain, alloc);
          return VK_ERROR_OUT_OF_HOST_MEMORY;
       }
@@ -1110,6 +1205,7 @@ wsi_CreateSwapchainKHR(VkDevice _device,
                                          sizeof (*swapchain->blit.semaphores),
                                          VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
       if (!swapchain->blit.semaphores) {
+         WSI_LOGE("Failed to create blit semaphores");
          wsi_device->DestroySemaphore(_device, swapchain->present_id_timeline, alloc);
          swapchain->destroy(swapchain, alloc);
          return VK_ERROR_OUT_OF_HOST_MEMORY;
@@ -1118,11 +1214,12 @@ wsi_CreateSwapchainKHR(VkDevice _device,
 
    *pSwapchain = wsi_swapchain_to_handle(swapchain);
 
+   WSI_LOGD("wsi_CreateSwapchainKHR returns VK_SUCCESS");
    return VK_SUCCESS;
 }
 
 VKAPI_ATTR void VKAPI_CALL
-wsi_DestroySwapchainKHR(VkDevice _device,
+WRAP(wsi_DestroySwapchainKHR)(VkDevice _device,
                         VkSwapchainKHR _swapchain,
                         const VkAllocationCallbacks *pAllocator)
 {
@@ -1144,7 +1241,7 @@ wsi_DestroySwapchainKHR(VkDevice _device,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_ReleaseSwapchainImagesEXT(VkDevice _device,
+WRAP(wsi_ReleaseSwapchainImagesEXT)(VkDevice _device,
                               const VkReleaseSwapchainImagesInfoEXT *pReleaseInfo)
 {
    VK_FROM_HANDLE(wsi_swapchain, swapchain, pReleaseInfo->swapchain);
@@ -1176,7 +1273,7 @@ wsi_ReleaseSwapchainImagesEXT(VkDevice _device,
 }
 
 VkResult
-wsi_common_get_images(VkSwapchainKHR _swapchain,
+WRAP(wsi_common_get_images)(VkSwapchainKHR _swapchain,
                       uint32_t *pSwapchainImageCount,
                       VkImage *pSwapchainImages)
 {
@@ -1193,7 +1290,7 @@ wsi_common_get_images(VkSwapchainKHR _swapchain,
 }
 
 VkImage
-wsi_common_get_image(VkSwapchainKHR _swapchain, uint32_t index)
+WRAP(wsi_common_get_image)(VkSwapchainKHR _swapchain, uint32_t index)
 {
    VK_FROM_HANDLE(wsi_swapchain, swapchain, _swapchain);
    assert(index < swapchain->image_count);
@@ -1201,7 +1298,7 @@ wsi_common_get_image(VkSwapchainKHR _swapchain, uint32_t index)
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_GetSwapchainImagesKHR(VkDevice device,
+WRAP(wsi_GetSwapchainImagesKHR)(VkDevice device,
                           VkSwapchainKHR swapchain,
                           uint32_t *pSwapchainImageCount,
                           VkImage *pSwapchainImages)
@@ -1213,7 +1310,7 @@ wsi_GetSwapchainImagesKHR(VkDevice device,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_AcquireNextImageKHR(VkDevice _device,
+WRAP(wsi_AcquireNextImageKHR)(VkDevice _device,
                         VkSwapchainKHR swapchain,
                         uint64_t timeout,
                         VkSemaphore semaphore,
@@ -1237,7 +1334,7 @@ wsi_AcquireNextImageKHR(VkDevice _device,
 }
 
 static VkResult
-wsi_signal_semaphore_for_image(struct vk_device *device,
+WRAP(wsi_signal_semaphore_for_image)(struct vk_device *device,
                                const struct wsi_swapchain *chain,
                                const struct wsi_image *image,
                                VkSemaphore _semaphore)
@@ -1281,7 +1378,7 @@ wsi_signal_semaphore_for_image(struct vk_device *device,
 }
 
 static VkResult
-wsi_signal_fence_for_image(struct vk_device *device,
+WRAP(wsi_signal_fence_for_image)(struct vk_device *device,
                            const struct wsi_swapchain *chain,
                            const struct wsi_image *image,
                            VkFence _fence)
@@ -1325,7 +1422,7 @@ wsi_signal_fence_for_image(struct vk_device *device,
 }
 
 VkResult
-wsi_common_acquire_next_image2(const struct wsi_device *wsi,
+WRAP(wsi_common_acquire_next_image2)(const struct wsi_device *wsi,
                                VkDevice _device,
                                const VkAcquireNextImageInfoKHR *pAcquireInfo,
                                uint32_t *pImageIndex)
@@ -1365,7 +1462,7 @@ wsi_common_acquire_next_image2(const struct wsi_device *wsi,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_AcquireNextImage2KHR(VkDevice _device,
+WRAP(wsi_AcquireNextImage2KHR)(VkDevice _device,
                          const VkAcquireNextImageInfoKHR *pAcquireInfo,
                          uint32_t *pImageIndex)
 {
@@ -1376,7 +1473,7 @@ wsi_AcquireNextImage2KHR(VkDevice _device,
                                          _device, pAcquireInfo, pImageIndex);
 }
 
-static VkResult wsi_signal_present_id_timeline(struct wsi_swapchain *swapchain,
+static VkResult WRAP(wsi_signal_present_id_timeline)(struct wsi_swapchain *swapchain,
                                                VkQueue queue, uint64_t present_id,
                                                VkFence present_fence)
 {
@@ -1400,7 +1497,7 @@ static VkResult wsi_signal_present_id_timeline(struct wsi_swapchain *swapchain,
 }
 
 static VkResult
-handle_trace(VkQueue queue, struct vk_device *device, uint32_t current_frame)
+WRAP(handle_trace)(VkQueue queue, struct vk_device *device, uint32_t current_frame)
 {
    struct vk_instance *instance = device->physical->instance;
    if (!instance->trace_mode)
@@ -1435,7 +1532,7 @@ handle_trace(VkQueue queue, struct vk_device *device, uint32_t current_frame)
 }
 
 VkResult
-wsi_common_queue_present(const struct wsi_device *wsi,
+WRAP(wsi_common_queue_present)(const struct wsi_device *wsi,
                          VkDevice device,
                          VkQueue queue,
                          int queue_family_index,
@@ -1679,7 +1776,7 @@ wsi_common_queue_present(const struct wsi_device *wsi,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_QueuePresentKHR(VkQueue _queue, const VkPresentInfoKHR *pPresentInfo)
+WRAP(wsi_QueuePresentKHR)(VkQueue _queue, const VkPresentInfoKHR *pPresentInfo)
 {
    MESA_TRACE_FUNC();
    VK_FROM_HANDLE(vk_queue, queue, _queue);
@@ -1692,7 +1789,7 @@ wsi_QueuePresentKHR(VkQueue _queue, const VkPresentInfoKHR *pPresentInfo)
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_GetDeviceGroupPresentCapabilitiesKHR(VkDevice device,
+WRAP(wsi_GetDeviceGroupPresentCapabilitiesKHR)(VkDevice device,
                                          VkDeviceGroupPresentCapabilitiesKHR *pCapabilities)
 {
    memset(pCapabilities->presentMask, 0,
@@ -1704,7 +1801,7 @@ wsi_GetDeviceGroupPresentCapabilitiesKHR(VkDevice device,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_GetDeviceGroupSurfacePresentModesKHR(VkDevice device,
+WRAP(wsi_GetDeviceGroupSurfacePresentModesKHR)(VkDevice device,
                                          VkSurfaceKHR surface,
                                          VkDeviceGroupPresentModeFlagsKHR *pModes)
 {
@@ -1714,7 +1811,7 @@ wsi_GetDeviceGroupSurfacePresentModesKHR(VkDevice device,
 }
 
 bool
-wsi_common_vk_instance_supports_present_wait(const struct vk_instance *instance)
+WRAP(wsi_common_vk_instance_supports_present_wait)(const struct vk_instance *instance)
 {
    /* We can only expose KHR_present_wait and KHR_present_id
     * if we are guaranteed support on all potential VkSurfaceKHR objects. */
@@ -1727,7 +1824,7 @@ wsi_common_vk_instance_supports_present_wait(const struct vk_instance *instance)
 }
 
 VkResult
-wsi_common_create_swapchain_image(const struct wsi_device *wsi,
+WRAP(wsi_common_create_swapchain_image)(const struct wsi_device *wsi,
                                   const VkImageCreateInfo *pCreateInfo,
                                   VkSwapchainKHR _swapchain,
                                   VkImage *pImage)
@@ -1783,7 +1880,7 @@ wsi_common_create_swapchain_image(const struct wsi_device *wsi,
 }
 
 VkResult
-wsi_common_bind_swapchain_image(const struct wsi_device *wsi,
+WRAP(wsi_common_bind_swapchain_image)(const struct wsi_device *wsi,
                                 VkImage vk_image,
                                 VkSwapchainKHR _swapchain,
                                 uint32_t image_idx)
@@ -1795,7 +1892,7 @@ wsi_common_bind_swapchain_image(const struct wsi_device *wsi,
 }
 
 VkResult
-wsi_swapchain_wait_for_present_semaphore(const struct wsi_swapchain *chain,
+WRAP(wsi_swapchain_wait_for_present_semaphore)(const struct wsi_swapchain *chain,
                                          uint64_t present_id, uint64_t timeout)
 {
    assert(chain->present_id_timeline);
@@ -1810,7 +1907,7 @@ wsi_swapchain_wait_for_present_semaphore(const struct wsi_swapchain *chain,
 }
 
 uint32_t
-wsi_select_memory_type(const struct wsi_device *wsi,
+WRAP(wsi_select_memory_type)(const struct wsi_device *wsi,
                        VkMemoryPropertyFlags req_props,
                        VkMemoryPropertyFlags deny_props,
                        uint32_t type_bits)
@@ -1849,7 +1946,7 @@ wsi_select_memory_type(const struct wsi_device *wsi,
 }
 
 uint32_t
-wsi_select_device_memory_type(const struct wsi_device *wsi,
+WRAP(wsi_select_device_memory_type)(const struct wsi_device *wsi,
                               uint32_t type_bits)
 {
    return wsi_select_memory_type(wsi, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -1857,7 +1954,7 @@ wsi_select_device_memory_type(const struct wsi_device *wsi,
 }
 
 static uint32_t
-wsi_select_host_memory_type(const struct wsi_device *wsi,
+WRAP(wsi_select_host_memory_type)(const struct wsi_device *wsi,
                             uint32_t type_bits)
 {
    return wsi_select_memory_type(wsi, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -1865,7 +1962,7 @@ wsi_select_host_memory_type(const struct wsi_device *wsi,
 }
 
 VkResult
-wsi_create_buffer_blit_context(const struct wsi_swapchain *chain,
+WRAP(wsi_create_buffer_blit_context)(const struct wsi_swapchain *chain,
                                const struct wsi_image_info *info,
                                struct wsi_image *image,
                                VkExternalMemoryHandleTypeFlags handle_types)
@@ -1977,7 +2074,7 @@ wsi_create_buffer_blit_context(const struct wsi_swapchain *chain,
 }
 
 VkResult
-wsi_finish_create_blit_context(const struct wsi_swapchain *chain,
+WRAP(wsi_finish_create_blit_context)(const struct wsi_swapchain *chain,
                                const struct wsi_image_info *info,
                                struct wsi_image *image)
 {
@@ -2134,7 +2231,7 @@ wsi_finish_create_blit_context(const struct wsi_swapchain *chain,
 }
 
 void
-wsi_configure_buffer_image(UNUSED const struct wsi_swapchain *chain,
+WRAP(wsi_configure_buffer_image)(UNUSED const struct wsi_swapchain *chain,
                            const VkSwapchainCreateInfoKHR *pCreateInfo,
                            uint32_t stride_align, uint32_t size_align,
                            struct wsi_image_info *info)
@@ -2166,7 +2263,7 @@ wsi_configure_buffer_image(UNUSED const struct wsi_swapchain *chain,
 }
 
 void
-wsi_configure_image_blit_image(UNUSED const struct wsi_swapchain *chain,
+WRAP(wsi_configure_image_blit_image)(UNUSED const struct wsi_swapchain *chain,
                                struct wsi_image_info *info)
 {
    info->create.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
@@ -2175,7 +2272,7 @@ wsi_configure_image_blit_image(UNUSED const struct wsi_swapchain *chain,
 }
 
 static VkResult
-wsi_create_cpu_linear_image_mem(const struct wsi_swapchain *chain,
+WRAP(wsi_create_cpu_linear_image_mem)(const struct wsi_swapchain *chain,
                                 const struct wsi_image_info *info,
                                 struct wsi_image *image)
 {
@@ -2240,7 +2337,7 @@ wsi_create_cpu_linear_image_mem(const struct wsi_swapchain *chain,
 }
 
 static VkResult
-wsi_create_cpu_buffer_image_mem(const struct wsi_swapchain *chain,
+WRAP(wsi_create_cpu_buffer_image_mem)(const struct wsi_swapchain *chain,
                                 const struct wsi_image_info *info,
                                 struct wsi_image *image)
 {
@@ -2259,7 +2356,7 @@ wsi_create_cpu_buffer_image_mem(const struct wsi_swapchain *chain,
 }
 
 bool
-wsi_cpu_image_needs_buffer_blit(const struct wsi_device *wsi,
+WRAP(wsi_cpu_image_needs_buffer_blit)(const struct wsi_device *wsi,
                                 const struct wsi_cpu_image_params *params)
 {
    if (WSI_DEBUG & WSI_DEBUG_BUFFER)
@@ -2272,7 +2369,7 @@ wsi_cpu_image_needs_buffer_blit(const struct wsi_device *wsi,
 }
 
 VkResult
-wsi_configure_cpu_image(const struct wsi_swapchain *chain,
+WRAP(wsi_configure_cpu_image)(const struct wsi_swapchain *chain,
                         const VkSwapchainCreateInfoKHR *pCreateInfo,
                         const struct wsi_cpu_image_params *params,
                         struct wsi_image_info *info)
@@ -2312,7 +2409,7 @@ wsi_configure_cpu_image(const struct wsi_swapchain *chain,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_WaitForPresentKHR(VkDevice device, VkSwapchainKHR _swapchain,
+WRAP(wsi_WaitForPresentKHR)(VkDevice device, VkSwapchainKHR _swapchain,
                       uint64_t presentId, uint64_t timeout)
 {
    VK_FROM_HANDLE(wsi_swapchain, swapchain, _swapchain);
@@ -2321,7 +2418,7 @@ wsi_WaitForPresentKHR(VkDevice device, VkSwapchainKHR _swapchain,
 }
 
 VkImageUsageFlags
-wsi_caps_get_image_usage(void)
+WRAP(wsi_caps_get_image_usage)(void)
 {
    return VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
           VK_IMAGE_USAGE_SAMPLED_BIT |
@@ -2332,7 +2429,7 @@ wsi_caps_get_image_usage(void)
 }
 
 bool
-wsi_device_supports_explicit_sync(struct wsi_device *device)
+WRAP(wsi_device_supports_explicit_sync)(struct wsi_device *device)
 {
    return !device->sw && device->has_timeline_semaphore &&
       (device->timeline_semaphore_export_handle_types &

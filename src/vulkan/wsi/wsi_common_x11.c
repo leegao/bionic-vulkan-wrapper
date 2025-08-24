@@ -78,27 +78,23 @@ const native_handle_t* _Nullable AHardwareBuffer_getNativeHandle(
 #include <sys/socket.h>
 #endif
 
-struct wsi_x11_connection {
-   bool has_dri3;
-   bool has_dri3_modifiers;
-   bool has_present;
-   bool has_mit_shm;
-};
+#define WRAP(name) wrapped__##name
+#define print_input_params_DestroySurfaceKHR(...)
+#define print_output_params_DestroySurfaceKHR(...)
+#define print_output_params_GetPhysicalDeviceSurfaceFormatsKHR(...)
+#define print_input_params_CreateXcbSurfaceKHR(...)
+#define print_output_params_CreateXcbSurfaceKHR(...)
+#define print_input_params_CreateXlibSurfaceKHR(...)
+#define print_output_params_CreateXlibSurfaceKHR(...)
 
-struct wsi_x11 {
-   struct wsi_interface base;
-
-   pthread_mutex_t                              mutex;
-   /* Hash table of xcb_connection -> wsi_x11_connection mappings */
-   struct hash_table *connections;
-};
-
+#include "wsi_common_x11.h"
+#include "wsi_common_x11_wrappers.h"
 
 /**
  * Wrapper around xcb_dri3_open. Returns the opened fd or -1 on error.
  */
 static int
-wsi_dri3_open(xcb_connection_t *conn,
+WRAP(wsi_dri3_open)(xcb_connection_t *conn,
 	      xcb_window_t root,
 	      uint32_t provider)
 {
@@ -135,7 +131,7 @@ wsi_dri3_open(xcb_connection_t *conn,
  * the information for the X server device indicate that it is the same device.
  */
 static bool
-wsi_x11_check_dri3_compatible(const struct wsi_device *wsi_dev,
+WRAP(wsi_x11_check_dri3_compatible)(const struct wsi_device *wsi_dev,
                               xcb_connection_t *conn)
 {
    xcb_screen_iterator_t screen_iter =
@@ -157,7 +153,7 @@ wsi_x11_check_dri3_compatible(const struct wsi_device *wsi_dev,
 }
 
 static struct wsi_x11_connection *
-wsi_x11_connection_create(struct wsi_device *wsi_dev,
+WRAP(wsi_x11_connection_create)(struct wsi_device *wsi_dev,
                           xcb_connection_t *conn)
 {
    xcb_query_extension_cookie_t dri3_cookie, pres_cookie, shm_cookie, sync_cookie;
@@ -232,14 +228,14 @@ wsi_x11_connection_create(struct wsi_device *wsi_dev,
 }
 
 static void
-wsi_x11_connection_destroy(struct wsi_device *wsi_dev,
+WRAP(wsi_x11_connection_destroy)(struct wsi_device *wsi_dev,
                            struct wsi_x11_connection *conn)
 {
    vk_free(&wsi_dev->instance_alloc, conn);
 }
 
 static bool
-wsi_x11_check_for_dri3(struct wsi_x11_connection *wsi_conn)
+WRAP(wsi_x11_check_for_dri3)(struct wsi_x11_connection *wsi_conn)
 {
   if (wsi_conn->has_dri3)
     return true;
@@ -256,7 +252,7 @@ wsi_x11_check_for_dri3(struct wsi_x11_connection *wsi_conn)
  * If the allocation fails NULL is returned.
  */
 static struct wsi_x11_connection *
-wsi_x11_get_connection(struct wsi_device *wsi_dev,
+WRAP(wsi_x11_get_connection)(struct wsi_device *wsi_dev,
                        xcb_connection_t *conn)
 {
    struct wsi_x11 *wsi =
@@ -309,7 +305,7 @@ static const VkPresentModeKHR present_modes[] = {
 };
 
 static xcb_screen_t *
-get_screen_for_root(xcb_connection_t *conn, xcb_window_t root)
+WRAP(get_screen_for_root)(xcb_connection_t *conn, xcb_window_t root)
 {
    xcb_screen_iterator_t screen_iter =
       xcb_setup_roots_iterator(xcb_get_setup(conn));
@@ -323,7 +319,7 @@ get_screen_for_root(xcb_connection_t *conn, xcb_window_t root)
 }
 
 static xcb_visualtype_t *
-screen_get_visualtype(xcb_screen_t *screen, xcb_visualid_t visual_id,
+WRAP(screen_get_visualtype)(xcb_screen_t *screen, xcb_visualid_t visual_id,
                       unsigned *depth)
 {
    xcb_depth_iterator_t depth_iter =
@@ -346,7 +342,7 @@ screen_get_visualtype(xcb_screen_t *screen, xcb_visualid_t visual_id,
 }
 
 static xcb_visualtype_t *
-connection_get_visualtype(xcb_connection_t *conn, xcb_visualid_t visual_id)
+WRAP(connection_get_visualtype)(xcb_connection_t *conn, xcb_visualid_t visual_id)
 {
    xcb_screen_iterator_t screen_iter =
       xcb_setup_roots_iterator(xcb_get_setup(conn));
@@ -365,7 +361,7 @@ connection_get_visualtype(xcb_connection_t *conn, xcb_visualid_t visual_id)
 }
 
 static xcb_visualtype_t *
-get_visualtype_for_window(xcb_connection_t *conn, xcb_window_t window,
+WRAP(get_visualtype_for_window)(xcb_connection_t *conn, xcb_window_t window,
                           unsigned *depth, xcb_visualtype_t **rootvis)
 {
    xcb_query_tree_cookie_t tree_cookie;
@@ -399,7 +395,7 @@ get_visualtype_for_window(xcb_connection_t *conn, xcb_window_t window,
 }
 
 static bool
-visual_has_alpha(xcb_visualtype_t *visual, unsigned depth)
+WRAP(visual_has_alpha)(xcb_visualtype_t *visual, unsigned depth)
 {
    uint32_t rgb_mask = visual->red_mask |
                        visual->green_mask |
@@ -412,7 +408,7 @@ visual_has_alpha(xcb_visualtype_t *visual, unsigned depth)
 }
 
 static bool
-visual_supported(xcb_visualtype_t *visual)
+WRAP(visual_supported)(xcb_visualtype_t *visual)
 {
    if (!visual)
       return false;
@@ -422,7 +418,7 @@ visual_supported(xcb_visualtype_t *visual)
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL
-wsi_GetPhysicalDeviceXcbPresentationSupportKHR(VkPhysicalDevice physicalDevice,
+WRAP(wsi_GetPhysicalDeviceXcbPresentationSupportKHR)(VkPhysicalDevice physicalDevice,
                                                uint32_t queueFamilyIndex,
                                                xcb_connection_t *connection,
                                                xcb_visualid_t visual_id)
@@ -447,7 +443,7 @@ wsi_GetPhysicalDeviceXcbPresentationSupportKHR(VkPhysicalDevice physicalDevice,
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL
-wsi_GetPhysicalDeviceXlibPresentationSupportKHR(VkPhysicalDevice physicalDevice,
+WRAP(wsi_GetPhysicalDeviceXlibPresentationSupportKHR)(VkPhysicalDevice physicalDevice,
                                                 uint32_t queueFamilyIndex,
                                                 Display *dpy,
                                                 VisualID visualID)
@@ -459,7 +455,7 @@ wsi_GetPhysicalDeviceXlibPresentationSupportKHR(VkPhysicalDevice physicalDevice,
 }
 
 static xcb_connection_t*
-x11_surface_get_connection(VkIcdSurfaceBase *icd_surface)
+WRAP(x11_surface_get_connection)(VkIcdSurfaceBase *icd_surface)
 {
    if (icd_surface->platform == VK_ICD_WSI_PLATFORM_XLIB)
       return XGetXCBConnection(((VkIcdSurfaceXlib *)icd_surface)->dpy);
@@ -468,7 +464,7 @@ x11_surface_get_connection(VkIcdSurfaceBase *icd_surface)
 }
 
 static xcb_window_t
-x11_surface_get_window(VkIcdSurfaceBase *icd_surface)
+WRAP(x11_surface_get_window)(VkIcdSurfaceBase *icd_surface)
 {
    if (icd_surface->platform == VK_ICD_WSI_PLATFORM_XLIB)
       return ((VkIcdSurfaceXlib *)icd_surface)->window;
@@ -477,7 +473,7 @@ x11_surface_get_window(VkIcdSurfaceBase *icd_surface)
 }
 
 static VkResult
-x11_surface_get_support(VkIcdSurfaceBase *icd_surface,
+WRAP(x11_surface_get_support)(VkIcdSurfaceBase *icd_surface,
                         struct wsi_device *wsi_device,
                         uint32_t queueFamilyIndex,
                         VkBool32* pSupported)
@@ -507,7 +503,7 @@ x11_surface_get_support(VkIcdSurfaceBase *icd_surface,
 }
 
 static uint32_t
-x11_get_min_image_count(const struct wsi_device *wsi_device)
+WRAP(x11_get_min_image_count)(const struct wsi_device *wsi_device)
 {
    if (wsi_device->x11.override_minImageCount)
       return wsi_device->x11.override_minImageCount;
@@ -534,13 +530,8 @@ x11_get_min_image_count(const struct wsi_device *wsi_device)
    return 3;
 }
 
-static unsigned
-x11_get_min_image_count_for_present_mode(struct wsi_device *wsi_device,
-                                         struct wsi_x11_connection *wsi_conn,
-                                         VkPresentModeKHR present_mode);
-
 static VkResult
-x11_surface_get_capabilities(VkIcdSurfaceBase *icd_surface,
+WRAP(x11_surface_get_capabilities)(VkIcdSurfaceBase *icd_surface,
                              struct wsi_device *wsi_device,
                              const VkSurfacePresentModeEXT *present_mode,
                              VkSurfaceCapabilitiesKHR *caps)
@@ -613,7 +604,7 @@ x11_surface_get_capabilities(VkIcdSurfaceBase *icd_surface,
 }
 
 static VkResult
-x11_surface_get_capabilities2(VkIcdSurfaceBase *icd_surface,
+WRAP(x11_surface_get_capabilities2)(VkIcdSurfaceBase *icd_surface,
                               struct wsi_device *wsi_device,
                               const void *info_next,
                               VkSurfaceCapabilities2KHR *caps)
@@ -674,13 +665,13 @@ x11_surface_get_capabilities2(VkIcdSurfaceBase *icd_surface,
 }
 
 static int
-format_get_component_bits(VkFormat format, int comp)
+WRAP(format_get_component_bits)(VkFormat format, int comp)
 {
    return vk_format_get_component_bits(format, UTIL_FORMAT_COLORSPACE_RGB, comp);
 }
 
 static bool
-rgb_component_bits_are_equal(VkFormat format, const xcb_visualtype_t* type)
+WRAP(rgb_component_bits_are_equal)(VkFormat format, const xcb_visualtype_t* type)
 {
    return format_get_component_bits(format, 0) == util_bitcount(type->red_mask) &&
           format_get_component_bits(format, 1) == util_bitcount(type->green_mask) &&
@@ -688,7 +679,7 @@ rgb_component_bits_are_equal(VkFormat format, const xcb_visualtype_t* type)
 }
 
 static bool
-get_sorted_vk_formats(VkIcdSurfaceBase *surface, struct wsi_device *wsi_device,
+WRAP(get_sorted_vk_formats)(VkIcdSurfaceBase *surface, struct wsi_device *wsi_device,
                       VkFormat *sorted_formats, unsigned *count)
 {
    xcb_connection_t *conn = x11_surface_get_connection(surface);
@@ -729,7 +720,7 @@ next_format:;
 }
 
 static VkResult
-x11_surface_get_formats(VkIcdSurfaceBase *surface,
+WRAP(x11_surface_get_formats)(VkIcdSurfaceBase *surface,
                         struct wsi_device *wsi_device,
                         uint32_t *pSurfaceFormatCount,
                         VkSurfaceFormatKHR *pSurfaceFormats)
@@ -753,7 +744,7 @@ x11_surface_get_formats(VkIcdSurfaceBase *surface,
 }
 
 static VkResult
-x11_surface_get_formats2(VkIcdSurfaceBase *surface,
+WRAP(x11_surface_get_formats2)(VkIcdSurfaceBase *surface,
                         struct wsi_device *wsi_device,
                         const void *info_next,
                         uint32_t *pSurfaceFormatCount,
@@ -779,7 +770,7 @@ x11_surface_get_formats2(VkIcdSurfaceBase *surface,
 }
 
 static VkResult
-x11_surface_get_present_modes(VkIcdSurfaceBase *surface,
+WRAP(x11_surface_get_present_modes)(VkIcdSurfaceBase *surface,
                               struct wsi_device *wsi_device,
                               uint32_t *pPresentModeCount,
                               VkPresentModeKHR *pPresentModes)
@@ -797,7 +788,7 @@ x11_surface_get_present_modes(VkIcdSurfaceBase *surface,
 }
 
 static VkResult
-x11_surface_get_present_rectangles(VkIcdSurfaceBase *icd_surface,
+WRAP(x11_surface_get_present_rectangles)(VkIcdSurfaceBase *icd_surface,
                                    struct wsi_device *wsi_device,
                                    uint32_t* pRectCount,
                                    VkRect2D* pRects)
@@ -827,7 +818,7 @@ x11_surface_get_present_rectangles(VkIcdSurfaceBase *icd_surface,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_CreateXcbSurfaceKHR(VkInstance _instance,
+WRAP(wsi_CreateXcbSurfaceKHR)(VkInstance _instance,
                         const VkXcbSurfaceCreateInfoKHR *pCreateInfo,
                         const VkAllocationCallbacks *pAllocator,
                         VkSurfaceKHR *pSurface)
@@ -851,7 +842,7 @@ wsi_CreateXcbSurfaceKHR(VkInstance _instance,
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL
-wsi_CreateXlibSurfaceKHR(VkInstance _instance,
+WRAP(wsi_CreateXlibSurfaceKHR)(VkInstance _instance,
                          const VkXlibSurfaceCreateInfoKHR *pCreateInfo,
                          const VkAllocationCallbacks *pAllocator,
                          VkSurfaceKHR *pSurface)
@@ -874,85 +865,7 @@ wsi_CreateXlibSurfaceKHR(VkInstance _instance,
    return VK_SUCCESS;
 }
 
-struct x11_image {
-   struct wsi_image                          base;
-   xcb_pixmap_t                              pixmap;
-   atomic_bool                               busy;
-   bool                                      present_queued;
-   uint32_t                                  sync_fence;
-   uint32_t                                  serial;
-   xcb_shm_seg_t                             shmseg;
-   int                                       shmid;
-   uint8_t *                                 shmaddr;
-   uint64_t                                  present_id;
-   uint64_t                                  signal_present_id;
-};
-
-struct x11_swapchain {
-   struct wsi_swapchain                        base;
-
-   bool                                         has_dri3_modifiers;
-   bool                                         has_mit_shm;
-
-   xcb_connection_t *                           conn;
-   xcb_window_t                                 window;
-   xcb_gc_t                                     gc;
-   uint32_t                                     depth;
-   VkExtent2D                                   extent;
-
-   xcb_present_event_t                          event_id;
-   xcb_special_event_t *                        special_event;
-   uint64_t                                     send_sbc;
-   uint64_t                                     last_present_msc;
-   uint32_t                                     stamp;
-   atomic_int                                   sent_image_count;
-
-   bool                                         has_present_queue;
-   bool                                         has_acquire_queue;
-   VkResult                                     status;
-   bool                                         copy_is_suboptimal;
-   struct wsi_queue                             present_queue;
-   struct wsi_queue                             acquire_queue;
-   pthread_t                                    queue_manager;
-
-   /* Lock and condition variable that lets callers monitor forward progress in the swapchain.
-    * This includes:
-    * - Present ID completion updates (present_id).
-    * - Pending ID pending updates (present_id_pending).
-    * - Any errors happening while blocking on present progress updates (present_progress_error).
-    * - present_submitted_count.
-    */
-   pthread_mutex_t                              present_progress_mutex;
-   pthread_cond_t                               present_progress_cond;
-
-   /* Lock needs to be taken when waiting for and reading presentation events.
-    * Only relevant in non-FIFO modes where AcquireNextImage or WaitForPresentKHR may
-    * have to pump the XCB connection on its own. */
-   pthread_mutex_t                              present_poll_mutex;
-
-   /* For VK_KHR_present_wait. */
-   uint64_t                                     present_id;
-   uint64_t                                     present_id_pending;
-
-   /* When blocking on present progress, this can be set and progress_cond is signalled to unblock waiters. */
-   VkResult                                     present_progress_error;
-
-   /* For handling wait_ready scenario where two different threads can pump the connection. */
-
-   /* Updated by presentation thread. Incremented when a present is submitted to X.
-    * Signals progress_cond when this happens. */
-   uint64_t                                     present_submitted_count;
-   /* Total number of images ever pushed to a present queue. */
-   uint64_t                                     present_queue_push_count;
-   /* Total number of images returned to application in AcquireNextImage. */
-   uint64_t                                     present_poll_acquire_count;
-
-   struct x11_image                             images[0];
-};
-VK_DEFINE_NONDISP_HANDLE_CASTS(x11_swapchain, base.base, VkSwapchainKHR,
-                               VK_OBJECT_TYPE_SWAPCHAIN_KHR)
-
-static void x11_present_complete(struct x11_swapchain *swapchain,
+static void WRAP(x11_present_complete)(struct x11_swapchain *swapchain,
                                  struct x11_image *image)
 {
    if (image->present_id) {
@@ -965,7 +878,7 @@ static void x11_present_complete(struct x11_swapchain *swapchain,
    }
 }
 
-static void x11_notify_pending_present(struct x11_swapchain *swapchain,
+static void WRAP(x11_notify_pending_present)(struct x11_swapchain *swapchain,
                                        struct x11_image *image)
 {
    if (image->present_id || !swapchain->has_acquire_queue) {
@@ -989,7 +902,7 @@ static void x11_notify_pending_present(struct x11_swapchain *swapchain,
    image->signal_present_id = image->present_id;
 }
 
-static void x11_swapchain_notify_error(struct x11_swapchain *swapchain, VkResult result)
+static void WRAP(x11_swapchain_notify_error)(struct x11_swapchain *swapchain, VkResult result)
 {
    pthread_mutex_lock(&swapchain->present_progress_mutex);
    swapchain->present_id = UINT64_MAX;
@@ -1009,7 +922,7 @@ static void x11_swapchain_notify_error(struct x11_swapchain *swapchain, VkResult
  * this has not been seen, success will be returned.
  */
 static VkResult
-_x11_swapchain_result(struct x11_swapchain *chain, VkResult result,
+WRAP(_x11_swapchain_result)(struct x11_swapchain *chain, VkResult result,
                       const char *file, int line)
 {
    if (result < 0)
@@ -1054,7 +967,7 @@ _x11_swapchain_result(struct x11_swapchain *chain, VkResult result,
    _x11_swapchain_result(chain, result, __FILE__, __LINE__)
 
 static struct wsi_image *
-x11_get_wsi_image(struct wsi_swapchain *wsi_chain, uint32_t image_index)
+WRAP(x11_get_wsi_image)(struct wsi_swapchain *wsi_chain, uint32_t image_index)
 {
    struct x11_swapchain *chain = (struct x11_swapchain *)wsi_chain;
    return &chain->images[image_index].base;
@@ -1068,7 +981,7 @@ x11_get_wsi_image(struct wsi_swapchain *wsi_chain, uint32_t image_index)
  * Process an X11 Present event. Does not update chain->status.
  */
 static VkResult
-x11_handle_dri3_present_event(struct x11_swapchain *chain,
+WRAP(x11_handle_dri3_present_event)(struct x11_swapchain *chain,
                               xcb_present_generic_event_t *event)
 {
    switch (event->evtype) {
@@ -1151,7 +1064,7 @@ x11_handle_dri3_present_event(struct x11_swapchain *chain,
 }
 
 static VkResult
-x11_poll_for_special_event(struct x11_swapchain *chain, uint64_t abs_timeout, xcb_generic_event_t **out_event)
+WRAP(x11_poll_for_special_event)(struct x11_swapchain *chain, uint64_t abs_timeout, xcb_generic_event_t **out_event)
 {
    /* Start out with 1 ms intervals since that's what poll() supports. */
    uint64_t poll_busywait_ns = 1000 * 1000;
@@ -1212,7 +1125,7 @@ x11_poll_for_special_event(struct x11_swapchain *chain, uint64_t abs_timeout, xc
 }
 
 static bool
-x11_acquire_next_image_poll_has_forward_progress(struct x11_swapchain *chain)
+WRAP(x11_acquire_next_image_poll_has_forward_progress)(struct x11_swapchain *chain)
 {
    /* We have forward progress in the sense that we just error out. */
    if (chain->present_progress_error != VK_SUCCESS)
@@ -1252,7 +1165,7 @@ x11_acquire_next_image_poll_has_forward_progress(struct x11_swapchain *chain)
 }
 
 static VkResult
-x11_acquire_next_image_poll_find_index(struct x11_swapchain *chain, uint32_t *image_index)
+WRAP(x11_acquire_next_image_poll_find_index)(struct x11_swapchain *chain, uint32_t *image_index)
 {
    /* We don't need a lock here. AcquireNextImageKHR cannot be called concurrently,
    * and busy flag is atomic. */
@@ -1275,7 +1188,7 @@ x11_acquire_next_image_poll_find_index(struct x11_swapchain *chain, uint32_t *im
  * busy wait until one is not anymore or till timeout.
  */
 static VkResult
-x11_acquire_next_image_poll_x11(struct x11_swapchain *chain,
+WRAP(x11_acquire_next_image_poll_x11)(struct x11_swapchain *chain,
                                 uint32_t *image_index, uint64_t timeout)
 {
    struct timespec rel_timeout, abs_timespec_realtime, start_time;
@@ -1396,7 +1309,7 @@ out_unlock:
  * presentation mode.
  */
 static VkResult
-x11_acquire_next_image_from_queue(struct x11_swapchain *chain,
+WRAP(x11_acquire_next_image_from_queue)(struct x11_swapchain *chain,
                                   uint32_t *image_index_out, uint64_t timeout)
 {
    assert(chain->has_acquire_queue);
@@ -1426,7 +1339,7 @@ x11_acquire_next_image_from_queue(struct x11_swapchain *chain,
  * Send image to X server via Present extension.
  */
 static VkResult
-x11_present_to_x11_dri3(struct x11_swapchain *chain, uint32_t image_index,
+WRAP(x11_present_to_x11_dri3)(struct x11_swapchain *chain, uint32_t image_index,
                         uint64_t target_msc)
 {
    struct x11_image *image = &chain->images[image_index];
@@ -1503,7 +1416,7 @@ x11_present_to_x11_dri3(struct x11_swapchain *chain, uint32_t image_index,
  * Send image to X server unaccelerated (software drivers).
  */
 static VkResult
-x11_present_to_x11_sw(struct x11_swapchain *chain, uint32_t image_index,
+WRAP(x11_present_to_x11_sw)(struct x11_swapchain *chain, uint32_t image_index,
                       uint64_t target_msc)
 {
    struct x11_image *image = &chain->images[image_index];
@@ -1546,7 +1459,7 @@ x11_present_to_x11_sw(struct x11_swapchain *chain, uint32_t image_index,
  * Send image to the X server for presentation at target_msc.
  */
 static VkResult
-x11_present_to_x11(struct x11_swapchain *chain, uint32_t image_index,
+WRAP(x11_present_to_x11)(struct x11_swapchain *chain, uint32_t image_index,
                    uint64_t target_msc)
 {
    VkResult result;
@@ -1564,7 +1477,7 @@ x11_present_to_x11(struct x11_swapchain *chain, uint32_t image_index,
 }
 
 static VkResult
-x11_release_images(struct wsi_swapchain *wsi_chain,
+WRAP(x11_release_images)(struct wsi_swapchain *wsi_chain,
                    uint32_t count, const uint32_t *indices)
 {
    struct x11_swapchain *chain = (struct x11_swapchain *)wsi_chain;
@@ -1598,7 +1511,7 @@ x11_release_images(struct wsi_swapchain *wsi_chain,
  * image has been released by the X server to be used again by the consumer.
  */
 static VkResult
-x11_acquire_next_image(struct wsi_swapchain *anv_chain,
+WRAP(x11_acquire_next_image)(struct wsi_swapchain *anv_chain,
                        const VkAcquireNextImageInfoKHR *info,
                        uint32_t *image_index)
 {
@@ -1650,7 +1563,7 @@ x11_acquire_next_image(struct wsi_swapchain *anv_chain,
  * presentation but directly asks the X server to show it.
  */
 static VkResult
-x11_queue_present(struct wsi_swapchain *anv_chain,
+WRAP(x11_queue_present)(struct wsi_swapchain *anv_chain,
                   uint32_t image_index,
                   uint64_t present_id,
                   const VkPresentRegionKHR *damage)
@@ -1678,7 +1591,7 @@ x11_queue_present(struct wsi_swapchain *anv_chain,
 }
 
 static bool
-x11_needs_wait_for_fences(const struct wsi_device *wsi_device,
+WRAP(x11_needs_wait_for_fences)(const struct wsi_device *wsi_device,
                           struct wsi_x11_connection *wsi_conn,
                           VkPresentModeKHR present_mode)
 {
@@ -1701,7 +1614,7 @@ x11_needs_wait_for_fences(const struct wsi_device *wsi_device,
  *  (2) app to take ownership through an acquire, or
  *  (3) in the present queue waiting for the FIFO thread to present to X11.
  */
-static unsigned x11_driver_owned_images(const struct x11_swapchain *chain)
+static unsigned WRAP(x11_driver_owned_images)(const struct x11_swapchain *chain)
 {
    return chain->base.image_count - chain->sent_image_count;
 }
@@ -1721,7 +1634,7 @@ static unsigned x11_driver_owned_images(const struct x11_swapchain *chain)
  * presented or released and only then pull a new image from the present-queue.
  */
 static void *
-x11_manage_fifo_queues(void *state)
+WRAP(x11_manage_fifo_queues)(void *state)
 {
    struct x11_swapchain *chain = state;
    struct wsi_x11_connection *wsi_conn =
@@ -1860,7 +1773,7 @@ fail:
 }
 
 static uint8_t *
-alloc_shm(struct wsi_image *imagew, unsigned size)
+WRAP(alloc_shm)(struct wsi_image *imagew, unsigned size)
 {
 #if defined HAVE_SYS_SHM_H
    struct x11_image *image = (struct x11_image *)imagew;
@@ -1883,7 +1796,7 @@ alloc_shm(struct wsi_image *imagew, unsigned size)
 }
 
 static VkResult
-x11_image_init(VkDevice device_h, struct x11_swapchain *chain,
+WRAP(x11_image_init)(VkDevice device_h, struct x11_swapchain *chain,
                const VkSwapchainCreateInfoKHR *pCreateInfo,
                const VkAllocationCallbacks* pAllocator,
                struct x11_image *image)
@@ -1894,7 +1807,7 @@ x11_image_init(VkDevice device_h, struct x11_swapchain *chain,
 
    result = wsi_create_image(&chain->base, &chain->base.image_info,
                              &image->base);
-   LOG_A("wsi_create_image: %d", result);
+   WSI_LOGD("wsi_create_image: %d", result);
    if (result != VK_SUCCESS)
       return result;
 
@@ -2010,7 +1923,7 @@ x11_image_init(VkDevice device_h, struct x11_swapchain *chain,
 }
 
 static void
-x11_image_finish(struct x11_swapchain *chain,
+WRAP(x11_image_finish)(struct x11_swapchain *chain,
                  const VkAllocationCallbacks* pAllocator,
                  struct x11_image *image)
 {
@@ -2031,7 +1944,7 @@ x11_image_finish(struct x11_swapchain *chain,
 }
 
 static void
-wsi_x11_get_dri3_modifiers(struct wsi_x11_connection *wsi_conn,
+WRAP(wsi_x11_get_dri3_modifiers)(struct wsi_x11_connection *wsi_conn,
                            xcb_connection_t *conn, xcb_window_t window,
                            uint8_t depth, uint8_t bpp,
                            VkCompositeAlphaFlagsKHR vk_alpha,
@@ -2108,7 +2021,7 @@ out:
 }
 
 static VkResult
-x11_swapchain_destroy(struct wsi_swapchain *anv_chain,
+WRAP(x11_swapchain_destroy)(struct wsi_swapchain *anv_chain,
                       const VkAllocationCallbacks *pAllocator)
 {
    struct x11_swapchain *chain = (struct x11_swapchain *)anv_chain;
@@ -2145,7 +2058,7 @@ x11_swapchain_destroy(struct wsi_swapchain *anv_chain,
    return VK_SUCCESS;
 }
 
-static VkResult x11_wait_for_present_queued(
+static VkResult WRAP(x11_wait_for_present_queued)(
       struct x11_swapchain *chain,
       uint64_t waitValue, uint64_t timeout)
 {
@@ -2183,7 +2096,7 @@ static VkResult x11_wait_for_present_queued(
    return result;
 }
 
-static VkResult x11_wait_for_present_polled(
+static VkResult WRAP(x11_wait_for_present_polled)(
       struct x11_swapchain *chain,
       uint64_t waitValue, uint64_t timeout)
 {
@@ -2289,7 +2202,7 @@ fail:
    return result;
 }
 
-static VkResult x11_wait_for_present(struct wsi_swapchain *wsi_chain,
+static VkResult WRAP(x11_wait_for_present)(struct wsi_swapchain *wsi_chain,
                                      uint64_t waitValue,
                                      uint64_t timeout)
 {
@@ -2311,7 +2224,7 @@ static VkResult x11_wait_for_present(struct wsi_swapchain *wsi_chain,
 }
 
 static unsigned
-x11_get_min_image_count_for_present_mode(struct wsi_device *wsi_device,
+WRAP(x11_get_min_image_count_for_present_mode)(struct wsi_device *wsi_device,
                                          struct wsi_x11_connection *wsi_conn,
                                          VkPresentModeKHR present_mode)
 {
@@ -2328,14 +2241,14 @@ x11_get_min_image_count_for_present_mode(struct wsi_device *wsi_device,
  *
  */
 static VkResult
-x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
+WRAP(x11_surface_create_swapchain)(VkIcdSurfaceBase *icd_surface,
                              VkDevice device,
                              struct wsi_device *wsi_device,
                              const VkSwapchainCreateInfoKHR *pCreateInfo,
                              const VkAllocationCallbacks* pAllocator,
                              struct wsi_swapchain **swapchain_out)
 {
-   LOG_A("in x11_surface_create_swapchain");
+   WSI_LOGD("Calling x11_surface_create_swapchain");
    struct x11_swapchain *chain;
    xcb_void_cookie_t cookie;
    VkResult result;
@@ -2524,7 +2437,7 @@ x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
    for (; image < chain->base.image_count; image++) {
       result = x11_image_init(device, chain, pCreateInfo, pAllocator,
                               &chain->images[image]);
-      LOG_A("x11_image_init: result = %d", result);
+      WSI_LOGD("x11_image_init: result = %d", result);
       if (result != VK_SUCCESS)
          goto fail_init_images;
    }
@@ -2584,6 +2497,7 @@ x11_surface_create_swapchain(VkIcdSurfaceBase *icd_surface,
    assert(chain->has_present_queue || !chain->has_acquire_queue);
 
    *swapchain_out = &chain->base;
+   WSI_LOGD("X11 create_swapchain success");
    return VK_SUCCESS;
 
 fail_init_images:
@@ -2602,7 +2516,7 @@ fail_alloc:
 }
 
 VkResult
-wsi_x11_init_wsi(struct wsi_device *wsi_device,
+WRAP(wsi_x11_init_wsi)(struct wsi_device *wsi_device,
                  const VkAllocationCallbacks *alloc,
                  const struct driOptionCache *dri_options)
 {
@@ -2667,7 +2581,7 @@ fail:
 }
 
 void
-wsi_x11_finish_wsi(struct wsi_device *wsi_device,
+WRAP(wsi_x11_finish_wsi)(struct wsi_device *wsi_device,
                    const VkAllocationCallbacks *alloc)
 {
    struct wsi_x11 *wsi =
