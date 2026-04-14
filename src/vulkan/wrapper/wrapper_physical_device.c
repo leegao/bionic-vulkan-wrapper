@@ -230,14 +230,81 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
          pdevice->driver_properties.driverName,
          pdevice->driver_properties.driverInfo);
 
-      if (pdevice->driver_properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY &&
+      /* --- Identify the GPU vendor and driver --- */
+      {
+         struct wrapper_driver_info *drv = &pdevice->drv_info;
+         memset(drv, 0, sizeof(*drv));
+
+         switch (pdevice->driver_properties.driverID) {
+         case VK_DRIVER_ID_QUALCOMM_PROPRIETARY:
+            drv->gpu_vendor = WRAPPER_GPU_VENDOR_ADRENO_PROPRIETARY;
+            drv->is_adreno = true;
+            drv->is_mesa = false;
+            break;
+         case VK_DRIVER_ID_MESA_TURNIP:
+            drv->gpu_vendor = WRAPPER_GPU_VENDOR_ADRENO_TURNIP;
+            drv->is_adreno = true;
+            drv->is_mesa = true;
+            break;
+         case VK_DRIVER_ID_ARM_PROPRIETARY:
+            drv->gpu_vendor = WRAPPER_GPU_VENDOR_MALI_PROPRIETARY;
+            drv->is_mali = true;
+            drv->is_mesa = false;
+            break;
+         case VK_DRIVER_ID_MESA_PANFROST:
+            drv->gpu_vendor = WRAPPER_GPU_VENDOR_MALI_PANFROST;
+            drv->is_mali = true;
+            drv->is_mesa = true;
+            break;
+         default:
+            drv->gpu_vendor = WRAPPER_GPU_VENDOR_UNKNOWN;
+            break;
+         }
+
+         /* Parse Mesa driver version from driverInfo string (e.g. "Mesa 26.0.4" or "Mesa 26.1.0-devel") */
+         if (drv->is_mesa) {
+            const char *ver = pdevice->driver_properties.driverInfo;
+            const char *mesa_prefix = strstr(ver, "Mesa ");
+            if (mesa_prefix) {
+               mesa_prefix += 5; /* skip "Mesa " */
+               sscanf(mesa_prefix, "%u.%u.%u",
+                      &drv->driver_version_major,
+                      &drv->driver_version_minor,
+                      &drv->driver_version_patch);
+            } else {
+               /* Fallback: try parsing the raw driverVersion field */
+               uint32_t v = pdevice->properties2.properties.driverVersion;
+               drv->driver_version_major = VK_VERSION_MAJOR(v);
+               drv->driver_version_minor = VK_VERSION_MINOR(v);
+               drv->driver_version_patch = VK_VERSION_PATCH(v);
+            }
+         } else if (drv->is_adreno) {
+            /* Qualcomm proprietary: driverVersion is packed differently */
+            uint32_t v = pdevice->properties2.properties.driverVersion;
+            drv->driver_version_major = v >> 22;
+            drv->driver_version_minor = (v >> 12) & 0x3ff;
+            drv->driver_version_patch = v & 0xfff;
+         } else if (drv->is_mali) {
+            /* ARM proprietary: use standard Vulkan version packing */
+            uint32_t v = pdevice->properties2.properties.driverVersion;
+            drv->driver_version_major = VK_VERSION_MAJOR(v);
+            drv->driver_version_minor = VK_VERSION_MINOR(v);
+            drv->driver_version_patch = VK_VERSION_PATCH(v);
+         }
+
+         WLOG("Wrapper driver detection: vendor=%d, mesa=%d, adreno=%d, mali=%d, version=%u.%u.%u",
+              drv->gpu_vendor, drv->is_mesa, drv->is_adreno, drv->is_mali,
+              drv->driver_version_major, drv->driver_version_minor, drv->driver_version_patch);
+      }
+
+      if (pdevice->drv_info.gpu_vendor == WRAPPER_GPU_VENDOR_ADRENO_PROPRIETARY &&
           pdevice->properties2.properties.driverVersion > VK_MAKE_VERSION(512, 744, 0) &&
           strstr(app_name, "clvk")) {
          /* HACK: Fixed clvk not working on qualcomm proprietary driver. */
          supported_features->globalPriorityQuery = false;
       }
 
-      if (pdevice->driver_properties.driverID == VK_DRIVER_ID_ARM_PROPRIETARY
+      if (pdevice->drv_info.gpu_vendor == WRAPPER_GPU_VENDOR_MALI_PROPRIETARY
             && pdevice->vk.supported_extensions.EXT_extended_dynamic_state
             && !is_dxvk_2_plus) {
          WLOG("Disabling VK_EXT_extended_dynamic_state on Mali proprietary drivers");
@@ -246,9 +313,25 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
          pdevice->vk.supported_extensions.EXT_extended_dynamic_state3 = false;
       }
 
-      if (pdevice->driver_properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY) {
-         WLOG("Disabling VK_KHR_shader_float_controls on Qualcom proprietary drivers");
+      if (pdevice->drv_info.gpu_vendor == WRAPPER_GPU_VENDOR_ADRENO_PROPRIETARY) {
+         WLOG("Disabling VK_KHR_shader_float_controls on Qualcomm proprietary drivers");
          pdevice->vk.supported_extensions.KHR_shader_float_controls = false;
+      }
+
+      /* Turnip (Mesa Freedreno) v26.0+ has proper float controls support */
+      if (pdevice->drv_info.gpu_vendor == WRAPPER_GPU_VENDOR_ADRENO_TURNIP) {
+         WLOG("Mesa Turnip detected (v%u.%u.%u), keeping KHR_shader_float_controls enabled",
+              pdevice->drv_info.driver_version_major,
+              pdevice->drv_info.driver_version_minor,
+              pdevice->drv_info.driver_version_patch);
+      }
+
+      /* Panfrost: don't disable extended_dynamic_state, it's properly supported */
+      if (pdevice->drv_info.gpu_vendor == WRAPPER_GPU_VENDOR_MALI_PANFROST) {
+         WLOG("Mesa Panfrost detected (v%u.%u.%u)",
+              pdevice->drv_info.driver_version_major,
+              pdevice->drv_info.driver_version_minor,
+              pdevice->drv_info.driver_version_patch);
       }
 
       pdevice->dma_heap_fd = open("/dev/dma_heap/system", O_RDONLY);
