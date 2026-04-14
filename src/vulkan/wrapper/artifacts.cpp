@@ -5,6 +5,12 @@
 #include "wrapper_checks.h"
 #include "vk_printers.h"
 
+#ifndef __ANDROID__
+#include <cerrno>
+extern char *program_invocation_short_name;
+static inline const char *getprogname() { return program_invocation_short_name; }
+#endif
+
 #define XXH_INLINE_ALL
 #include "util/xxhash.h"
 
