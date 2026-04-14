@@ -30,7 +30,8 @@ jobs:
             libdrm-dev libelf-dev \
             libexpat1-dev \
             zlib1g-dev \
-            cmake git
+            cmake git \
+            clang
 
       - name: Build SPIRV-Tools for host
         run: |
@@ -47,6 +48,9 @@ jobs:
           cp -r /tmp/SPIRV-Tools/include/* $GITHUB_WORKSPACE/src/vulkan/wrapper/include/spirv-tools/
 
       - name: Configure Mesa (wrapper only)
+        env:
+          CC: clang
+          CXX: clang++
         run: |
           meson setup _build \
             -Dvulkan-drivers=wrapper \
