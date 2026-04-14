@@ -52,7 +52,8 @@ jobs:
           CC: clang
           CXX: clang++
         run: |
-          STUB_ARGS="-D__INTRODUCED_IN(x)= -D__ANDROID_API__=26 -DNULL=nullptr"
+          STUB_C="-D__INTRODUCED_IN(x)="
+          STUB_CXX="-D__INTRODUCED_IN(x)= -DNULL=nullptr"
           meson setup _build \
             -Dvulkan-drivers=wrapper \
             -Dgallium-drivers= \
@@ -67,8 +68,8 @@ jobs:
             -Dllvm=disabled \
             -Dshared-glapi=disabled \
             -Dbuildtype=release \
-            -Dc_args="$STUB_ARGS" \
-            -Dcpp_args="$STUB_ARGS"
+            -Dc_args="$STUB_C" \
+            -Dcpp_args="$STUB_CXX"
 
       - name: Build
         run: |
