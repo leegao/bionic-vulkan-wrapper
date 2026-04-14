@@ -52,7 +52,7 @@ jobs:
           CC: clang
           CXX: clang++
         run: |
-          STUB_ARGS="-D__INTRODUCED_IN(x)= -D__ANDROID_API__=26"
+          STUB_ARGS="-D__INTRODUCED_IN(x)= -D__ANDROID_API__=26 -D__TERMUX__"
           STUB_C="$STUB_ARGS -include sys/syscall.h"
           STUB_CXX="$STUB_ARGS -DNULL=nullptr"
           meson setup _build \
