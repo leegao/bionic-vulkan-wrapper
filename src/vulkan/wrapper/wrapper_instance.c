@@ -9,6 +9,11 @@
 #include "vk_printers.h"
 #include "graphics_env_hooks.h"
 
+#ifndef __ANDROID__
+#include <errno.h>
+#define getprogname() program_invocation_short_name
+#endif
+
 const struct vk_instance_extension_table wrapper_instance_extensions = {
    .KHR_get_surface_capabilities2 = true,
    .EXT_surface_maintenance1 = true,
