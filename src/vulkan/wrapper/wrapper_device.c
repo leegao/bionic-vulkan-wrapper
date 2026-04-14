@@ -1748,12 +1748,18 @@ WRAPPER_CreateShaderModule(VkDevice device,
     const VkAllocationCallbacks* pAllocator,
     VkShaderModule* pShaderModule) {
    VK_FROM_HANDLE(wrapper_device, wdev, device);
+   const struct wrapper_driver_info *drv = &wdev->physical->drv_info;
+
+   /* ClipDistance emulation: only needed when the driver doesn't natively support it.
+    * Turnip v26.0+ and Panfrost generally support shaderClipDistance natively. */
    bool needs_clip_distance_emulation = !wdev->physical->base_supported_features.shaderClipDistance
                                         && !CHECK_FLAG("DISABLE_CLIP_DISTANCE");
-   bool needs_spec_composite_constants_emulation = wdev->physical->driver_properties.driverID == VK_DRIVER_ID_ARM_PROPRIETARY
+   /* Mali proprietary SpecConstantComposite fix: not needed on Panfrost or Adreno drivers */
+   bool needs_spec_composite_constants_emulation = (drv->gpu_vendor == WRAPPER_GPU_VENDOR_MALI_PROPRIETARY)
                                                    && !CHECK_FLAG("DISABLE_SPEC_COMPOSITE_CONSTANTS");
-   bool needs_optimization_barriers = (wdev->physical->driver_properties.driverID == VK_DRIVER_ID_ARM_PROPRIETARY
-                                       || wdev->physical->driver_properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY)
+   /* Optimization barriers: only on proprietary drivers, not Mesa Turnip/Panfrost */
+   bool needs_optimization_barriers = (drv->gpu_vendor == WRAPPER_GPU_VENDOR_MALI_PROPRIETARY
+                                       || drv->gpu_vendor == WRAPPER_GPU_VENDOR_ADRENO_PROPRIETARY)
                                           && !CHECK_FLAG("DISABLE_OPTIMIZATION_BARRIERS");
    if (CHECK_FLAG("FORCE_CLIP_DISTANCE")) {
       needs_clip_distance_emulation = true;
