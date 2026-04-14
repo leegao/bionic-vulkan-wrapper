@@ -52,7 +52,7 @@ jobs:
           CC: clang
           CXX: clang++
         run: |
-          STUB_C="-D__INTRODUCED_IN(x)="
+          STUB_C="-D__INTRODUCED_IN(x)= -include sys/syscall.h"
           STUB_CXX="-D__INTRODUCED_IN(x)= -DNULL=nullptr"
           meson setup _build \
             -Dvulkan-drivers=wrapper \
