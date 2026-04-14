@@ -39,7 +39,7 @@ jobs:
           python3 utils/git-sync-deps
           mkdir build && cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release -DSPIRV_SKIP_TESTS=ON
-          make -j$(nproc) SPIRV-Tools SPIRV-Tools-opt
+          cmake --build . --config Release -j$(nproc) --target SPIRV-Tools-static SPIRV-Tools-opt
           mkdir -p $GITHUB_WORKSPACE/src/vulkan/wrapper/lib
           cp source/libSPIRV-Tools.a $GITHUB_WORKSPACE/src/vulkan/wrapper/lib/
           cp source/opt/libSPIRV-Tools-opt.a $GITHUB_WORKSPACE/src/vulkan/wrapper/lib/
