@@ -13,6 +13,16 @@ extern "C" {
 #include "spirv-tools/spirv-tools/optimizer.hpp"
 #include "spirv-tools/spirv-tools/libspirv.hpp"
 
+// Stub out custom SPIRV-Tools passes that only exist in the patched fork.
+// These are no-ops for CI builds using upstream SPIRV-Tools v2024.4.rc2.
+#ifndef HAVE_CUSTOM_SPIRV_PASSES
+namespace spvtools {
+static inline Optimizer::PassToken CreateRemoveClipCullDistPass() { return CreateNullPass(); }
+static inline Optimizer::PassToken CreateFixMaliSpecConstantCompositePass() { return CreateNullPass(); }
+static inline Optimizer::PassToken CreateMaliOptimizationBarrierPass() { return CreateNullPass(); }
+}
+#endif
+
 extern "C"
 void log_disassembly_to_cmd_log(const uint32_t* spirv_binary, size_t spirv_word_count) {
     spvtools::SpirvTools tools(SPV_ENV_VULKAN_1_1_SPIRV_1_4);

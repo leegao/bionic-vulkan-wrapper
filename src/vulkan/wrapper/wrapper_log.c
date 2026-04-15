@@ -6,6 +6,11 @@
 #include "wrapper_entrypoints.h"
 #include "vk_printers.h"
 
+#ifndef __ANDROID__
+#include <errno.h>
+#define getprogname() program_invocation_short_name
+#endif
+
 static int __log_level;
 static FILE* __log_fd;
 static bool __log_initialized;

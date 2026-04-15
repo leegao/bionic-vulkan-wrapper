@@ -1,4 +1,5 @@
 #include <math.h>
+#include <fcntl.h>
 
 #include "wrapper_private.h"
 #include "wrapper_entrypoints.h"
@@ -251,7 +252,7 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
             drv->is_mali = true;
             drv->is_mesa = false;
             break;
-         case VK_DRIVER_ID_MESA_PANFROST:
+         case VK_DRIVER_ID_MESA_PANVK:
             drv->gpu_vendor = WRAPPER_GPU_VENDOR_MALI_PANFROST;
             drv->is_mali = true;
             drv->is_mesa = true;

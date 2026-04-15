@@ -76,6 +76,15 @@ jobs:
         run: |
           ninja -C _build src/vulkan/wrapper/libvulkan_wrapper.so
 
+      - name: Upload wrapper artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulkan-wrapper
+          path: |
+            _build/src/vulkan/wrapper/libvulkan_wrapper.so
+            _build/src/vulkan/wrapper/wrapper_icd.*.json
+
       - name: Report build artifacts
         if: always()
         run: |

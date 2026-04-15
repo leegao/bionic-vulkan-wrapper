@@ -1028,7 +1028,6 @@ static int FindComputeQueueFamilies(struct wrapper_physical_device* physical_dev
    WPCHECKV(GetPhysicalDeviceQueueFamilyProperties(
    (VkPhysicalDevice) physical_device, &queueFamilyCount, queueFamilies));
 
-   int i = 0;
    for (int i = 0; i < queueFamilyCount; i++) {
       if (queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
          return i;
@@ -1330,8 +1329,6 @@ static void CmdComputeShaderForDecompression(
    bool is_bc4 = wimg->original_format == VK_FORMAT_BC4_UNORM_BLOCK || wimg->original_format == VK_FORMAT_BC4_SNORM_BLOCK;
    bool is_bc6 = wimg->original_format == VK_FORMAT_BC6H_UFLOAT_BLOCK || wimg->original_format == VK_FORMAT_BC6H_SFLOAT_BLOCK;
    bool is_bc7 = wimg->original_format == VK_FORMAT_BC7_UNORM_BLOCK || wimg->original_format == VK_FORMAT_BC7_SRGB_BLOCK;
-
-   VkDescriptorType dstDescriptorType;
 
    // Calculate the buffer size for an image
    // Normally 4x4 block is compressed to 16 bytes (1bpp), except for BC1 and BC4 (0.5 bpp)
@@ -1951,6 +1948,6 @@ WRAPPER_CmdPipelineBarrier(
     CHECKV(CmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, dependencyFlags,
         memoryBarrierCount, pMemoryBarriers,
         bufferMemoryBarrierCount, pBufferMemoryBarriers,
-        imageMemoryBarrierCount, pImageMemoryBarriers));
+        imageMemoryBarrierCount, barriers));
     free_temp_objects(&temp);
 }

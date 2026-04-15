@@ -132,7 +132,7 @@ def print_param(command, param, mode='input', log='VK_CMD_LOG_UNCONDITIONAL', vk
             output.append(f"        for (uint32_t i = 0; i < {count}; i++) {{")
             output.append(f"            {log}(\"    {param.name}[%d]: {param.type} = %lx (id=%d)\", i, (int64_t){param.name}[i], cmd_id);");
             output.append(f"        }}")
-        elif param.num_pointers and not is_input and param.type not in ("void", "Display", "xcb_connection_t"):
+        elif param.num_pointers and not is_input and param.type not in ("void", "Display", "xcb_connection_t", "wl_display"):
             output.append(f"        {log}(\"  {token}: *{param.name}: {param.type} = %lx (id=%d)\", (int64_t)*{param.name}, cmd_id);")
         elif param.num_pointers:
             output.append(f"        {log}(\"  {token}: {param.name}: {param.type}{'*' * param.num_pointers} = %lx (id=%d)\", (int64_t){param.name}, cmd_id);")
