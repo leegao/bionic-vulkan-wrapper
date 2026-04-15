@@ -205,11 +205,24 @@ jobs:
           env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
           ninja -C _build install
 
-          # xcb-proto (use master for meson support)
+          # xcb-proto (XML data files only — no compilation needed)
           git clone --depth 1 https://gitlab.freedesktop.org/xorg/proto/xcbproto.git /tmp/xcbproto
           cd /tmp/xcbproto
-          env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT
-          ninja -C _build install
+          mkdir -p $SYSROOT/share/xcb $SYSROOT/lib/pkgconfig
+          cp src/*.xml $SYSROOT/share/xcb/
+          # Create pkg-config file manually
+          cat > $SYSROOT/lib/pkgconfig/xcb-proto.pc << PCEOF
+          prefix=$SYSROOT
+          datarootdir=\${prefix}/share
+          xcbincludedir=\${datarootdir}/xcb
+          pythondir=${SYSROOT}/lib/python3/xcbgen
+          Name: XCB Proto
+          Description: X protocol descriptions for XCB
+          Version: 1.17.0
+          PCEOF
+          # Copy xcbgen python module
+          mkdir -p $SYSROOT/lib/python3/xcbgen
+          cp -r xcbgen/* $SYSROOT/lib/python3/xcbgen/
 
           # libxcb
           git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxcb.git /tmp/libxcb
