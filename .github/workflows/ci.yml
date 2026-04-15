@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-wrapper:
-    name: Build Vulkan Wrapper
+    name: Build Vulkan Wrapper (x86_64)
     runs-on: ubuntu-24.04
 
     steps:
@@ -81,6 +81,130 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vulkan-wrapper
+          path: |
+            _build/src/vulkan/wrapper/libvulkan_wrapper.so
+            _build/src/vulkan/wrapper/wrapper_icd.*.json
+
+      - name: Report build artifacts
+        if: always()
+        run: |
+          echo "=== Build log ==="
+          cat _build/meson-logs/meson-log.txt | tail -100 || true
+          echo "=== Built files ==="
+          find _build/src/vulkan/wrapper -name '*.so' -o -name '*.json' 2>/dev/null || true
+
+  build-wrapper-arm64:
+    name: Build Vulkan Wrapper (ARM64)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies and cross toolchain
+        run: |
+          sudo dpkg --add-architecture arm64
+
+          # Pin existing sources to amd64 only
+          sudo sed -i 's/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list 2>/dev/null || true
+          for f in /etc/apt/sources.list.d/*.list; do
+            [ -f "$f" ] && sudo sed -i 's/^deb http/deb [arch=amd64] http/' "$f" || true
+          done
+          # Handle DEB822 format (.sources files) used by Ubuntu 24.04
+          for f in /etc/apt/sources.list.d/*.sources; do
+            if [ -f "$f" ]; then
+              if ! grep -q '^Architectures:' "$f"; then
+                sudo sed -i '/^Types:/a Architectures: amd64' "$f"
+              fi
+            fi
+          done
+
+          # Add arm64 ports repository
+          sudo tee /etc/apt/sources.list.d/arm64-ports.list <<'EOF'
+          deb [arch=arm64] http://ports.ubuntu.com/ noble main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ noble-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ noble-security main restricted universe multiverse
+          EOF
+
+          sudo apt-get update
+          sudo apt-get install -y \
+            meson ninja-build \
+            python3 python3-mako python3-ply python3-yaml \
+            glslang-tools \
+            cmake git \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            libdrm-dev:arm64 \
+            libwayland-dev:arm64 libwayland-egl-backend-dev:arm64 wayland-protocols \
+            libx11-dev:arm64 libx11-xcb-dev:arm64 libxext-dev:arm64 libxfixes-dev:arm64 \
+            libxcb1-dev:arm64 libxcb-dri2-0-dev:arm64 libxcb-dri3-dev:arm64 \
+            libxcb-present-dev:arm64 libxcb-shm0-dev:arm64 libxcb-randr0-dev:arm64 \
+            libxcb-keysyms1-dev:arm64 libxshmfence-dev:arm64 libxxf86vm-dev:arm64 \
+            libxrandr-dev:arm64 \
+            libelf-dev:arm64 \
+            libexpat1-dev:arm64 \
+            zlib1g-dev:arm64 \
+            libvulkan-dev:arm64
+
+      - name: Build SPIRV-Tools for aarch64
+        run: |
+          git clone --depth 1 --branch v2024.4.rc2 https://github.com/KhronosGroup/SPIRV-Tools.git /tmp/SPIRV-Tools
+          cd /tmp/SPIRV-Tools
+          python3 utils/git-sync-deps
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSPIRV_SKIP_TESTS=ON \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64
+          cmake --build . --config Release -j$(nproc) --target SPIRV-Tools-static SPIRV-Tools-opt
+          mkdir -p $GITHUB_WORKSPACE/src/vulkan/wrapper/lib
+          cp source/libSPIRV-Tools.a $GITHUB_WORKSPACE/src/vulkan/wrapper/lib/
+          cp source/opt/libSPIRV-Tools-opt.a $GITHUB_WORKSPACE/src/vulkan/wrapper/lib/
+          mkdir -p $GITHUB_WORKSPACE/src/vulkan/wrapper/include/spirv-tools
+          cp -r /tmp/SPIRV-Tools/include/* $GITHUB_WORKSPACE/src/vulkan/wrapper/include/spirv-tools/
+
+      - name: Configure Mesa (wrapper only, cross aarch64)
+        run: |
+          STUB_ARGS="-D__INTRODUCED_IN(x)= -D__ANDROID_API__=26 -D__TERMUX__"
+          STUB_C="$STUB_ARGS"
+          STUB_CXX="$STUB_ARGS -DNULL=nullptr"
+          PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig \
+          meson setup _build \
+            --cross-file cross/aarch64-linux-gnu.txt \
+            -Dvulkan-drivers=wrapper \
+            -Dgallium-drivers= \
+            -Dandroid-stub=true \
+            -Dplatforms=x11,wayland \
+            -Dglx=disabled \
+            -Degl=disabled \
+            -Dgbm=disabled \
+            -Dopengl=false \
+            -Dgles1=disabled \
+            -Dgles2=disabled \
+            -Dllvm=disabled \
+            -Dshared-glapi=disabled \
+            -Dbuildtype=release \
+            -Dc_args="$STUB_C" \
+            -Dcpp_args="$STUB_CXX"
+
+      - name: Build
+        run: |
+          ninja -C _build src/vulkan/wrapper/libvulkan_wrapper.so
+
+      - name: Verify ARM64 binary
+        run: |
+          file _build/src/vulkan/wrapper/libvulkan_wrapper.so
+          aarch64-linux-gnu-readelf -h _build/src/vulkan/wrapper/libvulkan_wrapper.so | grep -i 'machine\|class'
+          echo "=== File size ==="
+          ls -lh _build/src/vulkan/wrapper/libvulkan_wrapper.so
+
+      - name: Upload ARM64 wrapper artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulkan-wrapper-arm64
           path: |
             _build/src/vulkan/wrapper/libvulkan_wrapper.so
             _build/src/vulkan/wrapper/wrapper_icd.*.json
