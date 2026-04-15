@@ -199,46 +199,57 @@ jobs:
           meson setup _build --cross-file $CROSS --prefix=$SYSROOT
           ninja -C _build install
 
-          # libxau
-          clone_tag https://gitlab.freedesktop.org/xorg/lib/libxau.git libXau-1.0.11 /tmp/libxau
+          # libxau (use master — older tags don't have meson.build)
+          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxau.git /tmp/libxau
+          cd /tmp/libxau
           env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
           ninja -C _build install
 
-          # xcb-proto
-          clone_tag https://gitlab.freedesktop.org/xorg/proto/xcbproto.git xcb-proto-1.17.0 /tmp/xcbproto
-          meson setup _build --cross-file $CROSS --prefix=$SYSROOT
+          # xcb-proto (use master for meson support)
+          git clone --depth 1 https://gitlab.freedesktop.org/xorg/proto/xcbproto.git /tmp/xcbproto
+          cd /tmp/xcbproto
+          env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT
           ninja -C _build install
 
           # libxcb
-          clone_tag https://gitlab.freedesktop.org/xorg/lib/libxcb.git libxcb-1.17.0 /tmp/libxcb
+          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxcb.git /tmp/libxcb
+          cd /tmp/libxcb
           env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
           ninja -C _build install
 
-          # xtrans (headers only)
-          clone_tag https://gitlab.freedesktop.org/xorg/lib/libxtrans.git xtrans-1.5.0 /tmp/xtrans
+          # xtrans
+          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxtrans.git /tmp/xtrans
+          cd /tmp/xtrans
           env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT
           ninja -C _build install
 
           # libX11
-          clone_tag https://gitlab.freedesktop.org/xorg/lib/libx11.git libX11-1.8.10 /tmp/libx11
+          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libx11.git /tmp/libx11
+          cd /tmp/libx11
           env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared -Dxlocale=false
           ninja -C _build install
 
           # libxshmfence
-          clone_tag https://gitlab.freedesktop.org/xorg/lib/libxshmfence.git libxshmfence-1.3.2 /tmp/libxshmfence
+          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxshmfence.git /tmp/libxshmfence
+          cd /tmp/libxshmfence
           env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
           ninja -C _build install
 
-          # libxrandr (needs libxrender + libxext first)
-          clone_tag https://gitlab.freedesktop.org/xorg/lib/libxext.git libXext-1.3.6 /tmp/libxext
+          # libxext
+          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxext.git /tmp/libxext
+          cd /tmp/libxext
           env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
           ninja -C _build install
 
-          clone_tag https://gitlab.freedesktop.org/xorg/lib/libxrender.git libXrender-0.9.11 /tmp/libxrender
+          # libxrender
+          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxrender.git /tmp/libxrender
+          cd /tmp/libxrender
           env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
           ninja -C _build install
 
-          clone_tag https://gitlab.freedesktop.org/xorg/lib/libxrandr.git libXrandr-1.5.4 /tmp/libxrandr
+          # libxrandr
+          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxrandr.git /tmp/libxrandr
+          cd /tmp/libxrandr
           env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
           ninja -C _build install
 
