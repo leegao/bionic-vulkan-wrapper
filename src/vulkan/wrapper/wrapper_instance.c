@@ -14,6 +14,19 @@
 #define getprogname() program_invocation_short_name
 #endif
 
+/* adrenotools stubs for non-Android builds (adrenotools is Android-only) */
+#ifndef __ANDROID__
+static void *adrenotools_open_libvulkan(int dlopenMode, int featureFlags,
+   const char *tmpLibDir, const char *hookLibDir, const char *customDriverDir,
+   const char *customDriverName, const char *fileRedirectDir,
+   void **userMappingHandle) {
+   (void)dlopenMode; (void)featureFlags; (void)tmpLibDir; (void)hookLibDir;
+   (void)customDriverDir; (void)customDriverName; (void)fileRedirectDir;
+   (void)userMappingHandle;
+   return NULL;
+}
+#endif
+
 const struct vk_instance_extension_table wrapper_instance_extensions = {
    .KHR_get_surface_capabilities2 = true,
    .EXT_surface_maintenance1 = true,
