@@ -173,8 +173,9 @@ jobs:
       - name: Configure Mesa (wrapper only, cross aarch64)
         run: |
           STUB_ARGS="-D__INTRODUCED_IN(x)= -D__ANDROID_API__=26 -D__TERMUX__"
-          STUB_C="$STUB_ARGS"
-          STUB_CXX="$STUB_ARGS -DNULL=nullptr"
+          # -Wno-format-overflow: suppress GCC false positives in generated vk_printers.c
+          STUB_C="$STUB_ARGS -Wno-format-overflow"
+          STUB_CXX="$STUB_ARGS -DNULL=nullptr -Wno-format-overflow"
           PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig \
           meson setup _build \
             --cross-file cross/aarch64-linux-gnu.txt \
