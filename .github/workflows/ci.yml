@@ -175,7 +175,9 @@ jobs:
           STUB_ARGS="-D__INTRODUCED_IN(x)= -D__ANDROID_API__=26 -D__TERMUX__"
           # -Wno-format-overflow: suppress GCC false positives in generated vk_printers.c
           STUB_C="$STUB_ARGS -Wno-format-overflow"
-          STUB_CXX="$STUB_ARGS -DNULL=nullptr -Wno-format-overflow"
+          # -D_Atomic=: GCC C++ doesn't support _Atomic keyword (use std::atomic instead)
+          # -Wno-nonnull: suppress false positive in graphics_env_hooks.cpp dlclose()
+          STUB_CXX="$STUB_ARGS -DNULL=nullptr -Wno-format-overflow -D_Atomic= -Wno-nonnull"
           PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig \
           meson setup _build \
             --cross-file cross/aarch64-linux-gnu.txt \
