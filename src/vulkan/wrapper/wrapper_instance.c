@@ -16,7 +16,7 @@
 
 /* adrenotools stubs for non-Android builds (adrenotools is Android-only) */
 #ifndef __ANDROID__
-static void *adrenotools_open_libvulkan(int dlopenMode, int featureFlags,
+void *adrenotools_open_libvulkan(int dlopenMode, int featureFlags,
    const char *tmpLibDir, const char *hookLibDir, const char *customDriverDir,
    const char *customDriverName, const char *fileRedirectDir,
    void **userMappingHandle) {
