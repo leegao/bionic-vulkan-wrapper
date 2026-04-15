@@ -93,98 +93,79 @@ jobs:
           echo "=== Built files ==="
           find _build/src/vulkan/wrapper -name '*.so' -o -name '*.json' 2>/dev/null || true
 
-  build-wrapper-arm64:
-    name: Build Vulkan Wrapper (ARM64)
+  build-wrapper-arm64-ndk:
+    name: Build Vulkan Wrapper (ARM64 Android NDK)
     runs-on: ubuntu-24.04
+
+    env:
+      NDK_VERSION: r27c
+      ANDROID_API: 26
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install system dependencies and cross toolchain
+      - name: Install build tools
         run: |
-          sudo dpkg --add-architecture arm64
-
-          # Pin existing sources to amd64 only
-          sudo sed -i 's/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list 2>/dev/null || true
-          for f in /etc/apt/sources.list.d/*.list; do
-            [ -f "$f" ] && sudo sed -i 's/^deb http/deb [arch=amd64] http/' "$f" || true
-          done
-          # Handle DEB822 format (.sources files) used by Ubuntu 24.04
-          for f in /etc/apt/sources.list.d/*.sources; do
-            if [ -f "$f" ]; then
-              if ! grep -q '^Architectures:' "$f"; then
-                sudo sed -i '/^Types:/a Architectures: amd64' "$f"
-              fi
-            fi
-          done
-
-          # Add arm64 ports repository
-          sudo tee /etc/apt/sources.list.d/arm64-ports.list <<'EOF'
-          deb [arch=arm64] http://ports.ubuntu.com/ noble main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ noble-updates main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ noble-security main restricted universe multiverse
-          EOF
-
           sudo apt-get update
           sudo apt-get install -y \
             meson ninja-build \
             python3 python3-mako python3-ply python3-yaml \
             glslang-tools \
             cmake git \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            libdrm-dev:arm64 \
-            libwayland-dev:arm64 libwayland-egl-backend-dev:arm64 wayland-protocols \
-            libx11-dev:arm64 libx11-xcb-dev:arm64 libxext-dev:arm64 libxfixes-dev:arm64 \
-            libxcb1-dev:arm64 libxcb-dri2-0-dev:arm64 libxcb-dri3-dev:arm64 \
-            libxcb-present-dev:arm64 libxcb-shm0-dev:arm64 libxcb-randr0-dev:arm64 \
-            libxcb-keysyms1-dev:arm64 libxshmfence-dev:arm64 libxxf86vm-dev:arm64 \
-            libxrandr-dev:arm64 \
-            libelf-dev:arm64 \
-            libexpat1-dev:arm64 \
-            zlib1g-dev:arm64 \
-            libvulkan-dev:arm64
+            unzip wget
 
-      - name: Build SPIRV-Tools for aarch64
+      - name: Setup Android NDK
         run: |
-          git clone --depth 1 --branch v2024.4.rc2 https://github.com/KhronosGroup/SPIRV-Tools.git /tmp/SPIRV-Tools
+          wget -q https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip -O /tmp/ndk.zip
+          unzip -q /tmp/ndk.zip -d /tmp
+          echo "ANDROID_NDK_HOME=/tmp/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
+          NDK_TC="/tmp/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64"
+          echo "${NDK_TC}/bin" >> $GITHUB_PATH
+          echo "NDK_TOOLCHAIN=${NDK_TC}" >> $GITHUB_ENV
+          # Verify toolchain
+          ${NDK_TC}/bin/aarch64-linux-android${ANDROID_API}-clang --version
+
+      - name: Build SPIRV-Tools for Android aarch64 (custom fork)
+        run: |
+          git clone --depth 1 https://github.com/BlueInstruction/SPIRV-Tools.git /tmp/SPIRV-Tools
           cd /tmp/SPIRV-Tools
           python3 utils/git-sync-deps
           mkdir build && cd build
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DSPIRV_SKIP_TESTS=ON \
-            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-            -DCMAKE_SYSTEM_NAME=Linux \
-            -DCMAKE_SYSTEM_PROCESSOR=aarch64
+            -DCMAKE_SYSTEM_NAME=Android \
+            -DCMAKE_SYSTEM_VERSION=${ANDROID_API} \
+            -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a \
+            -DCMAKE_ANDROID_NDK=${ANDROID_NDK_HOME} \
+            -DCMAKE_ANDROID_STL_TYPE=c++_static
           cmake --build . --config Release -j$(nproc) --target SPIRV-Tools-static SPIRV-Tools-opt
           mkdir -p $GITHUB_WORKSPACE/src/vulkan/wrapper/lib
           cp source/libSPIRV-Tools.a $GITHUB_WORKSPACE/src/vulkan/wrapper/lib/
           cp source/opt/libSPIRV-Tools-opt.a $GITHUB_WORKSPACE/src/vulkan/wrapper/lib/
-          mkdir -p $GITHUB_WORKSPACE/src/vulkan/wrapper/include/spirv-tools
-          cp -r /tmp/SPIRV-Tools/include/* $GITHUB_WORKSPACE/src/vulkan/wrapper/include/spirv-tools/
+          # Do NOT overwrite the patched headers — they contain custom pass declarations
+          # Only copy headers that don't already exist in the repo
+          find /tmp/SPIRV-Tools/include -type f | while read src; do
+            rel="${src#/tmp/SPIRV-Tools/include/}"
+            dst="$GITHUB_WORKSPACE/src/vulkan/wrapper/include/spirv-tools/$rel"
+            if [ ! -f "$dst" ]; then
+              mkdir -p "$(dirname "$dst")"
+              cp "$src" "$dst"
+            fi
+          done
 
-      - name: Patch meson.build for GCC compatibility
+      - name: Configure Mesa (wrapper only, Android NDK aarch64)
         run: |
-          # Replace Clang-only -ferror-limit with GCC equivalent -fmax-errors
-          sed -i "s/-ferror-limit=1000/-fmax-errors=1000/" meson.build
-
-      - name: Configure Mesa (wrapper only, cross aarch64)
-        run: |
-          STUB_ARGS="-D__INTRODUCED_IN(x)= -D__ANDROID_API__=26 -D__TERMUX__"
-          # -Wno-format-overflow: suppress GCC false positives in generated vk_printers.c
-          STUB_C="$STUB_ARGS -Wno-format-overflow"
-          # -D_Atomic=: GCC C++ doesn't support _Atomic keyword (use std::atomic instead)
-          # -Wno-nonnull: suppress false positive in graphics_env_hooks.cpp dlclose()
-          STUB_CXX="$STUB_ARGS -DNULL=nullptr -Wno-format-overflow -D_Atomic= -Wno-nonnull"
-          PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig \
+          STUB_ARGS="-D__INTRODUCED_IN(x)= -D__ANDROID_API__=${ANDROID_API} -D__TERMUX__ -DHAVE_CUSTOM_SPIRV_PASSES"
+          STUB_C="$STUB_ARGS"
+          STUB_CXX="$STUB_ARGS -DNULL=nullptr"
           meson setup _build \
-            --cross-file cross/aarch64-linux-gnu.txt \
+            --cross-file cross/aarch64-linux-android.txt \
             -Dvulkan-drivers=wrapper \
             -Dgallium-drivers= \
             -Dandroid-stub=true \
-            -Dplatforms=x11,wayland \
+            -Dplatforms= \
             -Dglx=disabled \
             -Degl=disabled \
             -Dgbm=disabled \
@@ -201,18 +182,20 @@ jobs:
         run: |
           ninja -C _build src/vulkan/wrapper/libvulkan_wrapper.so
 
-      - name: Verify ARM64 binary
+      - name: Verify Android ARM64 binary
         run: |
           file _build/src/vulkan/wrapper/libvulkan_wrapper.so
-          aarch64-linux-gnu-readelf -h _build/src/vulkan/wrapper/libvulkan_wrapper.so | grep -i 'machine\|class'
+          ${NDK_TOOLCHAIN}/bin/llvm-readelf -h _build/src/vulkan/wrapper/libvulkan_wrapper.so
+          echo "=== Dynamic dependencies ==="
+          ${NDK_TOOLCHAIN}/bin/llvm-readelf -d _build/src/vulkan/wrapper/libvulkan_wrapper.so | grep NEEDED || true
           echo "=== File size ==="
           ls -lh _build/src/vulkan/wrapper/libvulkan_wrapper.so
 
-      - name: Upload ARM64 wrapper artifacts
+      - name: Upload Android ARM64 wrapper artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: vulkan-wrapper-arm64
+          name: vulkan-wrapper-android-arm64
           path: |
             _build/src/vulkan/wrapper/libvulkan_wrapper.so
             _build/src/vulkan/wrapper/wrapper_icd.*.json
@@ -220,7 +203,7 @@ jobs:
       - name: Report build artifacts
         if: always()
         run: |
-          echo "=== Build log ==="
-          cat _build/meson-logs/meson-log.txt | tail -100 || true
+          echo "=== Build log (last 200 lines) ==="
+          cat _build/meson-logs/meson-log.txt | tail -200 || true
           echo "=== Built files ==="
           find _build/src/vulkan/wrapper -name '*.so' -o -name '*.json' 2>/dev/null || true
