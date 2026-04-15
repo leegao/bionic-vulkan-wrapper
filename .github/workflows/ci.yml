@@ -155,116 +155,60 @@ jobs:
             fi
           done
 
-      - name: Build libdrm for Android aarch64
-        run: |
-          git clone --depth 1 --branch libdrm-2.4.120 https://gitlab.freedesktop.org/mesa/drm.git /tmp/drm
-          cd /tmp/drm
-          mkdir -p $GITHUB_WORKSPACE/_sysroot
-          meson setup _build \
-            --cross-file $GITHUB_WORKSPACE/cross/aarch64-linux-android.txt \
-            --prefix=$GITHUB_WORKSPACE/_sysroot \
-            -Ddefault_library=shared \
-            -Dintel=disabled \
-            -Dradeon=disabled \
-            -Damdgpu=disabled \
-            -Dnouveau=disabled \
-            -Dvmwgfx=disabled \
-            -Dfreedreno=disabled \
-            -Dvc4=disabled \
-            -Detnaviv=disabled \
-            -Dexynos=disabled \
-            -Dtests=false \
-            -Dman-pages=disabled \
-            -Dvalgrind=disabled \
-            -Dcairo-tests=disabled
-          ninja -C _build install
-
-      - name: Build X11/XCB libraries for Android aarch64
+      - name: Download Termux prebuilt packages for aarch64
         run: |
           set -e
           SYSROOT=$GITHUB_WORKSPACE/_sysroot
-          CROSS=$GITHUB_WORKSPACE/cross/aarch64-linux-android.txt
-          PKG="PKG_CONFIG_LIBDIR=$SYSROOT/lib/pkgconfig:$SYSROOT/share/pkgconfig"
+          mkdir -p $SYSROOT
 
-          # Helper: clone a tag reliably (handles annotated tags)
-          clone_tag() {
-            local url=$1 tag=$2 dir=$3
-            git clone "$url" "$dir"
-            cd "$dir"
-            git checkout "$tag"
+          # Termux package base URL for aarch64
+          TERMUX_REPO="https://packages.termux.dev/apt/termux-main/pool/main"
+
+          # Download and extract .deb packages (contains headers + .so + .pc files)
+          download_termux_pkg() {
+            local pkg=$1 letter=$2
+            local url="${TERMUX_REPO}/${letter}/${pkg}"
+            echo "Downloading ${pkg}..."
+            wget -q "$url" -O /tmp/pkg.deb
+            cd /tmp && ar x pkg.deb && tar xf data.tar.* -C $SYSROOT --strip-components=3 ./data/data/com.termux/files/usr/ 2>/dev/null || tar xf data.tar.* -C $SYSROOT --strip-components=4 2>/dev/null || true
+            rm -f /tmp/pkg.deb /tmp/data.tar.* /tmp/control.tar.* /tmp/debian-binary
           }
 
-          # xorgproto (headers only)
-          clone_tag https://gitlab.freedesktop.org/xorg/proto/xorgproto.git xorgproto-2024.1 /tmp/xorgproto
-          meson setup _build --cross-file $CROSS --prefix=$SYSROOT
-          ninja -C _build install
+          # Core X11/XCB libraries needed by libvulkan_wrapper.so
+          download_termux_pkg "libdrm_2.4.124-1_aarch64.deb" "libd"
+          download_termux_pkg "libdrm-dev_2.4.124-1_aarch64.deb" "libd"
+          download_termux_pkg "libx11_1.8.10_aarch64.deb" "libx"
+          download_termux_pkg "libx11-dev_1.8.10_aarch64.deb" "libx"
+          download_termux_pkg "libxcb_1.17.0_aarch64.deb" "libx"
+          download_termux_pkg "libxcb-dev_1.17.0_aarch64.deb" "libx"
+          download_termux_pkg "libxau_1.0.11-1_aarch64.deb" "libx"
+          download_termux_pkg "libxau-dev_1.0.11-1_aarch64.deb" "libx"
+          download_termux_pkg "libxdmcp_1.1.5_aarch64.deb" "libx"
+          download_termux_pkg "libxdmcp-dev_1.1.5_aarch64.deb" "libx"
+          download_termux_pkg "libxext_1.3.6_aarch64.deb" "libx"
+          download_termux_pkg "libxext-dev_1.3.6_aarch64.deb" "libx"
+          download_termux_pkg "libxrandr_1.5.4_aarch64.deb" "libx"
+          download_termux_pkg "libxrandr-dev_1.5.4_aarch64.deb" "libx"
+          download_termux_pkg "libxrender_0.9.11_aarch64.deb" "libx"
+          download_termux_pkg "libxrender-dev_0.9.11_aarch64.deb" "libx"
+          download_termux_pkg "libxshmfence_1.3.2_aarch64.deb" "libx"
+          download_termux_pkg "libxshmfence-dev_1.3.2_aarch64.deb" "libx"
+          download_termux_pkg "libxfixes_6.0.1_aarch64.deb" "libx"
+          download_termux_pkg "libxfixes-dev_6.0.1_aarch64.deb" "libx"
+          download_termux_pkg "libxxf86vm_1.1.5-1_aarch64.deb" "libx"
+          download_termux_pkg "libxxf86vm-dev_1.1.5-1_aarch64.deb" "libx"
+          download_termux_pkg "xorgproto_2024.1_aarch64.deb" "xorg"
+          download_termux_pkg "libelf_0.192_aarch64.deb" "libe"
+          download_termux_pkg "libelf-dev_0.192_aarch64.deb" "libe"
+          download_termux_pkg "libexpat_2.6.4_aarch64.deb" "libe"
+          download_termux_pkg "libexpat-dev_2.6.4_aarch64.deb" "libe"
+          download_termux_pkg "libwayland_1.23.1_aarch64.deb" "libw"
+          download_termux_pkg "libwayland-dev_1.23.1_aarch64.deb" "libw"
+          download_termux_pkg "wayland-protocols_1.38_aarch64.deb" "wayl"
 
-          # libxau (use master — older tags don't have meson.build)
-          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxau.git /tmp/libxau
-          cd /tmp/libxau
-          env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
-          ninja -C _build install
-
-          # xcb-proto (XML data files only — no compilation needed)
-          git clone --depth 1 https://gitlab.freedesktop.org/xorg/proto/xcbproto.git /tmp/xcbproto
-          cd /tmp/xcbproto
-          mkdir -p $SYSROOT/share/xcb $SYSROOT/lib/pkgconfig
-          cp src/*.xml $SYSROOT/share/xcb/
-          # Create pkg-config file manually
-          cat > $SYSROOT/lib/pkgconfig/xcb-proto.pc << PCEOF
-          prefix=$SYSROOT
-          datarootdir=\${prefix}/share
-          xcbincludedir=\${datarootdir}/xcb
-          pythondir=${SYSROOT}/lib/python3/xcbgen
-          Name: XCB Proto
-          Description: X protocol descriptions for XCB
-          Version: 1.17.0
-          PCEOF
-          # Copy xcbgen python module
-          mkdir -p $SYSROOT/lib/python3/xcbgen
-          cp -r xcbgen/* $SYSROOT/lib/python3/xcbgen/
-
-          # libxcb
-          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxcb.git /tmp/libxcb
-          cd /tmp/libxcb
-          env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
-          ninja -C _build install
-
-          # xtrans
-          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxtrans.git /tmp/xtrans
-          cd /tmp/xtrans
-          env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT
-          ninja -C _build install
-
-          # libX11
-          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libx11.git /tmp/libx11
-          cd /tmp/libx11
-          env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared -Dxlocale=false
-          ninja -C _build install
-
-          # libxshmfence
-          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxshmfence.git /tmp/libxshmfence
-          cd /tmp/libxshmfence
-          env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
-          ninja -C _build install
-
-          # libxext
-          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxext.git /tmp/libxext
-          cd /tmp/libxext
-          env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
-          ninja -C _build install
-
-          # libxrender
-          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxrender.git /tmp/libxrender
-          cd /tmp/libxrender
-          env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
-          ninja -C _build install
-
-          # libxrandr
-          git clone --depth 1 https://gitlab.freedesktop.org/xorg/lib/libxrandr.git /tmp/libxrandr
-          cd /tmp/libxrandr
-          env $PKG meson setup _build --cross-file $CROSS --prefix=$SYSROOT -Ddefault_library=shared
-          ninja -C _build install
+          echo "=== Installed sysroot contents ==="
+          find $SYSROOT/lib/pkgconfig -name '*.pc' 2>/dev/null | sort || true
+          ls -la $SYSROOT/lib/*.so* 2>/dev/null | head -20 || true
 
       - name: Configure Mesa (wrapper only, Android NDK aarch64)
         run: |
