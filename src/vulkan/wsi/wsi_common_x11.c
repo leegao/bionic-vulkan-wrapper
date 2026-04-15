@@ -64,6 +64,14 @@
 
 #include <android/hardware_buffer.h>
 
+/* _Nullable/_Nonnull are Clang extensions, define as empty for GCC */
+#ifndef _Nullable
+#define _Nullable
+#endif
+#ifndef _Nonnull
+#define _Nonnull
+#endif
+
 #ifndef __ANDROID__
 typedef struct native_handle
 {
