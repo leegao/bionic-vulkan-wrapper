@@ -1,0 +1,265 @@
+name: CI
+
+on:
+  push:
+    branches: [wrapper, PR]
+  pull_request:
+    branches: [wrapper]
+
+jobs:
+  build-wrapper:
+    name: Build Vulkan Wrapper (x86_64)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            meson ninja-build \
+            python3 python3-mako python3-ply python3-yaml \
+            glslang-tools \
+            libvulkan-dev \
+            libwayland-dev libwayland-egl-backend-dev wayland-protocols \
+            libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev libxcb1-dev libxcb-dri2-0-dev \
+            libxcb-dri3-dev libxcb-present-dev libxcb-shm0-dev libxcb-randr0-dev \
+            libxcb-keysyms1-dev libxshmfence-dev libxxf86vm-dev libxrandr-dev \
+            libdrm-dev libelf-dev \
+            libexpat1-dev \
+            zlib1g-dev \
+            cmake git \
+            clang
+
+      - name: Build SPIRV-Tools for host
+        run: |
+          git clone --depth 1 --branch v2024.4.rc2 https://github.com/KhronosGroup/SPIRV-Tools.git /tmp/SPIRV-Tools
+          cd /tmp/SPIRV-Tools
+          python3 utils/git-sync-deps
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DSPIRV_SKIP_TESTS=ON
+          cmake --build . --config Release -j$(nproc) --target SPIRV-Tools-static SPIRV-Tools-opt
+          mkdir -p $GITHUB_WORKSPACE/src/vulkan/wrapper/lib
+          cp source/libSPIRV-Tools.a $GITHUB_WORKSPACE/src/vulkan/wrapper/lib/
+          cp source/opt/libSPIRV-Tools-opt.a $GITHUB_WORKSPACE/src/vulkan/wrapper/lib/
+          mkdir -p $GITHUB_WORKSPACE/src/vulkan/wrapper/include/spirv-tools
+          cp -r /tmp/SPIRV-Tools/include/* $GITHUB_WORKSPACE/src/vulkan/wrapper/include/spirv-tools/
+
+      - name: Configure Mesa (wrapper only)
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          STUB_ARGS="-D__INTRODUCED_IN(x)= -D__ANDROID_API__=26 -D__TERMUX__"
+          STUB_C="$STUB_ARGS -include sys/syscall.h"
+          STUB_CXX="$STUB_ARGS -DNULL=nullptr"
+          meson setup _build \
+            -Dvulkan-drivers=wrapper \
+            -Dgallium-drivers= \
+            -Dandroid-stub=true \
+            -Dplatforms=x11,wayland \
+            -Dglx=disabled \
+            -Degl=disabled \
+            -Dgbm=disabled \
+            -Dopengl=false \
+            -Dgles1=disabled \
+            -Dgles2=disabled \
+            -Dllvm=disabled \
+            -Dshared-glapi=disabled \
+            -Dbuildtype=release \
+            -Dc_args="$STUB_C" \
+            -Dcpp_args="$STUB_CXX"
+
+      - name: Build
+        run: |
+          ninja -C _build src/vulkan/wrapper/libvulkan_wrapper.so
+
+      - name: Upload wrapper artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulkan-wrapper
+          path: |
+            _build/src/vulkan/wrapper/libvulkan_wrapper.so
+            _build/src/vulkan/wrapper/wrapper_icd.*.json
+
+      - name: Report build artifacts
+        if: always()
+        run: |
+          echo "=== Build log ==="
+          cat _build/meson-logs/meson-log.txt | tail -100 || true
+          echo "=== Built files ==="
+          find _build/src/vulkan/wrapper -name '*.so' -o -name '*.json' 2>/dev/null || true
+
+  build-wrapper-arm64-ndk:
+    name: Build Vulkan Wrapper (ARM64 Android NDK)
+    runs-on: ubuntu-24.04
+
+    env:
+      NDK_VERSION: r27c
+      ANDROID_API: 26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            meson ninja-build \
+            python3 python3-mako python3-ply python3-yaml \
+            glslang-tools \
+            cmake git \
+            unzip wget
+
+      - name: Setup Android NDK
+        run: |
+          wget -q https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip -O /tmp/ndk.zip
+          unzip -q /tmp/ndk.zip -d /tmp
+          echo "ANDROID_NDK_HOME=/tmp/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
+          NDK_TC="/tmp/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64"
+          echo "${NDK_TC}/bin" >> $GITHUB_PATH
+          echo "NDK_TOOLCHAIN=${NDK_TC}" >> $GITHUB_ENV
+          # Verify toolchain
+          ${NDK_TC}/bin/aarch64-linux-android${ANDROID_API}-clang --version
+
+      - name: Build SPIRV-Tools for Android aarch64 (custom fork)
+        run: |
+          git clone --depth 1 https://github.com/BlueInstruction/SPIRV-Tools.git /tmp/SPIRV-Tools
+          cd /tmp/SPIRV-Tools
+          python3 utils/git-sync-deps
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSPIRV_SKIP_TESTS=ON \
+            -DCMAKE_SYSTEM_NAME=Android \
+            -DCMAKE_SYSTEM_VERSION=${ANDROID_API} \
+            -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a \
+            -DCMAKE_ANDROID_NDK=${ANDROID_NDK_HOME} \
+            -DCMAKE_ANDROID_STL_TYPE=c++_static
+          cmake --build . --config Release -j$(nproc) --target SPIRV-Tools-static SPIRV-Tools-opt
+          mkdir -p $GITHUB_WORKSPACE/src/vulkan/wrapper/lib
+          cp source/libSPIRV-Tools.a $GITHUB_WORKSPACE/src/vulkan/wrapper/lib/
+          cp source/opt/libSPIRV-Tools-opt.a $GITHUB_WORKSPACE/src/vulkan/wrapper/lib/
+          # Do NOT overwrite the patched headers — they contain custom pass declarations
+          # Only copy headers that don't already exist in the repo
+          find /tmp/SPIRV-Tools/include -type f | while read src; do
+            rel="${src#/tmp/SPIRV-Tools/include/}"
+            dst="$GITHUB_WORKSPACE/src/vulkan/wrapper/include/spirv-tools/$rel"
+            if [ ! -f "$dst" ]; then
+              mkdir -p "$(dirname "$dst")"
+              cp "$src" "$dst"
+            fi
+          done
+
+      - name: Download Termux prebuilt packages for aarch64
+        run: |
+          set -e
+          SYSROOT=$GITHUB_WORKSPACE/_sysroot
+          mkdir -p $SYSROOT
+
+          # Termux package base URL for aarch64
+          TERMUX_REPO="https://packages.termux.dev/apt/termux-main/pool/main"
+
+          # Download and extract .deb packages (contains headers + .so + .pc files)
+          download_termux_pkg() {
+            local pkg=$1 letter=$2
+            local url="${TERMUX_REPO}/${letter}/${pkg}"
+            echo "Downloading ${pkg}..."
+            wget -q "$url" -O /tmp/pkg.deb
+            cd /tmp && ar x pkg.deb && tar xf data.tar.* -C $SYSROOT --strip-components=3 ./data/data/com.termux/files/usr/ 2>/dev/null || tar xf data.tar.* -C $SYSROOT --strip-components=4 2>/dev/null || true
+            rm -f /tmp/pkg.deb /tmp/data.tar.* /tmp/control.tar.* /tmp/debian-binary
+          }
+
+          # Core X11/XCB libraries needed by libvulkan_wrapper.so
+          download_termux_pkg "libdrm_2.4.124-1_aarch64.deb" "libd"
+          download_termux_pkg "libdrm-dev_2.4.124-1_aarch64.deb" "libd"
+          download_termux_pkg "libx11_1.8.10_aarch64.deb" "libx"
+          download_termux_pkg "libx11-dev_1.8.10_aarch64.deb" "libx"
+          download_termux_pkg "libxcb_1.17.0_aarch64.deb" "libx"
+          download_termux_pkg "libxcb-dev_1.17.0_aarch64.deb" "libx"
+          download_termux_pkg "libxau_1.0.11-1_aarch64.deb" "libx"
+          download_termux_pkg "libxau-dev_1.0.11-1_aarch64.deb" "libx"
+          download_termux_pkg "libxdmcp_1.1.5_aarch64.deb" "libx"
+          download_termux_pkg "libxdmcp-dev_1.1.5_aarch64.deb" "libx"
+          download_termux_pkg "libxext_1.3.6_aarch64.deb" "libx"
+          download_termux_pkg "libxext-dev_1.3.6_aarch64.deb" "libx"
+          download_termux_pkg "libxrandr_1.5.4_aarch64.deb" "libx"
+          download_termux_pkg "libxrandr-dev_1.5.4_aarch64.deb" "libx"
+          download_termux_pkg "libxrender_0.9.11_aarch64.deb" "libx"
+          download_termux_pkg "libxrender-dev_0.9.11_aarch64.deb" "libx"
+          download_termux_pkg "libxshmfence_1.3.2_aarch64.deb" "libx"
+          download_termux_pkg "libxshmfence-dev_1.3.2_aarch64.deb" "libx"
+          download_termux_pkg "libxfixes_6.0.1_aarch64.deb" "libx"
+          download_termux_pkg "libxfixes-dev_6.0.1_aarch64.deb" "libx"
+          download_termux_pkg "libxxf86vm_1.1.5-1_aarch64.deb" "libx"
+          download_termux_pkg "libxxf86vm-dev_1.1.5-1_aarch64.deb" "libx"
+          download_termux_pkg "xorgproto_2024.1_aarch64.deb" "xorg"
+          download_termux_pkg "libelf_0.192_aarch64.deb" "libe"
+          download_termux_pkg "libelf-dev_0.192_aarch64.deb" "libe"
+          download_termux_pkg "libexpat_2.6.4_aarch64.deb" "libe"
+          download_termux_pkg "libexpat-dev_2.6.4_aarch64.deb" "libe"
+          download_termux_pkg "libwayland_1.23.1_aarch64.deb" "libw"
+          download_termux_pkg "libwayland-dev_1.23.1_aarch64.deb" "libw"
+          download_termux_pkg "wayland-protocols_1.38_aarch64.deb" "wayl"
+
+          echo "=== Installed sysroot contents ==="
+          find $SYSROOT/lib/pkgconfig -name '*.pc' 2>/dev/null | sort || true
+          ls -la $SYSROOT/lib/*.so* 2>/dev/null | head -20 || true
+
+      - name: Configure Mesa (wrapper only, Android NDK aarch64)
+        run: |
+          STUB_ARGS="-D__INTRODUCED_IN(x)= -D__ANDROID_API__=${ANDROID_API} -D__TERMUX__ -DHAVE_CUSTOM_SPIRV_PASSES"
+          STUB_C="$STUB_ARGS"
+          STUB_CXX="$STUB_ARGS -DNULL=nullptr"
+          PKG_CONFIG_LIBDIR=$GITHUB_WORKSPACE/_sysroot/lib/pkgconfig:$GITHUB_WORKSPACE/_sysroot/share/pkgconfig \
+          meson setup _build \
+            --cross-file cross/aarch64-linux-android.txt \
+            -Dvulkan-drivers=wrapper \
+            -Dgallium-drivers= \
+            -Dandroid-stub=true \
+            -Dplatforms=x11 \
+            -Dglx=disabled \
+            -Degl=disabled \
+            -Dgbm=disabled \
+            -Dopengl=false \
+            -Dgles1=disabled \
+            -Dgles2=disabled \
+            -Dllvm=disabled \
+            -Dshared-glapi=disabled \
+            -Dbuildtype=release \
+            -Dc_args="$STUB_C" \
+            -Dcpp_args="$STUB_CXX"
+
+      - name: Build
+        run: |
+          ninja -C _build src/vulkan/wrapper/libvulkan_wrapper.so
+
+      - name: Verify Android ARM64 binary
+        run: |
+          file _build/src/vulkan/wrapper/libvulkan_wrapper.so
+          ${NDK_TOOLCHAIN}/bin/llvm-readelf -h _build/src/vulkan/wrapper/libvulkan_wrapper.so
+          echo "=== Dynamic dependencies ==="
+          ${NDK_TOOLCHAIN}/bin/llvm-readelf -d _build/src/vulkan/wrapper/libvulkan_wrapper.so | grep NEEDED || true
+          echo "=== File size ==="
+          ls -lh _build/src/vulkan/wrapper/libvulkan_wrapper.so
+
+      - name: Upload Android ARM64 wrapper artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulkan-wrapper-android-arm64
+          path: |
+            _build/src/vulkan/wrapper/libvulkan_wrapper.so
+            _build/src/vulkan/wrapper/wrapper_icd.*.json
+
+      - name: Report build artifacts
+        if: always()
+        run: |
+          echo "=== Build log (last 200 lines) ==="
+          cat _build/meson-logs/meson-log.txt | tail -200 || true
+          echo "=== Built files ==="
+          find _build/src/vulkan/wrapper -name '*.so' -o -name '*.json' 2>/dev/null || true

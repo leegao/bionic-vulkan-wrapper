@@ -1,0 +1,22 @@
+# Meson cross file for Android NDK aarch64 (ARM64)
+# NDK_TOOLCHAIN env var must point to the NDK toolchain bin directory
+# e.g. $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+
+[binaries]
+c = 'aarch64-linux-android26-clang'
+cpp = 'aarch64-linux-android26-clang++'
+ar = 'llvm-ar'
+strip = 'llvm-strip'
+pkgconfig = 'pkg-config'
+
+[built-in options]
+c_args = ['-fPIC']
+cpp_args = ['-fPIC']
+c_link_args = ['-fPIC']
+cpp_link_args = ['-fPIC', '-static-libstdc++']
+
+[host_machine]
+system = 'android'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'

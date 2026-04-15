@@ -34,6 +34,24 @@ struct wrapper_instance {
 VK_DEFINE_HANDLE_CASTS(wrapper_instance, vk.base, VkInstance,
                        VK_OBJECT_TYPE_INSTANCE)
 
+enum wrapper_gpu_vendor {
+   WRAPPER_GPU_VENDOR_UNKNOWN = 0,
+   WRAPPER_GPU_VENDOR_ADRENO_PROPRIETARY,
+   WRAPPER_GPU_VENDOR_ADRENO_TURNIP,
+   WRAPPER_GPU_VENDOR_MALI_PROPRIETARY,
+   WRAPPER_GPU_VENDOR_MALI_PANFROST,
+};
+
+struct wrapper_driver_info {
+   enum wrapper_gpu_vendor gpu_vendor;
+   uint32_t driver_version_major;
+   uint32_t driver_version_minor;
+   uint32_t driver_version_patch;
+   bool is_mesa;          /* true for Turnip / Panfrost */
+   bool is_adreno;        /* true for both proprietary and Turnip */
+   bool is_mali;          /* true for both proprietary and Panfrost */
+};
+
 struct wrapper_physical_device {
    struct vk_physical_device vk;
 
@@ -51,6 +69,7 @@ struct wrapper_physical_device {
    struct vk_features base_supported_features;
    struct vk_device_extension_table base_supported_extensions;
    struct vk_physical_device_dispatch_table dispatch_table;
+   struct wrapper_driver_info drv_info;
 };
 
 VK_DEFINE_HANDLE_CASTS(wrapper_physical_device, vk.base, VkPhysicalDevice,

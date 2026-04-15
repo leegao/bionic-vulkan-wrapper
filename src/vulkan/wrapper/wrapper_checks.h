@@ -18,10 +18,16 @@
 #define CHECKV(call) __CHECKV__(wrapper_device_trampolines. call)
 #define PCHECKV(call) __CHECKV__(wrapper_physical_device_trampolines. call)
 
+#if defined(__clang__)
 #define __W_WRAP__(call, expr) \
     _Static_assert(__builtin_strcmp(__func__, name_of_wrapper_##call) != 0, \
                    "This WCHECK macro for " #call " cannot be used in the same wrapper, it will cause infinite recursion"); \
     expr;
+#else
+/* GCC does not treat __builtin_strcmp(__func__, ...) as a constant expression */
+#define __W_WRAP__(call, expr) \
+    expr;
+#endif
                                           
 #define WCHECK(call) ({__W_WRAP__(call, has_device_wrapper_##call ? __CHECK__(wrapper_device_entrypoints. call) : CHECK(call))})
 #define WCHECKV(call) {__W_WRAP__(call, { if(has_device_wrapper_##call) { __CHECKV__(wrapper_device_entrypoints. call); } else { CHECKV(call); }})}
