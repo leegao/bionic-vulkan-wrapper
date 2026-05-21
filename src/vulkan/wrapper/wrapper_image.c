@@ -1,3 +1,4 @@
+#include <vulkan/vulkan_core.h>
 #include "wrapper_private.h"
 #include "wrapper_entrypoints.h"
 #include "vk_unwrappers.h"
@@ -96,6 +97,7 @@ WRAPPER_CreateImage(VkDevice _device,
    wimg->format = new_format;
    wimg->is_bcn_emulated = emulate_bcn;
    wimg->is_depth_stencil_reduced = is_depth_stencil_reduced;
+   wimg->is_etc2_encoded = new_format == VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
 
    free_temp_objects(&temp);
    return result;

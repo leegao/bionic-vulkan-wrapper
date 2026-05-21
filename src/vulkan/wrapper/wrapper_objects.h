@@ -109,6 +109,7 @@ struct wrapper_device {
     InterceptorState s3tc;
     InterceptorState bc6;
     InterceptorState bc7;
+    InterceptorState etc2_encode;
 
     // depth-stencil resolution reduction
     enum DepthFormatOverrideMode depth_override_mode;
@@ -220,6 +221,7 @@ struct wrapper_image {
    COMMON_FIELDS(VkImage);
 
    bool is_bcn_emulated;
+   bool is_etc2_encoded;
    bool is_depth_stencil_reduced;
    VkFormat original_format;
    VkFormat format;

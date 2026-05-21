@@ -22,6 +22,8 @@ int add_optimization_barriers(const uint32_t* spirv_binary, size_t spirv_word_co
 
 void log_disassembly_to_cmd_log(const uint32_t* spirv_binary, size_t spirv_word_count);
 
+void log_disassembly(const uint32_t* spirv_binary, size_t spirv_word_count);
+
 #ifdef __cplusplus
 }
 #endif

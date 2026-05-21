@@ -16,6 +16,7 @@
 #include "vulkan/runtime/vk_framebuffer.h"
 #include "vulkan/util/vk_dispatch_table.h"
 #include "vulkan/wsi/wsi_common.h"
+#include <vulkan/vulkan_core.h>
 
 #include "wrapper_objects.h"
 #include "wrapper_log.h"
@@ -169,6 +170,12 @@ static VkFormat unwrap_vk_format_physical_device(struct wrapper_physical_device*
     if ((disabled_mask & (1 << format_id)) != 0) {
         return in_format;
     }
+    bool use_cpu_bcn = (get_host_decoding_bcn_masks() & (1 << (in_format - 131))) != 0;
+    bool use_compute_shader = use_compute_shader_mode() && !use_cpu_bcn;
+    bool use_image_view = use_image_view_mode();
+    bool use_etc2 = !use_image_view && use_compute_shader;
+    // use_etc2 = false;
+    
     // Replace BCn formats with R8G8B8A8_UNORM if they are emulated
     if (is_bc123_image_format(in_format) && pdevice->needs_bc1_emulation) {
         // VK_FORMAT_BC1_RGB_UNORM_BLOCK = 131, -> VK_FORMAT_R8G8B8A8_UNORM
@@ -180,7 +187,7 @@ static VkFormat unwrap_vk_format_physical_device(struct wrapper_physical_device*
         // VK_FORMAT_BC3_UNORM_BLOCK = 137, -> VK_FORMAT_R8G8B8A8_UNORM
         // VK_FORMAT_BC3_SRGB_BLOCK = 138, -> VK_FORMAT_R8G8B8A8_UNORM
 
-        return VK_FORMAT_R8G8B8A8_UNORM;
+        return !use_etc2 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
     }
     if (is_bc4567_image_format(in_format) && pdevice->needs_bc4_emulation) {
         // VK_FORMAT_BC4_UNORM_BLOCK = 139, -> VK_FORMAT_R8G8B8A8_UNORM
@@ -200,7 +207,7 @@ static VkFormat unwrap_vk_format_physical_device(struct wrapper_physical_device*
         if (in_format == VK_FORMAT_BC4_SNORM_BLOCK || in_format == VK_FORMAT_BC5_SNORM_BLOCK) {
             return VK_FORMAT_R8G8B8A8_SNORM;
         }
-        return VK_FORMAT_R8G8B8A8_UNORM;
+        return !use_etc2 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
     }
     return in_format;
 }
@@ -250,6 +257,8 @@ static inline uint32_t get_bc_target_size(struct wrapper_physical_device* pdevic
         return 4;
     case VK_FORMAT_R16G16B16A16_SFLOAT:
         return 8;
+    case VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK:
+        return 4;
     default:
         WLOGE("Unknown out_format: %d", out_format);
         return 4;
@@ -270,6 +279,11 @@ typedef struct {
     uint32_t watercoloredBitsBc;
     uint32_t watermarkerSize;
 } PushConstantData;
+
+typedef struct {
+   int32_t width;
+   int32_t height;
+} Etc2PushConstantData;
 
 typedef struct __attribute__((aligned(16))) ivec2_t_std140 {
     int32_t x;

@@ -21,6 +21,14 @@ void log_disassembly_to_cmd_log(const uint32_t* spirv_binary, size_t spirv_word_
     VK_CMD_PRINTF("%s", disassembly.c_str());
 }
 
+extern "C"
+void log_disassembly(const uint32_t* spirv_binary, size_t spirv_word_count) {
+    spvtools::SpirvTools tools(SPV_ENV_VULKAN_1_1_SPIRV_1_4);
+    std::string disassembly;
+    tools.Disassemble({spirv_binary, spirv_binary + spirv_word_count}, &disassembly, SPV_BINARY_TO_TEXT_OPTION_FRIENDLY_NAMES);
+    WLOG("%s", disassembly.c_str());
+}
+
 static void print_spirv_code(const char* prefix, int size, const uint32_t* pCode) {
     if (size == 0 || !pCode) {
         return;

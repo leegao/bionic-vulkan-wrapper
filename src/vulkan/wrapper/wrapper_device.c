@@ -11,6 +11,7 @@
 #include "vk_printers.h"
 #include "util/list.h"
 #include "util/simple_mtx.h"
+#include <vulkan/vulkan_core.h>
 #include "vk_meta.h" // For vk_meta_create_image_view
 #include "vk_buffer.h"
 #include "wrapper_trampolines.h"
@@ -45,9 +46,12 @@ static const uint32_t bc7_iv_spv[] = {
 #include "bc7_iv.spv.h"
 };
 
+#include "etc2_encode.inc"
+
 // Initializes the Vulkan objects needed for the compute dispatch.
 // Call this after intercepting vkCreateDevice.
 static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, size_t spv_size, const uint32_t* spv_code, bool use_image_view, int bc_mode);
+static VkResult ETC2_InterceptorState_Init(InterceptorState* state, VkDevice device, size_t spv_size, const uint32_t* spv_code);
 
 // Cleans up the Vulkan objects.
 // Call this before intercepting vkDestroyDevice.
@@ -128,6 +132,11 @@ wrapper_append_required_extensions(const struct vk_device *device,
     REQUIRED_EXTENSION(ANDROID_external_memory_android_hardware_buffer);
     REQUIRED_EXTENSION(EXT_device_fault); // for fault reporting, if available
     REQUIRED_EXTENSION(KHR_separate_depth_stencil_layouts);
+    REQUIRED_EXTENSION(KHR_shader_clock);
+    REQUIRED_EXTENSION(KHR_shader_integer_dot_product);
+    REQUIRED_EXTENSION(KHR_8bit_storage);
+    REQUIRED_EXTENSION(KHR_storage_buffer_storage_class);
+    REQUIRED_EXTENSION(KHR_16bit_storage);
     // REQUIRED_EXTENSION(KHR_uniform_buffer_standard_layout); // for std430 UBOs
 #undef REQUIRED_EXTENSION
 }
@@ -333,6 +342,14 @@ WRAPPER_CreateDevice(VkPhysicalDevice physicalDevice,
       }
    }
 
+   // For ETC2 compression
+   if (pdf) {
+      pdf->textureCompressionETC2 = true;
+   }
+   if (pdf2) {
+      pdf2->features.textureCompressionETC2 = true;
+   }
+
    result = WPDEVICE.CreateDevice(
       physicalDevice, &wrapper_create_info,
          pAllocator, &device->dispatch_handle);
@@ -378,6 +395,14 @@ WRAPPER_CreateDevice(VkPhysicalDevice physicalDevice,
       use_image_view, 7);
    if (result != VK_SUCCESS) {
       WLOGE("Failed to initialize InterceptorState for bc7");
+      return vk_error(physical_device, result);
+   }
+   result = ETC2_InterceptorState_Init(&device->etc2_encode, 
+      wrapper_device_to_handle(device), 
+      compress_spv_len, 
+      (const uint32_t*) compress_spv);
+   if (result != VK_SUCCESS) {
+      WLOGE("Failed to initialize InterceptorState for etc2");
       return vk_error(physical_device, result);
    }
 
@@ -980,6 +1005,88 @@ static VkResult InterceptorState_Init(InterceptorState* state, VkDevice device, 
    return result;
 }
 
+
+static VkResult ETC2_InterceptorState_Init(InterceptorState* state, VkDevice device, size_t spv_size, const uint32_t* spv_code) {
+   VkResult result;
+   VK_FROM_HANDLE(wrapper_device, _device, device);
+   VkDescriptorSetLayoutBinding setLayoutBinding[2] = {
+      {
+         .binding = 0,
+         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+         .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      },
+      {
+         .binding = 1,
+         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+         .descriptorCount = 1,
+         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      }
+   };
+
+   int bindingCount = 2;
+
+   VkDescriptorSetLayoutCreateInfo setLayoutCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+      .bindingCount = bindingCount,
+      .pBindings = setLayoutBinding,
+   };
+   result = WCHECK(CreateDescriptorSetLayout(device, &setLayoutCreateInfo, NULL, &state->descriptorSetLayout));
+   if (result != VK_SUCCESS) return result;
+
+   VkPushConstantRange pushConstantRange = {
+      .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      .offset = 0,
+      .size = sizeof(Etc2PushConstantData),
+   };
+
+   VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .setLayoutCount = 1,
+      .pSetLayouts = &state->descriptorSetLayout,
+      .pushConstantRangeCount = 1,
+      .pPushConstantRanges = &pushConstantRange,
+   };
+   result = WCHECK(CreatePipelineLayout(device, &pipelineLayoutCreateInfo, NULL, &state->pipelineLayout));
+   if (result != VK_SUCCESS) return result;
+
+   // TEST: run a debug run of the pass of the lowering pass on the compute shader
+   if (CHECK_FLAG("OPT_SHADERS")) {
+      struct SpirvCode spirv_code = { 0 };
+      optimize_spirv_for_size(spv_code, spv_size / sizeof(uint32_t), &spirv_code);
+      spv_size = spirv_code.spirv_word_count * 4;
+      spv_code = spirv_code.spirv_code;
+   }
+
+   VkShaderModule computeShaderModule;
+   VkShaderModuleCreateInfo shaderModuleCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+      .codeSize = spv_size,
+      .pCode = (const uint32_t*)spv_code,
+   };
+   result = CHECK(CreateShaderModule(device, &shaderModuleCreateInfo, NULL, &computeShaderModule));
+   if (result != VK_SUCCESS) {
+      return result;
+   }
+
+   VkComputePipelineCreateInfo pipelineCreateInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+      .layout = state->pipelineLayout,
+      .stage = {
+         .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+         .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+         .module = computeShaderModule,
+         .pName = "main",
+      }
+   };
+   result = WCHECK(CreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &state->pipeline));
+   if (result != VK_SUCCESS) {
+      log_disassembly(spv_code, spv_size / sizeof(uint32_t));
+   }
+   WCHECKV(DestroyShaderModule(device, computeShaderModule, NULL));
+   return result;
+}
+
 // TODO: deprecate this pass in the future
 static VkResult CreateStagingBuffer(
    struct wrapper_device* _device,
@@ -1229,10 +1336,158 @@ struct CmdComputeShaderForDecompressionArgs {
    VkImage dstImage;
    VkImageLayout dstImageLayout;
    VkBuffer stagingBuffer;
+   VkBuffer stagingEtc2Buffer;
    const VkBufferImageCopy* region;
    struct InterceptorState* state;
    bool use_image_view;
+   bool useEtc2;
 };
+
+static void CmdComputeShaderForEtc2Encoding(
+    struct wrapper_command_buffer* _commandBuffer,
+    struct CmdComputeShaderForDecompressionArgs* pArgs)
+{
+   struct wrapper_device* _device = pArgs->_device;
+   struct wrapper_image* wimg = pArgs->wimg;
+   VkBuffer srcBuffer = pArgs->srcBuffer;
+   VkImageLayout dstImageLayout = pArgs->dstImageLayout;
+   VkBuffer stagingBuffer = pArgs->stagingBuffer;
+   VkBuffer stagingEtc2Buffer = pArgs->stagingEtc2Buffer;
+   const VkBufferImageCopy* region = pArgs->region;
+   VkImage dstImage = wimg->dispatch_handle;
+   struct InterceptorState* etc2_encode = &_device->etc2_encode;
+   VkCommandBuffer commandBuffer = _commandBuffer->dispatch_handle;
+   bool use_etc2 = pArgs->useEtc2;
+   VkResult result;
+
+   WLOG("CmdComputeShaderForEtc2Encoding: srcBuffer = %p, dstImage = %p", srcBuffer, dstImage);
+   struct wrapper_buffer* wbuf = get_wrapper_buffer(_device, srcBuffer);
+   if (!wbuf) {
+      WLOGE("CmdComputeShaderForEtc2Encoding: srcBuffer not tracked");
+      return;
+   }
+
+   // Use the descriptor pool from this buffer
+   simple_mtx_lock(&wbuf->resource_mutex);
+   VkDescriptorSet descriptorSet;
+   if (list_is_empty(&wbuf->temp_descriptor_pools)) {
+      // The current pool is full or fragmented, create a new one for this command buffer
+      result = add_new_temp_pool_to_buffer(wbuf);
+      if (result != VK_SUCCESS) {
+         WLOGE("Failed to allocate temp descriptor pool for buffer %d: %d", wbuf->obj_id, result);
+         simple_mtx_unlock(&wbuf->resource_mutex);
+         return;
+      }
+   }
+   struct wrapper_buffer_descriptor_pool *last_pool_node =
+      list_last_entry(&wbuf->temp_descriptor_pools, struct wrapper_buffer_descriptor_pool, link);
+
+   VkDescriptorSetAllocateInfo allocInfo = {
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+      .descriptorPool = last_pool_node->pool,
+      .descriptorSetCount = 1,
+      .pSetLayouts = &etc2_encode->descriptorSetLayout,
+   };
+   result = wrapper_device_trampolines.AllocateDescriptorSets((VkDevice) _device, &allocInfo, &descriptorSet);
+   if (result == VK_ERROR_OUT_OF_POOL_MEMORY || result == VK_ERROR_FRAGMENTED_POOL) {
+      // The current pool is full or fragmented, create a new one for this command buffer
+      WLOG("Descriptor pool exhausted, creating a new one for buffer %d", wbuf->obj_id);
+      result = add_new_temp_pool_to_buffer(wbuf);
+      if (result != VK_SUCCESS) {
+         WLOGE("Failed to allocate temp descriptor pool for buffer %d: %d", wbuf->obj_id, result);
+         simple_mtx_unlock(&wbuf->resource_mutex);
+         return;
+      }
+      last_pool_node = list_last_entry(&wbuf->temp_descriptor_pools, struct wrapper_buffer_descriptor_pool, link);
+      allocInfo.descriptorPool = last_pool_node->pool;
+      result = wrapper_device_trampolines.AllocateDescriptorSets((VkDevice) _device, &allocInfo, &descriptorSet);
+   }
+   simple_mtx_unlock(&wbuf->resource_mutex);
+
+   // If it still fails, there's a bigger problem.
+   if (result != VK_SUCCESS) {
+      WLOGE("Failed to allocate descriptor set for ETC2 encoding: %d", result);
+      return;
+   }
+
+   VkDescriptorType dstDescriptorType;
+
+   // Calculate the buffer size for an image
+   // Normally 4x4 block is compressed to 16 bytes (1bpp), except for BC1 and BC4 (0.5 bpp)
+   uint32_t srcBufferSize = calculate_bc_copy_size(region, 16);
+
+   VkDescriptorBufferInfo srcBufferInfo = {
+      .buffer = stagingBuffer,
+      .offset = 0,
+      .range = VK_WHOLE_SIZE,
+   };
+
+   VkDescriptorBufferInfo dstBufferInfo = { 
+      .buffer = stagingEtc2Buffer,
+      .offset = 0,
+      .range = VK_WHOLE_SIZE,
+   };
+   
+   VkWriteDescriptorSet writeSet[2] = {
+      {
+         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+         .dstSet = descriptorSet,
+         .dstBinding = 0,
+         .descriptorCount = 1,
+         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+         .pBufferInfo = &srcBufferInfo,
+      },
+      {
+         .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+         .dstSet = descriptorSet,
+         .dstBinding = 1,
+         .descriptorCount = 1,
+         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+         .pBufferInfo = &dstBufferInfo,
+      },
+   };
+
+   int writeSetCount = 2;
+   WCHECKV(UpdateDescriptorSets((VkDevice) _device, writeSetCount, writeSet, 0, NULL));
+
+   // Add a buffer memory pipeline barrier waiting for the stagingBuffer (written from the previous pipeline) to be written
+   VkBufferMemoryBarrier bufferBarrier = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+      .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT, // Source access mask for shader write
+      .dstAccessMask = VK_ACCESS_SHADER_READ_BIT, // Destination access mask for shader read
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .buffer = stagingBuffer,
+      .offset = 0,
+      .size = VK_WHOLE_SIZE
+   };
+
+   WCHECKV(CmdPipelineBarrier(
+      (VkCommandBuffer) _commandBuffer,
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+      0,
+      0, NULL,
+      1, &bufferBarrier,
+      0, NULL
+   ));
+   
+   WCHECKV(CmdBindPipeline((VkCommandBuffer) _commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, etc2_encode->pipeline));
+
+   WCHECKV(CmdBindDescriptorSets((VkCommandBuffer) _commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                           etc2_encode->pipelineLayout, 0, 1, &descriptorSet, 0, NULL));
+
+   Etc2PushConstantData pushConstants = {
+         .width = region->imageExtent.width,
+         .height = region->imageExtent.height,
+   };
+
+   WCHECKV(CmdPushConstants((VkCommandBuffer) _commandBuffer, etc2_encode->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
+                     0, sizeof(Etc2PushConstantData), &pushConstants));
+
+   uint32_t groupCountX = (region->imageExtent.width + 7) / 8;
+   uint32_t groupCountY = (region->imageExtent.height + 7) / 8;
+   WCHECKV(CmdDispatch((VkCommandBuffer) _commandBuffer, groupCountX, groupCountY, 1));
+}
 
 static void CmdComputeShaderForDecompression(
     struct wrapper_command_buffer* _commandBuffer,
@@ -1243,11 +1498,14 @@ static void CmdComputeShaderForDecompression(
    VkBuffer srcBuffer = pArgs->srcBuffer;
    VkImageLayout dstImageLayout = pArgs->dstImageLayout;
    VkBuffer stagingBuffer = pArgs->stagingBuffer;
+   VkBuffer stagingEtc2Buffer = pArgs->stagingEtc2Buffer;
    const VkBufferImageCopy* region = pArgs->region;
    VkImage dstImage = wimg->dispatch_handle;
    struct InterceptorState* state = pArgs->state;
+   struct InterceptorState* etc2_encode = &_device->etc2_encode;
    VkCommandBuffer commandBuffer = _commandBuffer->dispatch_handle;
    bool use_image_view = pArgs->use_image_view;
+   bool use_etc2 = pArgs->useEtc2;
    VkResult result;
 
    WLOG("CmdComputeShaderForDecompression: srcBuffer = %p, dstImage = %p", srcBuffer, dstImage);
@@ -1472,6 +1730,11 @@ static void CmdComputeShaderForDecompression(
                            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                            0, 0, NULL, 0, NULL, 1, &imageBarrier));
    }
+
+   // Need to now do a second ETC2 dispatch
+   if (use_etc2) {
+      CmdComputeShaderForEtc2Encoding(_commandBuffer, pArgs);
+   }
 }
 
 static VkResult CreateBcnCommandBuffer(struct wrapper_device* device, struct wrapper_command_buffer* wcb) {
@@ -1630,6 +1893,11 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
 
       VkBuffer stagingBuffer;
       VkDeviceMemory stagingBufferMemory;
+      
+      VkBuffer stagingEtc2Buffer;
+      VkDeviceMemory stagingEtc2BufferMemory;
+      bool use_etc2 = unwrap_vk_format_physical_device(_device->physical, wimg->original_format) == VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
+      WLOGD("use_etc2=%d", use_etc2);
       if (!use_image_view) {
          result = CreateStagingBuffer(
             _device, 
@@ -1642,11 +1910,25 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             return;
          }
 
+         // ETC2
+         result = CreateStagingBuffer(
+            _device, 
+            region->imageExtent.width * region->imageExtent.height * 1, // 1 byte per pixel
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+            &stagingEtc2Buffer, &stagingEtc2BufferMemory);
+         if (result != VK_SUCCESS) {
+            WLOGE("CreateStagingBuffer failed with %d", result);
+            return;
+         }
+
          // TODO: track these using the fence/semaphore for the submitted queue
          // This should be safe to do now with the queue synchronization, check with vvl
          WLOGD("Tracking new staging buffer for image %d", wimg->obj_id);
          TRACK_STAGING(_device, BUFFER, stagingBuffer, wimg);
          TRACK_STAGING(_device, DEVICE_MEMORY, stagingBufferMemory, wimg);
+         TRACK_STAGING(_device, BUFFER, stagingEtc2Buffer, wimg);
+         TRACK_STAGING(_device, DEVICE_MEMORY, stagingEtc2BufferMemory, wimg);
       }
 
       if (use_compute_shader) {
@@ -1672,6 +1954,8 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             args.dstImageLayout = dstImageLayout;
          } else {
             args.stagingBuffer = stagingBuffer;
+            args.stagingEtc2Buffer = stagingEtc2Buffer;
+            args.useEtc2 = use_etc2;
          }
 
          if (CHECK_FLAG("WRAPPER_ONE_BY_ONE") || dump_artifacts) {
@@ -1709,7 +1993,7 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
             .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT, // Destination access mask for transfer read
             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer = stagingBuffer,
+            .buffer = use_etc2 ? stagingEtc2Buffer : stagingBuffer,
             .offset = 0,
             .size = VK_WHOLE_SIZE
          };
@@ -1728,7 +2012,13 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
          local_region.bufferOffset = 0;
          local_region.bufferRowLength = 0;
          local_region.bufferImageHeight = 0;
-         CHECKV(CmdCopyBufferToImage(commandBuffer, stagingBuffer, dstImage, dstImageLayout, 1, &local_region));
+         CHECKV(CmdCopyBufferToImage(
+            commandBuffer,
+            use_etc2 ? stagingEtc2Buffer : stagingBuffer,
+            dstImage,
+            dstImageLayout,
+            1,
+            &local_region));
       }
 
       // Speculatively flush the Bcn emulation commands if the buffer is full by calling 
