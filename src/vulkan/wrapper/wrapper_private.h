@@ -283,6 +283,7 @@ typedef struct {
 typedef struct {
    int32_t width;
    int32_t height;
+   uint32_t flags;
 } Etc2PushConstantData;
 
 typedef struct __attribute__((aligned(16))) ivec2_t_std140 {

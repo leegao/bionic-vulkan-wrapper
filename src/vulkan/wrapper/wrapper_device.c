@@ -1360,7 +1360,7 @@ static void CmdComputeShaderForEtc2Encoding(
    bool use_etc2 = pArgs->useEtc2;
    VkResult result;
 
-   WLOG("CmdComputeShaderForEtc2Encoding: srcBuffer = %p, dstImage = %p", srcBuffer, dstImage);
+   WLOG("CmdComputeShaderForEtc2Encoding: srcBuffer = %p, dstImage = %p, flag=0", srcBuffer, dstImage);
    struct wrapper_buffer* wbuf = get_wrapper_buffer(_device, srcBuffer);
    if (!wbuf) {
       WLOGE("CmdComputeShaderForEtc2Encoding: srcBuffer not tracked");
@@ -1479,6 +1479,7 @@ static void CmdComputeShaderForEtc2Encoding(
    Etc2PushConstantData pushConstants = {
          .width = region->imageExtent.width,
          .height = region->imageExtent.height,
+         .flags = 0, // 0: etc2, 1: etc1
    };
 
    WCHECKV(CmdPushConstants((VkCommandBuffer) _commandBuffer, etc2_encode->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
