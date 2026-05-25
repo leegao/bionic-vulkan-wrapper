@@ -1360,7 +1360,7 @@ static void CmdComputeShaderForEtc2Encoding(
    bool use_etc2 = pArgs->useEtc2;
    VkResult result;
 
-   WLOG("CmdComputeShaderForEtc2Encoding: srcBuffer = %p, dstImage = %p, flag=0", srcBuffer, dstImage);
+   WLOG("CmdComputeShaderForEtc2Encoding: srcBuffer = %p, dstImage = %p", srcBuffer, dstImage);
    struct wrapper_buffer* wbuf = get_wrapper_buffer(_device, srcBuffer);
    if (!wbuf) {
       WLOGE("CmdComputeShaderForEtc2Encoding: srcBuffer not tracked");
@@ -1411,10 +1411,6 @@ static void CmdComputeShaderForEtc2Encoding(
    }
 
    VkDescriptorType dstDescriptorType;
-
-   // Calculate the buffer size for an image
-   // Normally 4x4 block is compressed to 16 bytes (1bpp), except for BC1 and BC4 (0.5 bpp)
-   uint32_t srcBufferSize = calculate_bc_copy_size(region, 16);
 
    VkDescriptorBufferInfo srcBufferInfo = {
       .buffer = stagingBuffer,
@@ -1476,10 +1472,25 @@ static void CmdComputeShaderForEtc2Encoding(
    WCHECKV(CmdBindDescriptorSets((VkCommandBuffer) _commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                            etc2_encode->pipelineLayout, 0, 1, &descriptorSet, 0, NULL));
 
+   uint32_t flag = CHECK_FLAG("USE_ETC1") ? 0b00001 : 0b00000; // 0: etc2, 1: etc1
+   if (CHECK_FLAG("FAST_ETC2")) {
+      flag |= 0b00010; // disable 2-means clustering in etc2 color search
+   }
+   if (wimg->format == VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK) {
+      flag |= 0b00100; // no alpha
+   }
+   if (wimg->original_format == VK_FORMAT_BC6H_SFLOAT_BLOCK || wimg->original_format == VK_FORMAT_BC6H_UFLOAT_BLOCK) {
+      flag |= 0b01000; // translate sfloat16 to unorm8
+   }
+   if (wimg->original_format == VK_FORMAT_BC4_SNORM_BLOCK || wimg->original_format == VK_FORMAT_BC5_SNORM_BLOCK) {
+      flag |= 0b10000; // snorm8 to unorm8
+   }
+   
+   WLOG("CmdComputeShaderForEtc2Encoding: flag = %x, final format = %s", flag, wimg->format == VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK ? "ETC2_R8G8B8_UNORM_BLOCK" : "ETC2_R8G8B8A8_UNORM_BLOCK");
    Etc2PushConstantData pushConstants = {
-         .width = region->imageExtent.width,
-         .height = region->imageExtent.height,
-         .flags = 0, // 0: etc2, 1: etc1
+      .width = region->imageExtent.width,
+      .height = region->imageExtent.height,
+      .flags = flag,
    };
 
    WCHECKV(CmdPushConstants((VkCommandBuffer) _commandBuffer, etc2_encode->pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -1897,7 +1908,8 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
       
       VkBuffer stagingEtc2Buffer;
       VkDeviceMemory stagingEtc2BufferMemory;
-      bool use_etc2 = unwrap_vk_format_physical_device(_device->physical, wimg->original_format) == VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
+      VkFormat target_format = unwrap_vk_format_physical_device(_device->physical, wimg->original_format);
+      bool use_etc2 = target_format == VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK || target_format == VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK;
       WLOGD("use_etc2=%d", use_etc2);
       if (!use_image_view) {
          result = CreateStagingBuffer(

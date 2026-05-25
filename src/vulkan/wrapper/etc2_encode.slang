@@ -8,7 +8,7 @@
 StructuredBuffer<uint> input_rgba8_buffer;
 
 [[vk::binding(1, 0)]]
-RWStructuredBuffer<uint4> etc1_blocks;
+RWStructuredBuffer<uint2> etc1_blocks;
 
 #ifdef ENABLE_DIAGNOSTICS
 // Not available on Mali/Adreno :(
@@ -44,9 +44,33 @@ struct Diagnostics {
 RWStructuredBuffer<Diagnostics> diagnostics;
 #endif
 
+struct Flags {
+  PackedArray<1, 8> flags; // bitfield
+
+  property bool try_etc2 {
+    get { return !bool(flags[0]); }
+  }
+
+  property bool refine_etc2 {
+    get { return !bool(flags[1]); }
+  }
+
+  property bool use_alpha {
+    get { return !bool(flags[2]); }
+  }
+
+  property bool use_sfloat16 {
+    get { return bool(flags[3]); }
+  }
+
+  property bool use_snorm8 {
+    get { return bool(flags[4]); }
+  }
+};
+
 struct PushConstants {
   int2 u_TextureDimensions;
-  uint u_Flags;
+  Flags u_Flags;
 };
 
 [[vk::push_constant]]
@@ -469,7 +493,7 @@ void find_best_T_colors(const Pixels pixels, const Luminances Y, out Pixel c1,
   var seed2 = int3(pixels[outlier_idx]);
 
   // 2-means clustering update
-  if ((pushConstants.u_Flags & 2u) == 0) {
+  if (pushConstants.u_Flags.refine_etc2) {
     int3 c1_sum = 0, c2_sum = 0;
     int c1_count = 0, c2_count = 0;
 
@@ -586,7 +610,7 @@ uint2 encode_etc2_block(Pixels pixels) {
     etc1_sse += sse;
   }
 
-  let try_T = (pushConstants.u_Flags & 1u) == 0;
+  let try_T = pushConstants.u_Flags.try_etc2;
   // Try ETC2 T-mode encoding
   Pixel etc2_colors[2];
   uint etc2_distance;
@@ -669,6 +693,25 @@ uint flip_endian_encode(uint v) {
          (words.w << 0u);
 }
 
+void unpack_snorm_to_unorm_float(uint packed_val, out uint r, out uint g,
+                                 out uint b, out uint a) {
+  uint4 raw_bytes =
+      uint4((packed_val >> 0) & 0xFFu, (packed_val >> 8) & 0xFFu,
+            (packed_val >> 16) & 0xFFu, (packed_val >> 24) & 0xFFu);
+  int4 signed_bytes = int4(raw_bytes << 24) >> 24;
+  float4 snorm_float = max(float4(-1.0), float4(signed_bytes) / 127.0);
+
+  float4 unorm_float = (snorm_float * 0.5) + 0.5;
+  r = uint(unorm_float.x * 255.0 + 0.5);
+  g = uint(unorm_float.y * 255.0 + 0.5);
+  b = uint(unorm_float.z * 255.0 + 0.5);
+  a = uint(unorm_float.w * 255.0 + 0.5);
+}
+
+uint sfloat16_to_uint8(uint val) {
+  return clamp(uint(round(f16tof32(uint(val) & 0xFFFFu) * 255.0)), 0u, 255u);
+}
+
 static uint buffer_index;
 
 [shader("compute")]
@@ -692,25 +735,46 @@ void main(uint3 gl_GlobalInvocationID: SV_DispatchThreadID) {
   uint width = pushConstants.u_TextureDimensions.x;
   for (int y = 0; y < 4; y++) {
     for (int x = 0; x < 4; x++) {
-      var tex_element =
-          input_rgba8_buffer[(tex_coord.y + y) * width + (tex_coord.x + x)];
-      uint a = (tex_element >> 24) & 0xFF;
-      uint b = (tex_element >> 16) & 0xFF;
-      uint g = (tex_element >> 8) & 0xFF;
-      uint r = (tex_element >> 0) & 0xFF;
+      uint r, g, b, a;
+      if (pushConstants.u_Flags.use_sfloat16) {
+        var tex_coord = ((tex_coord.y + y) * width + (tex_coord.x + x)) * 2;
+        var hi = input_rgba8_buffer[tex_coord];
+        r = sfloat16_to_uint8((hi >> 0) & 0xFFFFu);
+        g = sfloat16_to_uint8((hi >> 16) & 0xFFFFu);
+        var lo = input_rgba8_buffer[tex_coord + 1];
+        b = sfloat16_to_uint8((lo >> 0) & 0xFFFFu);
+        a = sfloat16_to_uint8((lo >> 16) & 0xFFFFu);
+      } else if (pushConstants.u_Flags.use_snorm8) {
+        var tex_coord = (tex_coord.y + y) * width + (tex_coord.x + x);
+        var tex_element = input_rgba8_buffer[tex_coord];
+        unpack_snorm_to_unorm_float(tex_element, r, g, b, a);
+      } else {
+        var tex_coord = (tex_coord.y + y) * width + (tex_coord.x + x);
+        var tex_element = input_rgba8_buffer[tex_coord];
+        a = (tex_element >> 24) & 0xFFu;
+        b = (tex_element >> 16) & 0xFFu;
+        g = (tex_element >> 8) & 0xFFu;
+        r = (tex_element >> 0) & 0xFFu;
+      }
       pixels[y * 4 + x] = Pixel(r, g, b);
       alphas[y * 4 + x] = a;
     }
   }
 
-  uint alpha_p0 = 0;
-  uint alpha_p1 = 0;
-  encode_etc2_alpha(alphas, alpha_p0, alpha_p1);
+  uint alpha_p0 = 0, alpha_p1 = 0;
+  if (pushConstants.u_Flags.use_alpha)
+    encode_etc2_alpha(alphas, alpha_p0, alpha_p1);
 
   var packed = encode_etc2_block(pixels);
   var color_p0 = flip_endian_encode(packed.y);
   var color_p1 = flip_endian_encode(packed.x);
-  etc1_blocks[buffer_index] = uint4(alpha_p0, alpha_p1, color_p0, color_p1);
+
+  if (pushConstants.u_Flags.use_alpha) {
+    etc1_blocks[buffer_index * 2] = uint2(alpha_p0, alpha_p1);
+    etc1_blocks[buffer_index * 2 + 1] = uint2(color_p0, color_p1);
+  } else {
+    etc1_blocks[buffer_index] = uint2(color_p0, color_p1);
+  }
 
 #ifdef ENABLE_DIAGNOSTICS
   diagnostics[buffer_index].start_time = startTime;
