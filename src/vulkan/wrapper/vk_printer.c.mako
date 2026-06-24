@@ -25,23 +25,74 @@ static void print_spirv_code(const char* prefix, const VkShaderModuleCreateInfo 
     int i = 0;
     while (i < size / 4) {
         if (i + 7 < size / 4) {
-            VK_CMD_PRINTF("%s.spirv(%p)[%04x]: %08x %08x %08x %08x %08x %08x %08x %08x\n", prefix, pCode, 4 * i, 
-                          pCode[i], pCode[i + 1], pCode[i + 2], pCode[i + 3], 
-                          pCode[i + 4], pCode[i + 5], pCode[i + 6], pCode[i + 7]);
+            // VK_CMD_PRINTF("%s.spirv(%p)[%04x]: %08x %08x %08x %08x %08x %08x %08x %08x\n", prefix, pCode, 4 * i,
+            //               pCode[i], pCode[i + 1], pCode[i + 2], pCode[i + 3],
+            //               pCode[i + 4], pCode[i + 5], pCode[i + 6], pCode[i + 7]);
             i += 8;
             continue;
         }
 
         if (i % 8 == 0) {
-            VK_CMD_PRINTF("%s.spirv(%p)[%04x]: ", prefix, pCode, 4 * i);
+            // VK_CMD_PRINTF("%s.spirv(%p)[%04x]: ", prefix, pCode, 4 * i);
         }
-        VK_CMD_PRINTF("%08x ", pCode[i]);
+        // VK_CMD_PRINTF("%08x ", pCode[i]);
         i++;
     }
-    VK_CMD_PRINTF("\n\n");
-    log_disassembly_to_cmd_log(pCode, size / 4);
+    // VK_CMD_PRINTF("\n\n");
+    // log_disassembly_to_cmd_log(pCode, size / 4);
     VK_CMD_FLUSH();
 }
+
+% for enum_name, constants in enums_map.items():
+const char* inline_fmt_${enum_name}(uint64_t val) {
+    switch (val) {
+    % for name, value in constants:
+        case ${value}ULL: return "${name}";
+    % endfor
+        default: return "UNKNOWN";
+    }
+}
+% endfor
+
+% for flags_type, bits_type in flags_to_bits.items():
+<% bits = enums_map.get(bits_type, []) %>\
+inline const char* snprint_flags_${flags_type}(char* buf, size_t buflen, uint64_t flags) {
+    if (flags == 0) {
+        % for name, value in bits:
+            % if value == 0:
+        snprintf(buf, buflen, "${name}");
+        return buf;
+            % endif
+        % endfor
+        snprintf(buf, buflen, "0");
+        return buf;
+    }
+    size_t len = 0;
+    uint64_t remaining = flags;
+    % for name, value in bits:
+        % if value != 0:
+    if ((flags & (uint64_t)${value}ULL) == (uint64_t)${value}ULL) {
+        if (len < buflen) {
+            size_t rem = buflen - len;
+            int ret = snprintf(buf + len, rem, "%s${name}", len == 0 ? "" : " | ");
+            if (ret > 0) {
+                len += ((size_t)ret < rem) ? (size_t)ret : (rem - 1);
+            }
+        }
+        remaining &= ~(uint64_t)(${value}ULL);
+    }
+        % endif
+    % endfor
+    if (remaining != 0 && len < buflen) {
+        size_t rem = buflen - len;
+        int ret = snprintf(buf + len, rem, "%s0x%llx", len == 0 ? "" : " | ", (unsigned long long)remaining);
+        if (ret > 0) {
+            len += ((size_t)ret < rem) ? (size_t)ret : (rem - 1);
+        }
+    }
+    return buf;
+}
+% endfor
 
 % for s in sorted(all_vk_types, key=lambda s: s.name):
 % if s.name not in blacklisted_vk_types or s.name == 'VkShaderModuleCreateInfo':
@@ -106,7 +157,24 @@ vk_print_${s.name}(int can_log_level, int log_level, FILE* fd, const char* prefi
             vk_print_${member.type}(can_log_level, log_level, fd, next_prefix, &in_info->${member.name}[i]);
                     % endif
                 % else:
+                    ## Primitive elements inside an Array
+                    % if member.type == 'VkDeviceSize':
+            if (in_info->${member.name}[i] == VK_WHOLE_SIZE) {
+                VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep} = VK_WHOLE_SIZE", prefix, i);
+            } else {
+                VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep} = 0x%lx", prefix, i, (int64_t)(in_info->${member.name}[i]));
+            }
+                    % elif member.type in flags_to_bits:
+            {
+                char flag_buf[512];
+                snprint_flags_${member.type}(flag_buf, sizeof(flag_buf), in_info->${member.name}[i]);
+                VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep} = %s", prefix, i, flag_buf);
+            }
+                    % elif member.type in enums_map:
+            VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep} = %s (0x%x)", prefix, i, inline_fmt_${member.type}(in_info->${member.name}[i]), (int32_t)in_info->${member.name}[i]);
+                    % else:
             VK_CMD_LOG_FD(fd, "%s.${member.name}[%d]: ${member.typep} = 0x%lx", prefix, i, (int64_t)(in_info->${member.name}[i]));
+                    % endif
                 % endif
         }
             % endif
@@ -125,8 +193,24 @@ vk_print_${s.name}(int can_log_level, int log_level, FILE* fd, const char* prefi
     % elif member.resolved_type in all_vk_types: ## Struct types
     VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep}", prefix);
     vk_print_${member.type}(can_log_level, log_level, fd, next_prefix, &in_info->${member.name}); // Structs ${member}
-    % elif member.num_pointers == 0 and member.type not in blacklisted_vk_types: ## Non-ptr types
+    % elif member.num_pointers == 0 and member.type not in blacklisted_vk_types: ## Non-ptr Scalar types
+        % if member.type == 'VkDeviceSize':
+    if (in_info->${member.name} == VK_WHOLE_SIZE) {
+        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = VK_WHOLE_SIZE", prefix);
+    } else {
+        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = 0x%lx", prefix, (int64_t)(in_info->${member.name}));
+    }
+        % elif member.type in flags_to_bits:
+    {
+        char flag_buf[512];
+        snprint_flags_${member.type}(flag_buf, sizeof(flag_buf), in_info->${member.name});
+        VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = %s", prefix, flag_buf);
+    }
+        % elif member.type in enums_map:
+    VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = %s (0x%x)", prefix, inline_fmt_${member.type}(in_info->${member.name}), (int32_t)in_info->${member.name});
+        % else:
     VK_CMD_LOG_FD(fd, "%s.${member.name}: ${member.typep} = 0x%lx", prefix, (int64_t)(in_info->${member.name})); // Non-ptr types
+        % endif
     % endif
 % endfor
 % if s.name in pnext_map:

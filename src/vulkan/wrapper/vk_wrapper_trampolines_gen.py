@@ -28,14 +28,16 @@ COPYRIGHT = """\
 import argparse
 import os
 
+import vk_entrypoints
 from mako.template import Template
 
 # Mesa-local imports must be declared in meson variable
 # '{file_without_suffix}_depend_files'.
 from vk_entrypoints import get_entrypoints_from_xml
-import vk_entrypoints
 
-TEMPLATE_H = Template(COPYRIGHT + """\
+TEMPLATE_H = Template(
+    COPYRIGHT
+    + """\
 /* This file generated from ${filename}, don't edit directly. */
 
 #ifndef WRAPPER_TRAMPOLINES_H
@@ -118,9 +120,12 @@ TRY_${e.name}(FUNC(${e.name}), NOOP); \\
 #endif
 
 #endif /* WRAPPER_TRAMPOLINES_H */
-""")
+"""
+)
 
-TEMPLATE_C = Template(COPYRIGHT + """\
+TEMPLATE_C = Template(
+    COPYRIGHT
+    + """\
 /* This file generated from ${filename}, don't edit directly. */
 
 #include "wrapper_private.h"
@@ -141,7 +146,7 @@ _Atomic int __wrapper_commands = 0;
 #define VK_LOG_VkCuLaunchInfoNVX(...)
 #define VK_LOG_VkMicromapBuildInfoEXT(...)
 #define VK_LOG_VkMicromapVersionInfoEXT(...)
-                      
+
 % for e in entrypoints:
   % if not e.is_physical_device_entrypoint() or e.alias:
     <% continue %>
@@ -205,18 +210,22 @@ struct vk_device_entrypoint_table wrapper_device_trampolines = {
 struct vk_physical_device_dispatch_table wrapper_physical_device_functions = { 0 };
 struct vk_device_dispatch_table wrapper_device_functions = { 0 };
 
-""")
+"""
+)
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--out-c', help='Output C file.')
-    parser.add_argument('--out-h', help='Output H file.')
-    parser.add_argument('--beta', required=True, help='Enable beta extensions.')
-    parser.add_argument('--xml',
-                        help='Vulkan API XML file.',
-                        required=True,
-                        action='append',
-                        dest='xml_files')
+    parser.add_argument("--out-c", help="Output C file.")
+    parser.add_argument("--out-h", help="Output H file.")
+    parser.add_argument("--beta", required=True, help="Enable beta extensions.")
+    parser.add_argument(
+        "--xml",
+        help="Vulkan API XML file.",
+        required=True,
+        action="append",
+        dest="xml_files",
+    )
     args = parser.parse_args()
 
     entrypoints = get_entrypoints_from_xml(args.xml_files, args.beta)
@@ -225,13 +234,25 @@ def main():
     # per entry point.
     try:
         if args.out_h:
-            with open(args.out_h, 'w', encoding='utf-8') as f:
-                f.write(TEMPLATE_H.render(entrypoints=entrypoints,
-                                          filename=os.path.basename(__file__)))
+            with open(args.out_h, "w", encoding="utf-8") as f:
+                f.write(
+                    TEMPLATE_H.render(
+                        entrypoints=entrypoints,
+                        filename=os.path.basename(__file__),
+                        enums_map=vk_entrypoints.ENUMS_MAP,
+                        flags_to_bits=vk_entrypoints.FLAGS_TO_BITS,
+                    )
+                )
         if args.out_c:
-            with open(args.out_c, 'w', encoding='utf-8') as f:
-                f.write(TEMPLATE_C.render(entrypoints=entrypoints, 
-                                          filename=os.path.basename(__file__)))
+            with open(args.out_c, "w", encoding="utf-8") as f:
+                f.write(
+                    TEMPLATE_C.render(
+                        entrypoints=entrypoints,
+                        filename=os.path.basename(__file__),
+                        enums_map=vk_entrypoints.ENUMS_MAP,
+                        flags_to_bits=vk_entrypoints.FLAGS_TO_BITS,
+                    )
+                )
     except Exception:
         # In the event there's an error, this imports some helpers from mako
         # to print a useful stack trace and prints it, then exits with
@@ -239,11 +260,13 @@ def main():
         # the exception
         if __debug__:
             import sys
+
             from mako import exceptions
-            sys.stderr.write(exceptions.text_error_template().render() + '\n')
+
+            sys.stderr.write(exceptions.text_error_template().render() + "\n")
             sys.exit(1)
         raise
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

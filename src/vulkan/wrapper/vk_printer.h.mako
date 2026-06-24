@@ -18,6 +18,15 @@ extern "C" {
 ## static FILE* __vk_print_fd;
 ## static int64_t __vk_start_ms;
 
+% for enum_name, constants in enums_map.items():
+const char* inline_fmt_${enum_name}(uint64_t val);
+% endfor
+
+% for flags_type, bits_type in flags_to_bits.items():
+<% bits = enums_map.get(bits_type, []) %>\
+const char* snprint_flags_${flags_type}(char* buf, size_t buflen, uint64_t flags);
+% endfor
+
 % for s in all_vk_types:
 % if s.name not in blacklisted_vk_types or s.name == 'VkShaderModuleCreateInfo':
 void vk_print_${s.name}(int can_log_level, int log_level, FILE*, const char* prefix, const ${s.name} *in_info);
