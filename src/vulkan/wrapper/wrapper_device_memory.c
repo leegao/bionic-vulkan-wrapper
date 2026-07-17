@@ -104,18 +104,15 @@ ion_heap_alloc_2(int heap_fd, size_t size) {
 
 static int
 ion_heap_alloc(int heap_fd, size_t size) {
-   /*static*/ int ion_iface = 0;
+   static int ion_iface = 0;
    if (!ion_iface) {
-      int fd = ion_heap_alloc_2(heap_fd, size);
-      if (fd < 0 && errno == ENOTTY) {
+      struct ion_handle_data_1 probe = { .handle = 0 };
+      if (safe_ioctl(heap_fd, ION_IOC_FREE_1, &probe) >= 0 || errno != ENOTTY) {
          ion_iface = 1;
       } else {
          ion_iface = 2;
       }
-      WLOGD("Using ion2 interface resulted in fd: %d, errno: %d. Picking interface: %d", fd, errno, ion_iface);
-      if (fd >= 0) {
-         return fd;
-      }
+      WLOGD("Picking ion interface: %d", ion_iface);
    }
 
    if (ion_iface == 2) {
