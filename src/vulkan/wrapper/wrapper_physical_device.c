@@ -1,5 +1,6 @@
 #include <math.h>
 
+#include "wrapper_log.h"
 #include "wrapper_private.h"
 #include "wrapper_entrypoints.h"
 #include "wrapper_trampolines.h"
@@ -25,7 +26,7 @@ wrapper_setup_device_extensions(struct wrapper_physical_device *pdevice) {
 
    if (result != VK_SUCCESS)
       return result;
-   
+
    static bool has_already_logged_properties = false;
    if (!has_already_logged_properties) {
       // has_already_logged_properties = true;
@@ -176,7 +177,7 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       supported_features->multiDrawIndirect = true; // Missing on G57 r32p1
       supported_features->vertexPipelineStoresAndAtomics = true; // Missing on G57 r32p1
       // supported_features->variableMultisampleRate = true; // Missing on G57 r32p1
-      
+
       result = wsi_device_init(&pdevice->wsi_device,
                                wrapper_physical_device_to_handle(pdevice),
                                wrapper_wsi_proc_addr, &_instance->alloc, -1,
@@ -202,15 +203,15 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
 
       WPDEVICE.GetPhysicalDeviceProperties2(
          (VkPhysicalDevice) pdevice, &pdevice->properties2);
-      
+
       WPDEVICE.GetPhysicalDeviceMemoryProperties(
          (VkPhysicalDevice) pdevice, &pdevice->memory_properties);
-      
+
       WLOGD("GetPhysicalDeviceProperties2:");
       LOG_STRUCT(VkPhysicalDeviceProperties2, &pdevice->properties2);
       WLOGD("GetPhysicalDeviceMemoryProperties:");
       LOG_STRUCT(VkPhysicalDeviceMemoryProperties, &pdevice->memory_properties);
-      
+
       const char *app_name = instance->vk.app_info.app_name
          ? instance->vk.app_info.app_name : "wrapper";
 
@@ -252,8 +253,10 @@ VkResult enumerate_physical_device(struct vk_instance *_instance)
       }
 
       pdevice->dma_heap_fd = open("/dev/dma_heap/system", O_RDONLY);
-      if (pdevice->dma_heap_fd < 0)
+      if (pdevice->dma_heap_fd < 0) {
+         WLOG("Failed to open /dev/dma_heap/system, falling back to /dev/ion");
          pdevice->dma_heap_fd = open("/dev/ion", O_RDONLY);
+      }
 
       // Check for BC1 and BC4 support on Xclipse devices
       WPDEVICE.GetPhysicalDeviceFormatProperties((VkPhysicalDevice) pdevice, VK_FORMAT_BC1_RGB_UNORM_BLOCK, &pdevice->bc1_format_properties);
@@ -316,18 +319,18 @@ WRAPPER_EnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
    // for (int i = 0; i < *pPropertyCount; i++) {
    //    LOG_STRUCT(VkExtensionProperties, &pProperties[i]);
    // }
-   
+
    return result;
 }
 
 WRAPPER_GetPhysicalDeviceFeatures(VkPhysicalDevice physicalDevice,
-                                  VkPhysicalDeviceFeatures* pFeatures) 
+                                  VkPhysicalDeviceFeatures* pFeatures)
 {
    return vk_common_GetPhysicalDeviceFeatures(physicalDevice, pFeatures);
 }
 
 WRAPPER_GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice,
-                                   VkPhysicalDeviceFeatures2* pFeatures) {                                                              
+                                   VkPhysicalDeviceFeatures2* pFeatures) {
    vk_common_GetPhysicalDeviceFeatures2(physicalDevice, pFeatures);
    // Fake select dxvk 1.10.3 mandatory features
    vk_foreach_struct(pnext, pFeatures->pNext) {
@@ -392,7 +395,7 @@ WRAPPER_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
          VkPhysicalDeviceFloatControlsPropertiesKHR *float_prop =
               (VkPhysicalDeviceFloatControlsPropertiesKHR *)prop;
          float_prop->denormBehaviorIndependence = VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE;
-         float_prop->roundingModeIndependence = VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE;     
+         float_prop->roundingModeIndependence = VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_NONE;
          float_prop->shaderDenormFlushToZeroFloat16 = false;
          float_prop->shaderDenormFlushToZeroFloat32 = false;
          float_prop->shaderRoundingModeRTEFloat16 = false;
@@ -403,7 +406,7 @@ WRAPPER_GetPhysicalDeviceProperties2(VkPhysicalDevice physicalDevice,
       }
       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TRANSFORM_FEEDBACK_PROPERTIES_EXT:
       {
-         VkPhysicalDeviceTransformFeedbackPropertiesEXT *feedback_prop = 
+         VkPhysicalDeviceTransformFeedbackPropertiesEXT *feedback_prop =
               (VkPhysicalDeviceTransformFeedbackPropertiesEXT *)prop;
          feedback_prop->maxTransformFeedbackStreams = 4;
          feedback_prop->maxTransformFeedbackBuffers = 4;
@@ -474,7 +477,7 @@ WRAPPER_GetPhysicalDeviceImageFormatProperties(VkPhysicalDevice physicalDevice,
 
    result = wrapper_physical_device_trampolines.GetPhysicalDeviceImageFormatProperties(
       physicalDevice, format, type, tiling, usage, flags, pImageFormatProperties);
-      
+
    if (result == VK_ERROR_FORMAT_NOT_SUPPORTED && is_bc_image_format(format)) {
       if (type & VK_IMAGE_TYPE_1D) {
          pImageFormatProperties->maxExtent.width = pdevice->properties2.properties.limits.maxImageDimension1D;
@@ -501,24 +504,24 @@ WRAPPER_GetPhysicalDeviceImageFormatProperties(VkPhysicalDevice physicalDevice,
              tiling & VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT ||
              flags & VK_IMAGE_CREATE_SUBSAMPLED_BIT_EXT)
              pImageFormatProperties->maxMipLevels = 1;
-      else 
+      else
          pImageFormatProperties->maxMipLevels = log2(
-            pImageFormatProperties->maxExtent.width > pImageFormatProperties->maxExtent.height ? pImageFormatProperties->maxExtent.width :  pImageFormatProperties->maxExtent.height 	
+            pImageFormatProperties->maxExtent.width > pImageFormatProperties->maxExtent.height ? pImageFormatProperties->maxExtent.width :  pImageFormatProperties->maxExtent.height
          );
-    
+
       if (tiling & VK_IMAGE_TILING_LINEAR ||
             ((tiling & VK_IMAGE_TILING_OPTIMAL) && type & VK_IMAGE_TYPE_3D))
          pImageFormatProperties->maxArrayLayers = 1;
       else
          pImageFormatProperties->maxArrayLayers = pdevice->properties2.properties.limits.maxImageArrayLayers;
       // We do not handle any case here for now
-      pImageFormatProperties->sampleCounts = VK_SAMPLE_COUNT_1_BIT;      
+      pImageFormatProperties->sampleCounts = VK_SAMPLE_COUNT_1_BIT;
       pImageFormatProperties->maxResourceSize = 562949953421312;
       return VK_SUCCESS;
    }
 
-   return result;   
-}	                                           
+   return result;
+}
 
 WRAPPER_GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
                                                 const VkPhysicalDeviceImageFormatInfo2* pImageFormatInfo,
@@ -556,18 +559,18 @@ WRAPPER_GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
              pImageFormatInfo->tiling & VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT ||
              pImageFormatInfo->flags & VK_IMAGE_CREATE_SUBSAMPLED_BIT_EXT)
              pImageFormatProperties->imageFormatProperties.maxMipLevels = 1;
-      else 
+      else
          pImageFormatProperties->imageFormatProperties.maxMipLevels = log2(
-            pImageFormatProperties->imageFormatProperties.maxExtent.width > pImageFormatProperties->imageFormatProperties.maxExtent.height ? pImageFormatProperties->imageFormatProperties.maxExtent.width :  pImageFormatProperties->imageFormatProperties.maxExtent.height 	
+            pImageFormatProperties->imageFormatProperties.maxExtent.width > pImageFormatProperties->imageFormatProperties.maxExtent.height ? pImageFormatProperties->imageFormatProperties.maxExtent.width :  pImageFormatProperties->imageFormatProperties.maxExtent.height
          );
-    
+
       if (pImageFormatInfo->tiling & VK_IMAGE_TILING_LINEAR ||
             ((pImageFormatInfo->tiling & VK_IMAGE_TILING_OPTIMAL) && pImageFormatInfo->type & VK_IMAGE_TYPE_3D))
          pImageFormatProperties->imageFormatProperties.maxArrayLayers = 1;
       else
          pImageFormatProperties->imageFormatProperties.maxArrayLayers = pdevice->properties2.properties.limits.maxImageArrayLayers;
       // We do not handle any case here for now
-      pImageFormatProperties->imageFormatProperties.sampleCounts = VK_SAMPLE_COUNT_1_BIT;      
+      pImageFormatProperties->imageFormatProperties.sampleCounts = VK_SAMPLE_COUNT_1_BIT;
       pImageFormatProperties->imageFormatProperties.maxResourceSize = 562949953421312;
       return VK_SUCCESS;
    }
@@ -610,7 +613,7 @@ WRAPPER_GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
    }
 
    return result;
-}                                                
+}
 
 WRAPPER_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
                                             VkFormat format,
@@ -635,4 +638,3 @@ WRAPPER_GetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice,
       return;
    }
 }
-
