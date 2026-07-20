@@ -129,6 +129,7 @@ WRAP(wsi_device_init)(struct wsi_device *wsi,
    wsi->wants_linear = (WSI_DEBUG & WSI_DEBUG_LINEAR) != 0;
    wsi->x11.extra_xwayland_image = device_options->extra_xwayland_image;
    wsi->needs_blit = (WSI_DEBUG & WSI_DEBUG_BLIT) != 0;
+   wsi->needs_blit = 1;
 #define WSI_GET_CB(func) \
    PFN_vk##func func = (PFN_vk##func)proc_addr(pdevice, "vk" #func)
    WSI_GET_CB(GetPhysicalDeviceExternalSemaphoreProperties);
@@ -152,8 +153,8 @@ WRAP(wsi_device_init)(struct wsi_device *wsi,
    };
    GetPhysicalDeviceProperties2(pdevice, &pdp2);
 
-   if (pddp.driverID == VK_DRIVER_ID_ARM_PROPRIETARY && !CHECK_FLAG("DISABLE_MALI_BLIT"))
-      wsi->needs_blit = true;
+   // if (pddp.driverID == VK_DRIVER_ID_ARM_PROPRIETARY && !CHECK_FLAG("DISABLE_MALI_BLIT"))
+   //    wsi->needs_blit = true;
 
    wsi->maxImageDimension2D = pdp2.properties.limits.maxImageDimension2D;
    assert(pdp2.properties.limits.optimalBufferCopyRowPitchAlignment <= UINT32_MAX);

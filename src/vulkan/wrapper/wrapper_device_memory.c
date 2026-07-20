@@ -429,10 +429,10 @@ WRAPPER_AllocateMemory(VkDevice _device,
         device->physical->memory_properties.memoryTypes[
             pAllocateInfo->memoryTypeIndex].propertyFlags;
 
-    if (!(property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
-        if (debug) WLOGD("Memory type %d does not support VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT", pAllocateInfo->memoryTypeIndex);
-        goto fallback;
-    }
+    // if (!(property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+    //     if (debug) WLOGD("Memory type %d does not support VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT", pAllocateInfo->memoryTypeIndex);
+    //     goto fallback;
+    // }
 
     if (!device->vk.enabled_features.memoryMapPlaced ||
         !device->vk.enabled_extensions.EXT_map_memory_placed)
@@ -457,8 +457,9 @@ WRAPPER_AllocateMemory(VkDevice _device,
     }
 
     if (debug) WLOGD_OPEN("Trying wrapper_allocate_memory_dmabuf");
-    result = wrapper_allocate_memory_dmabuf(device, pAllocateInfo,
-        pAllocator, &mem->dispatch_handle, &mem->dmabuf_fd);
+    // result = wrapper_allocate_memory_dmabuf(device, pAllocateInfo,
+    //     pAllocator, &mem->dispatch_handle, &mem->dmabuf_fd);
+    result = VK_ERROR_OUT_OF_HOST_MEMORY;
     if (debug) WLOGD_CLOSE("wrapper_allocate_memory_dmabuf returned %d", result);
 
     if (result != VK_SUCCESS) {
