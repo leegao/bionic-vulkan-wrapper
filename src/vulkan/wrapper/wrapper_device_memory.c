@@ -175,14 +175,22 @@ wrapper_dmabuf_alloc(struct wrapper_device *device, size_t size)
 
 uint32_t
 wrapper_select_device_memory_type(struct wrapper_device *device,
+                                  uint32_t allowed_type_bits,
                                   VkMemoryPropertyFlags flags) {
    VkPhysicalDeviceMemoryProperties *props =
       &device->physical->memory_properties;
    int idx;
 
-   for (idx = 0; idx < props->memoryTypeCount; idx ++) {
-      if (props->memoryTypes[idx].propertyFlags & flags) {
-         break;
+   for (int idx = 0; idx < props->memoryTypeCount; idx++) {
+      if (!(allowed_type_bits & (1U << idx))) {
+         continue;
+      }
+
+      if ((props->memoryTypes[idx].propertyFlags & flags)) {
+         return idx;
+      } else {
+         // WLOGD("wrapper_select_device_memory_type: memoryTypeIndex=%u not a match: propertyFlags=0x%x, needs 0x%x", idx, props->memoryTypes[idx].propertyFlags, flags);
+         continue;
       }
    }
    return idx < props->memoryTypeCount ? idx : UINT32_MAX;
@@ -217,6 +225,20 @@ wrapper_allocate_memory_dmaheap(struct wrapper_device *device,
     if (result != VK_SUCCESS)
         return VK_ERROR_INVALID_EXTERNAL_HANDLE;
 
+    if (debug) WLOGD("GetMemoryFdPropertiesKHR: fd %d compatible memoryTypeBits = 0x%x",
+              *out_fd, memory_fd_props.memoryTypeBits);
+
+    int memory_type_index = wrapper_select_device_memory_type(device,
+        memory_fd_props.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    if (memory_type_index == UINT32_MAX) {
+       WLOGD("No compatible memory type found for fd %d", *out_fd);
+       return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
+
     import_fd_info = (VkImportMemoryFdInfoKHR) {
         .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
         .pNext = pAllocateInfo->pNext,
@@ -225,12 +247,10 @@ wrapper_allocate_memory_dmaheap(struct wrapper_device *device,
     };
     allocate_info = *pAllocateInfo;
     allocate_info.pNext = &import_fd_info;
-    allocate_info.memoryTypeIndex =
-        wrapper_select_device_memory_type(device,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-            memory_fd_props.memoryTypeBits);
+    allocate_info.memoryTypeIndex = memory_type_index;
+
+    if (debug) WLOGD("Selected memoryTypeIndex = %u (Bitmask: 0x%x)",
+              allocate_info.memoryTypeIndex, (1U << allocate_info.memoryTypeIndex));
 
     if (debug) WLOGD_OPEN("Trying AllocateMemory");
     result = wrapper_device_trampolines.AllocateMemory((VkDevice) device, &allocate_info, pAllocator, pMemory);
@@ -433,6 +453,20 @@ WRAPPER_AllocateMemory(VkDevice _device,
         if (debug) WLOGD("Memory type %d does not support VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT", pAllocateInfo->memoryTypeIndex);
         goto fallback;
     }
+
+    const VkMemoryDedicatedAllocateInfo *dedicated =
+      vk_find_struct((void*) pAllocateInfo->pNext, MEMORY_DEDICATED_ALLOCATE_INFO);
+
+    if (dedicated && dedicated->image != VK_NULL_HANDLE) {
+        struct wrapper_image *wimg = get_wrapper_image(device, dedicated->image);
+        if (wimg && !wimg->is_bcn_emulated && !wimg->is_depth_stencil_reduced) {
+            if (wimg->vk.tiling == VK_IMAGE_TILING_OPTIMAL) {
+                if (debug) WLOGD("Bypassing AllocateMemory emulation for dedicated OPTIMAL tiling image");
+                goto fallback;
+            }
+        }
+    }
+
 
     if (!device->vk.enabled_features.memoryMapPlaced ||
         !device->vk.enabled_extensions.EXT_map_memory_placed)

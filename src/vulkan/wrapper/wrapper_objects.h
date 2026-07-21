@@ -156,6 +156,7 @@ wrapper_setup_device_features(struct wrapper_physical_device *physical_device);
 
 uint32_t
 wrapper_select_device_memory_type(struct wrapper_device *device,
+                                  uint32_t allowed_type_bits,
                                   VkMemoryPropertyFlags flags);
 
 VkResult
