@@ -292,6 +292,8 @@ static const VkFormat formats[] = {
    VK_FORMAT_R5G6B5_UNORM_PACK16,
    VK_FORMAT_B8G8R8A8_SRGB,
    VK_FORMAT_B8G8R8A8_UNORM,
+   VK_FORMAT_R8G8B8A8_SRGB,
+   VK_FORMAT_R8G8B8A8_UNORM,
    VK_FORMAT_A2R10G10B10_UNORM_PACK32,
 };
 
@@ -705,8 +707,15 @@ WRAP(get_sorted_vk_formats)(VkIcdSurfaceBase *surface, struct wsi_device *wsi_de
          sorted_formats[(*count)++] = formats[i];
 next_format:;
    }
-
-   if (wsi_device->force_bgra8_unorm_first) {
+   if (wsi_device->use_rgba8) {
+      for (unsigned i = 0; i < *count; i++) {
+         if (sorted_formats[i] == VK_FORMAT_R8G8B8A8_UNORM) {
+            sorted_formats[i] = sorted_formats[0];
+            sorted_formats[0] = VK_FORMAT_R8G8B8A8_UNORM;
+            break;
+         }
+      }
+   } else if (wsi_device->force_bgra8_unorm_first) {
       for (unsigned i = 0; i < *count; i++) {
          if (sorted_formats[i] == VK_FORMAT_B8G8R8A8_UNORM) {
             sorted_formats[i] = sorted_formats[0];
@@ -733,10 +742,24 @@ WRAP(x11_surface_get_formats)(VkIcdSurfaceBase *surface,
    if (!get_sorted_vk_formats(surface, wsi_device, sorted_formats, &count))
       return VK_ERROR_SURFACE_LOST_KHR;
 
-   for (unsigned i = 0; i < count; i++) {
+   if (wsi_device->use_rgba8) {
+      /* Force only BGRA8 formats so the application configures its internal
+       * pipeline and render passes for BGRA8.
+       */
       vk_outarray_append_typed(VkSurfaceFormatKHR, &out, f) {
-         f->format = sorted_formats[i];
+         f->format = VK_FORMAT_B8G8R8A8_UNORM;
          f->colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+      }
+      vk_outarray_append_typed(VkSurfaceFormatKHR, &out, f) {
+         f->format = VK_FORMAT_B8G8R8A8_SRGB;
+         f->colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+      }
+   } else {
+      for (unsigned i = 0; i < count; i++) {
+         vk_outarray_append_typed(VkSurfaceFormatKHR, &out, f) {
+            f->format = sorted_formats[i];
+            f->colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+         }
       }
    }
 
@@ -758,11 +781,24 @@ WRAP(x11_surface_get_formats2)(VkIcdSurfaceBase *surface,
    if (!get_sorted_vk_formats(surface, wsi_device, sorted_formats, &count))
       return VK_ERROR_SURFACE_LOST_KHR;
 
-   for (unsigned i = 0; i < count; i++) {
+   if (wsi_device->use_rgba8) {
       vk_outarray_append_typed(VkSurfaceFormat2KHR, &out, f) {
          assert(f->sType == VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR);
-         f->surfaceFormat.format = sorted_formats[i];
+         f->surfaceFormat.format = VK_FORMAT_B8G8R8A8_UNORM;
          f->surfaceFormat.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+      }
+      vk_outarray_append_typed(VkSurfaceFormat2KHR, &out, f) {
+         assert(f->sType == VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR);
+         f->surfaceFormat.format = VK_FORMAT_B8G8R8A8_SRGB;
+         f->surfaceFormat.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+      }
+   } else {
+      for (unsigned i = 0; i < count; i++) {
+         vk_outarray_append_typed(VkSurfaceFormat2KHR, &out, f) {
+            assert(f->sType == VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR);
+            f->surfaceFormat.format = sorted_formats[i];
+            f->surfaceFormat.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+         }
       }
    }
 

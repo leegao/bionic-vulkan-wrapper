@@ -181,6 +181,7 @@ struct wsi_device {
 
    bool wants_ahardware_buffer;
    bool needs_blit;
+   bool use_rgba8;
 
    /* Set to true if the implementation is ok with linear WSI images. */
    bool wants_linear;

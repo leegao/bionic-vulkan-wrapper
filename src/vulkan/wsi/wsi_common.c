@@ -152,6 +152,9 @@ WRAP(wsi_device_init)(struct wsi_device *wsi,
    };
    GetPhysicalDeviceProperties2(pdevice, &pdp2);
 
+   // wsi->use_rgba8 = pddp.driverID == VK_DRIVER_ID_ARM_PROPRIETARY;
+   wsi->use_rgba8 = false;
+
    // if (pddp.driverID == VK_DRIVER_ID_ARM_PROPRIETARY && !CHECK_FLAG("DISABLE_MALI_BLIT"))
    //    wsi->needs_blit = true;
 
@@ -772,6 +775,10 @@ WRAP(wsi_configure_image)(const struct wsi_swapchain *chain,
       .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
    };
 
+   if (chain->wsi->use_rgba8) {
+      info->create.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+   }
+
    if (handle_types != 0) {
       info->ext_mem = (VkExternalMemoryImageCreateInfo) {
          .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
@@ -1143,6 +1150,14 @@ WRAP(wsi_CreateSwapchainKHR)(VkDevice _device,
      alloc = &device->alloc;
 
    VkSwapchainCreateInfoKHR info = *pCreateInfo;
+
+   if (wsi_device->use_rgba8) {
+      if (info.imageFormat == VK_FORMAT_B8G8R8A8_UNORM) {
+         info.imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
+      } else if (info.imageFormat == VK_FORMAT_B8G8R8A8_SRGB) {
+         info.imageFormat = VK_FORMAT_R8G8B8A8_SRGB;
+      }
+   }
 
    if (wsi_device->force_swapchain_to_currentExtent) {
       VkSurfaceCapabilities2KHR caps2 = {
