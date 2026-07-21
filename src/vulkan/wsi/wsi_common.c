@@ -152,8 +152,8 @@ WRAP(wsi_device_init)(struct wsi_device *wsi,
    };
    GetPhysicalDeviceProperties2(pdevice, &pdp2);
 
-   if (pddp.driverID == VK_DRIVER_ID_ARM_PROPRIETARY && !CHECK_FLAG("DISABLE_MALI_BLIT"))
-      wsi->needs_blit = true;
+   // if (pddp.driverID == VK_DRIVER_ID_ARM_PROPRIETARY && !CHECK_FLAG("DISABLE_MALI_BLIT"))
+   //    wsi->needs_blit = true;
 
    wsi->maxImageDimension2D = pdp2.properties.limits.maxImageDimension2D;
    assert(pdp2.properties.limits.optimalBufferCopyRowPitchAlignment <= UINT32_MAX);
