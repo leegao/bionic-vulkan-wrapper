@@ -328,6 +328,8 @@ wrapper_allocate_memory_ahardware_buffer(struct wrapper_device *device,
    VkMemoryAllocateInfo allocate_info;
    VkResult result;
 
+   bool debug = should_log_memory_debug();
+
    export_memory_info = (VkExportMemoryAllocateInfo) {
       .sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
       .pNext = pAllocateInfo->pNext,
@@ -337,13 +339,23 @@ wrapper_allocate_memory_ahardware_buffer(struct wrapper_device *device,
    allocate_info = *pAllocateInfo;
    allocate_info.pNext = &export_memory_info;
 
+   if (debug) {
+       WLOGD("wrapper_allocate_memory_ahardware_buffer, export_memory_info:");
+       LOG_STRUCT(VkExportMemoryAllocateInfo, &export_memory_info);
+   }
+
    result = wrapper_device_trampolines.AllocateMemory((VkDevice) device,
                   &allocate_info,
                   pAllocator,
                   pMemory);
+
+   if (debug) WLOGD("wrapper_allocate_memory_ahardware_buffer: AllocateMemory returned %d", result);
+
    if (result != VK_SUCCESS)
       return result;
 
+
+   if (debug) WLOGD("wrapper_allocate_memory_ahardware_buffer: Calling GetMemoryAndroidHardwareBufferANDROID %p", wrapper_device_trampolines.GetMemoryAndroidHardwareBufferANDROID);
    result = wrapper_device_trampolines.GetMemoryAndroidHardwareBufferANDROID(
       (VkDevice) device,
       &(VkMemoryGetAndroidHardwareBufferInfoANDROID) {
@@ -353,11 +365,19 @@ wrapper_allocate_memory_ahardware_buffer(struct wrapper_device *device,
       },
       pAHardwareBuffer);
 
+   if (debug) WLOGD("wrapper_allocate_memory_ahardware_buffer: GetMemoryAndroidHardwareBufferANDROID returned %d", result);
+
    if (result != VK_SUCCESS)
       return result;
 
-   if (AHardwareBuffer_getNativeHandle(*pAHardwareBuffer) == NULL)
+   if (debug) WLOGD("wrapper_allocate_memory_ahardware_buffer: Calling AHardwareBuffer_getNativeHandle %p", *pAHardwareBuffer);
+
+   if (AHardwareBuffer_getNativeHandle(*pAHardwareBuffer) == NULL) {
+      if (debug) WLOGD("wrapper_allocate_memory_ahardware_buffer: AHardwareBuffer_getNativeHandle returned NULL");
       return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+   }
+
+   if (debug) WLOGD("wrapper_allocate_memory_ahardware_buffer: AHardwareBuffer_getNativeHandle returned %p", *pAHardwareBuffer);
 
    return VK_SUCCESS;
 }

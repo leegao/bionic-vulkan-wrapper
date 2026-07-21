@@ -1,6 +1,7 @@
 #include "wsi_common.h"
 #include "wsi_common_private.h"
 #include "vk_log.h"
+#include "vk_util.h"
 #include <android/hardware_buffer.h>
 
 #define WRAP(name) wrapped__##name
@@ -32,8 +33,10 @@ WRAP(wsi_get_ahardware_buffer_blit_type)(const struct wsi_device *wsi,
                AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE |
                AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN |
                AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN },
-                                &ahardware_buffer) != 0)
+                                &ahardware_buffer) != 0) {
+      WSI_LOGA("wsi_get_ahardware_buffer_blit_type: AHardwareBuffer_allocate returned non-zero");
       return WSI_SWAPCHAIN_IMAGE_BLIT;
+   }
    VkAndroidHardwareBufferFormatPropertiesANDROID ahardware_buffer_format_props = {
       .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID,
       .pNext = NULL,
@@ -42,11 +45,26 @@ WRAP(wsi_get_ahardware_buffer_blit_type)(const struct wsi_device *wsi,
       .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID,
       .pNext = &ahardware_buffer_format_props,
    };
+
+   WSI_LOGA("wsi_get_ahardware_buffer_blit_type: calling GetAndroidHardwareBufferPropertiesANDROID");
    result = wsi->GetAndroidHardwareBufferPropertiesANDROID(
       device, ahardware_buffer, &ahardware_buffer_props);
    AHardwareBuffer_release(ahardware_buffer);
+
+   WSI_LOGA("wsi_get_ahardware_buffer_blit_type: GetAndroidHardwareBufferPropertiesANDROID returned %d", result);
    if (result != VK_SUCCESS)
       return WSI_SWAPCHAIN_IMAGE_BLIT;
+
+   WSI_LOGA("wsi_get_ahardware_buffer_blit_type ahardware_buffer_format_props:");
+   WSI_LOGA("    .format = %d", ahardware_buffer_format_props.format);
+   WSI_LOGA("    .externalFormat = %d", ahardware_buffer_format_props.externalFormat);
+   WSI_LOGA("    .formatFeatures = %d", ahardware_buffer_format_props.formatFeatures);
+   WSI_LOGA("    .samplerYcbcrConversionComponents = %d", ahardware_buffer_format_props.samplerYcbcrConversionComponents);
+   WSI_LOGA("    .suggestedYcbcrModel = %d", ahardware_buffer_format_props.suggestedYcbcrModel);
+   WSI_LOGA("    .suggestedYcbcrRange = %d", ahardware_buffer_format_props.suggestedYcbcrRange);
+   WSI_LOGA("    .suggestedXChromaOffset = %d", ahardware_buffer_format_props.suggestedXChromaOffset);
+   WSI_LOGA("    .suggestedYChromaOffset = %d", ahardware_buffer_format_props.suggestedYChromaOffset);
+
    VkPhysicalDeviceExternalImageFormatInfo external_format_info = {
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO,
       .pNext = NULL,
@@ -71,13 +89,23 @@ WRAP(wsi_get_ahardware_buffer_blit_type)(const struct wsi_device *wsi,
       .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2,
       .pNext = &external_format_props,
    };
+
+   WSI_LOGA("wsi_get_ahardware_buffer_blit_type: Calling GetPhysicalDeviceImageFormatProperties2: format = %d", ahardware_buffer_format_props.format);
    result = wsi->GetPhysicalDeviceImageFormatProperties2(
       wsi->pdevice, &format_info, &format_props);
+
+   WSI_LOGA("wsi_get_ahardware_buffer_blit_type: GetPhysicalDeviceImageFormatProperties2 returned %d", result);
    if (result != VK_SUCCESS)
       return WSI_SWAPCHAIN_IMAGE_BLIT;
+
+   WSI_LOGA("wsi_get_ahardware_buffer_blit_type: external_format_props.externalMemoryProperties.externalMemoryFeatures = %x", external_format_props.externalMemoryProperties.externalMemoryFeatures);
    if (!(external_format_props.externalMemoryProperties.externalMemoryFeatures
-         & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT))
+         & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT)) {
+      WSI_LOGA("wsi_get_ahardware_buffer_blit_type: external memory not importable, returning WSI_SWAPCHAIN_IMAGE_BLIT");
       return WSI_SWAPCHAIN_IMAGE_BLIT;
+   }
+
+   WSI_LOGA("wsi_get_ahardware_buffer_blit_type: returning WSI_SWAPCHAIN_NO_BLIT");
    return WSI_SWAPCHAIN_NO_BLIT;
 }
 

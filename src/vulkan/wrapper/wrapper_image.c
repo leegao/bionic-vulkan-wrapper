@@ -19,6 +19,9 @@ WRAPPER_CreateImage(VkDevice _device,
                     const VkAllocationCallbacks* pAllocator,
                     VkImage* pImage)
 {
+
+   WLOGD("WRAPPER_CreateImage: pCreateInfo:");
+   LOG_STRUCT(VkImageCreateInfo, pCreateInfo);
    VK_FROM_HANDLE(wrapper_device, device, _device);
    bool emulate_bcn = (is_bc123_image_format(pCreateInfo->format) && device->physical->needs_bc1_emulation) ||
                      (is_bc4567_image_format(pCreateInfo->format) && device->physical->needs_bc4_emulation);
@@ -53,7 +56,7 @@ WRAPPER_CreateImage(VkDevice _device,
       }
    } else if (emulate_bcn) {
       create_info->format = (new_format = unwrap_vk_format(device, original_format)); // Done within the next layer
-      WLOGD("Emulate BCn: Changing image (%dx%d) format from bcn texture: %d to %d", 
+      WLOGD("Emulate BCn: Changing image (%dx%d) format from bcn texture: %d to %d",
          pCreateInfo->extent.width, pCreateInfo->extent.height, original_format, new_format);
       create_info->usage |=  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
       create_info->flags &= 0xffffff7f;
@@ -62,7 +65,7 @@ WRAPPER_CreateImage(VkDevice _device,
       vk_foreach_struct_const(pnext, create_info->pNext) {
          switch ((int32_t)pnext->sType) {
          case VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO:
-            {            
+            {
                VkImageFormatListCreateInfo *ext = (VkImageFormatListCreateInfo *) pnext;
                if (ext->pViewFormats) {
                   ext->viewFormatCount = 1;
@@ -84,6 +87,8 @@ WRAPPER_CreateImage(VkDevice _device,
       free_temp_objects(&temp);
       return result;
    }
+
+   WLOGD("WRAPPER_CreateImage: result = %d, result image = %p", result, *pImage);
 
    struct wrapper_image *wimg = wrapper_image_create(device, create_info, *pImage);
    if (!wimg) {
