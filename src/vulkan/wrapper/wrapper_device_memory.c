@@ -457,17 +457,6 @@ WRAPPER_AllocateMemory(VkDevice _device,
     const VkMemoryDedicatedAllocateInfo *dedicated =
       vk_find_struct((void*) pAllocateInfo->pNext, MEMORY_DEDICATED_ALLOCATE_INFO);
 
-    if (dedicated && dedicated->image != VK_NULL_HANDLE) {
-        struct wrapper_image *wimg = get_wrapper_image(device, dedicated->image);
-        if (wimg && !wimg->is_bcn_emulated && !wimg->is_depth_stencil_reduced) {
-            if (wimg->vk.tiling == VK_IMAGE_TILING_OPTIMAL) {
-                if (debug) WLOGD("Bypassing AllocateMemory emulation for dedicated OPTIMAL tiling image");
-                goto fallback;
-            }
-        }
-    }
-
-
     if (!device->vk.enabled_features.memoryMapPlaced ||
         !device->vk.enabled_extensions.EXT_map_memory_placed)
         goto fallback;
@@ -480,6 +469,16 @@ WRAPPER_AllocateMemory(VkDevice _device,
 
     if (vk_find_struct_const(pAllocateInfo, EXPORT_MEMORY_ALLOCATE_INFO))
         goto fallback;
+
+    if (dedicated && dedicated->image != VK_NULL_HANDLE) {
+        struct wrapper_image *wimg = get_wrapper_image(device, dedicated->image);
+        if (wimg && !wimg->is_bcn_emulated && !wimg->is_depth_stencil_reduced) {
+            if (wimg->vk.tiling == VK_IMAGE_TILING_OPTIMAL) {
+                if (debug) WLOGD("Bypassing AllocateMemory emulation for dedicated OPTIMAL tiling image");
+                goto fallback;
+            }
+        }
+    }
 
     if (debug) WLOGD("Emulating AllocateMemory");
     simple_mtx_lock(&device->resource_mutex);
