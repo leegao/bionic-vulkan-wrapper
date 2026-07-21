@@ -74,7 +74,7 @@
 
 const native_handle_t* _Nullable AHardwareBuffer_getNativeHandle(
         const AHardwareBuffer* _Nonnull buffer);
-            
+
 #include <sys/socket.h>
 #endif
 
@@ -695,11 +695,21 @@ WRAP(get_sorted_vk_formats)(VkIcdSurfaceBase *surface, struct wsi_device *wsi_de
    /* use the root window's visual to set the default */
    *count = 0;
    for (unsigned i = 0; i < ARRAY_SIZE(formats); i++) {
+      if (!wsi_device->use_rgba8 &&
+            (formats[i] == VK_FORMAT_R8G8B8A8_UNORM ||
+            formats[i] == VK_FORMAT_R8G8B8A8_SRGB))
+         continue;
+
       if (rgb_component_bits_are_equal(formats[i], rootvis))
          sorted_formats[(*count)++] = formats[i];
    }
 
    for (unsigned i = 0; i < ARRAY_SIZE(formats); i++) {
+      if (!wsi_device->use_rgba8 &&
+            (formats[i] == VK_FORMAT_R8G8B8A8_UNORM ||
+            formats[i] == VK_FORMAT_R8G8B8A8_SRGB))
+         continue;
+
       for (unsigned j = 0; j < *count; j++)
          if (formats[i] == sorted_formats[j])
             goto next_format;
@@ -1457,7 +1467,7 @@ WRAP(x11_present_to_x11_sw)(struct x11_swapchain *chain, uint32_t image_index,
 {
    struct x11_image *image = &chain->images[image_index];
    xcb_void_cookie_t cookie;
-   
+
    if (chain->has_mit_shm) {
       memcpy(image->shmaddr, image->base.cpu_map, image->base.row_pitches[0] * chain->extent.height);
       cookie = xcb_shm_put_image(chain->conn,
@@ -1468,11 +1478,11 @@ WRAP(x11_present_to_x11_sw)(struct x11_swapchain *chain, uint32_t image_index,
 								 0, 0,
 								 chain->extent.width,
 								 chain->extent.height,
-								 0, 0, chain->depth, XCB_IMAGE_FORMAT_Z_PIXMAP, 
+								 0, 0, chain->depth, XCB_IMAGE_FORMAT_Z_PIXMAP,
 								 0,
 								 image->shmseg,
 								 0);
-      xcb_discard_reply(chain->conn, cookie.sequence);	   
+      xcb_discard_reply(chain->conn, cookie.sequence);
    }
    else {
       cookie = xcb_put_image(chain->conn, XCB_IMAGE_FORMAT_Z_PIXMAP,
@@ -1485,10 +1495,10 @@ WRAP(x11_present_to_x11_sw)(struct x11_swapchain *chain, uint32_t image_index,
                              image->base.cpu_map);
       xcb_discard_reply(chain->conn, cookie.sequence);
    }
-   
+
    xcb_flush(chain->conn);
    image->busy = false;
-   return VK_SUCCESS;  
+   return VK_SUCCESS;
 }
 
 /**
@@ -1612,7 +1622,7 @@ WRAP(x11_queue_present)(struct wsi_swapchain *anv_chain,
 
    chain->images[image_index].present_id = present_id;
    chain->images[image_index].busy = true;
-   
+
    if (chain->has_present_queue) {
       wsi_queue_push(&chain->present_queue, image_index);
       chain->present_queue_push_count++;
@@ -1633,7 +1643,7 @@ WRAP(x11_needs_wait_for_fences)(const struct wsi_device *wsi_device,
 {
    if (WSI_DEBUG & WSI_DEBUG_NOSYNC)
       return false;
-      
+
    switch (present_mode) {
    case VK_PRESENT_MODE_MAILBOX_KHR:
       return true;
@@ -1852,8 +1862,8 @@ WRAP(x11_image_init)(VkDevice device_h, struct x11_swapchain *chain,
          image->busy = false;
          return VK_SUCCESS;
       }
-	  
-      alloc_shm(&image->base, image->base.row_pitches[0] * chain->extent.height);	  
+
+      alloc_shm(&image->base, image->base.row_pitches[0] * chain->extent.height);
 
       image->shmseg = xcb_generate_id(chain->conn);
 
@@ -1861,15 +1871,15 @@ WRAP(x11_image_init)(VkDevice device_h, struct x11_swapchain *chain,
                      image->shmseg,
                      image->shmid,
                      0);
-	  
+
 	  image->busy = false;
-      return VK_SUCCESS;		
+      return VK_SUCCESS;
    }
    image->pixmap = xcb_generate_id(chain->conn);
 
 #ifdef HAVE_DRI3_MODIFIERS
    if (image->base.drm_modifier != DRM_FORMAT_MOD_INVALID) {
-         
+
 #ifdef __TERMUX__
       int sock_fds[2] = { -1, -1 };
       if (image->base.ahardware_buffer) {
@@ -1921,8 +1931,8 @@ WRAP(x11_image_init)(VkDevice device_h, struct x11_swapchain *chain,
          }
          image->base.dma_buf_fd = -1;
       }
-#endif	  										  
-      xcb_discard_reply(chain->conn, cookie.sequence);											  
+#endif
+      xcb_discard_reply(chain->conn, cookie.sequence);
    } else
 #endif
    {
@@ -2387,7 +2397,7 @@ WRAP(x11_surface_create_swapchain)(VkIcdSurfaceBase *icd_surface,
    chain->base.get_wsi_image = x11_get_wsi_image;
    chain->base.acquire_next_image = x11_acquire_next_image;
    chain->base.queue_present = x11_queue_present;
-   
+
    if (!wsi_device->sw)
       chain->base.wait_for_present = x11_wait_for_present;
 
