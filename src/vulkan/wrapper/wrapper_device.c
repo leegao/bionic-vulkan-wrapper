@@ -464,6 +464,18 @@ WRAPPER_CmdExecuteCommands(VkCommandBuffer commandBuffer,
       wcb->dispatch_handle, commandBufferCount, command_buffers);
 }
 
+/* Release the BCn staging buffers and memories recorded into this command buffer. A command buffer must not be
+ * pending when it is begun again, so the copies that used them have completed. Tracking them on the destination
+ * image kept one VkDeviceMemory per uploaded region alive until vkDestroyImage. */
+WRAPPER_BeginCommandBuffer(VkCommandBuffer commandBuffer,
+                           const VkCommandBufferBeginInfo* pBeginInfo)
+{
+   VK_FROM_HANDLE(wrapper_command_buffer, wcb, commandBuffer);
+   if (wcb && !list_is_empty(&wcb->staging_resources))
+      free_staging_resources_final(wcb->device, wcb, &wcb->staging_resources);
+   return CHECK(BeginCommandBuffer(commandBuffer, pBeginInfo));
+}
+
 WRAPPER_AllocateCommandBuffers(VkDevice _device,
                                const VkCommandBufferAllocateInfo* pAllocateInfo,
                                VkCommandBuffer* pCommandBuffers)
@@ -1645,8 +1657,8 @@ WRAPPER_CmdCopyBufferToImage(VkCommandBuffer commandBuffer,
          // TODO: track these using the fence/semaphore for the submitted queue
          // This should be safe to do now with the queue synchronization, check with vvl
          WLOGD("Tracking new staging buffer for image %d", wimg->obj_id);
-         TRACK_STAGING(_device, BUFFER, stagingBuffer, wimg);
-         TRACK_STAGING(_device, DEVICE_MEMORY, stagingBufferMemory, wimg);
+         TRACK_STAGING(_device, BUFFER, stagingBuffer, wcb);
+         TRACK_STAGING(_device, DEVICE_MEMORY, stagingBufferMemory, wcb);
       }
 
       if (use_compute_shader) {
